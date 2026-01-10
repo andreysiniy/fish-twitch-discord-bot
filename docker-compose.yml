@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # --- INFRASTRUCTURE ---
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: fisher_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432" 
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - fisher_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: fisher_redis
+    restart: always
+    ports:
+      - "6379:6379" 
+    volumes:
+      - redis_data:/data
+    networks:
+      - fisher_net
+
+  # --- MICROSERVICES ---
+
+  game_engine:
+    build: ./services/game_engine
+    container_name: fisher_engine
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./services/game_engine:/app 
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: 1
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - fisher_net
+
+#  bot_gateway:
+#    build: ./services/bot_gateway
+#    container_name: fisher_bot
+#    restart: always
+#    command: python main.py
+#    volumes:
+#      - ./services/bot_gateway:/app
+#    environment:
+#      TWITCH_TOKEN: ${TWITCH_TOKEN}
+#      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
+#      BOT_NICK: ${BOT_NICK}
+#      INITIAL_CHANNELS: ${INITIAL_CHANNELS}
+#      ENGINE_URL: http://game_engine:8000 
+#    depends_on:
+#      - game_engine
+#    networks:
+#      - fisher_net
+
+networks:
+  fisher_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
