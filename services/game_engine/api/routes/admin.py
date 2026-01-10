@@ -39,3 +39,14 @@ def update_rewards(
         return pool
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/rewards/{twitch_id}/{location_id}", response_model=RewardPoolResponseDTO)
+def get_rewards(
+    twitch_id: str,
+    location_id: str,
+    service: AdminService = Depends(get_admin_service)
+):
+    try:
+        return service.get_channel_rewards(twitch_id, location_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

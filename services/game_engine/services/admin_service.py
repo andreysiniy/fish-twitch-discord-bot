@@ -21,3 +21,18 @@ class AdminService:
             raise ValueError("Channel not found")
         
         return self.repo.update_rewards(channel.id, location_id, rewards)
+
+    def get_channel_rewards(self, twitch_id: str, location_id: str):
+        channel = self.repo.get_by_twitch_id(twitch_id)
+        if not channel:
+            raise ValueError(f"Channel {twitch_id} not found")
+        
+        pool = self.repo.get_rewards(channel.id, location_id)
+        
+        if not pool:
+            return {
+                "location_id": location_id,
+                "rewards_data": []
+            }
+            
+        return pool
