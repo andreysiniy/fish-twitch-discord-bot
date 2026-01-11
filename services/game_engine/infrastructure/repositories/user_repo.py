@@ -35,6 +35,20 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def get_users_by_channel(self, channel_twitch_id: str, skip: int = 0, limit: int = 50) -> tuple[list[UserProgress], int]:
+        channel = self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
+        if not channel:
+            return [], 0
+
+        query = self.db.query(UserProgress).filter(UserProgress.channel_id == channel.id)
+
+        total = query.count()
+
+        users = query.order_by(UserProgress.level.desc(), UserProgress.xp.desc())\
+                     .offset(skip).limit(limit).all()
+
+        return users, total
+
     def update_inventory(self, user: UserProgress, item_name: str):
         current_inv = dict(user.inventory)
         

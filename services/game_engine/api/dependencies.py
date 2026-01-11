@@ -33,6 +33,7 @@ def get_channel_repo(db: Session = Depends(get_db)) -> ChannelRepository:
     return ChannelRepository(db)
 
 def get_admin_service(
-    repo: ChannelRepository = Depends(get_channel_repo)
+    repo: ChannelRepository = Depends(get_channel_repo),
+    user_repo: UserRepository = Depends(get_user_repo)
 ) -> AdminService:
-    return AdminService(repo)
+    return AdminService(repo, user_repo)

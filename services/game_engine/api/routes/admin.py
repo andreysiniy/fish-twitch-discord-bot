@@ -7,7 +7,8 @@ from domain.schemas.admin import (
     ChannelCreateDTO, 
     ChannelResponseDTO, 
     RewardPoolUpdateDTO,
-    RewardPoolResponseDTO
+    RewardPoolResponseDTO,
+    PlayerListResponse
 )
 
 router = APIRouter()
@@ -50,3 +51,12 @@ def get_rewards(
         return service.get_channel_rewards(twitch_id, location_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/players/{channel_twitch_id}", response_model=PlayerListResponse)
+def get_channel_players(
+    channel_twitch_id: str,
+    skip: int = 0,
+    limit: int = 50,
+    service: AdminService = Depends(get_admin_service)
+):
+    return service.get_players(channel_twitch_id, skip, limit)

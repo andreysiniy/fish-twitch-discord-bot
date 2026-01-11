@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+from domain.schemas.rpg import InventoryDTO
 
 # --- Channels ---
 
@@ -9,7 +10,7 @@ class ChannelCreateDTO(BaseModel):
 
 class ChannelUpdateDTO(BaseModel):
     is_active: Optional[bool] = None
-    config: Optional[Dict[str, Any]] = None # Префикс, язык и т.д.
+    config: Optional[Dict[str, Any]] = None 
 
 class ChannelResponseDTO(BaseModel):
     id: int
@@ -32,3 +33,20 @@ class RewardPoolResponseDTO(BaseModel):
 
     class Config:
         from_attributes = True
+
+# --- Player Admin ---
+
+class AdminPlayerDTO(BaseModel):
+    user_twitch_id: str
+    username: str
+    level: int
+    xp: int
+    current_location_id: str
+    inventory: InventoryDTO
+
+    class Config:
+        from_attributes = True 
+
+class PlayerListResponse(BaseModel):
+    total: int
+    players: List[AdminPlayerDTO]
