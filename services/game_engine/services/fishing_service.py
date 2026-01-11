@@ -1,8 +1,10 @@
+import random
+
 from domain.logic import rng, formulas
 from domain.schemas.fishing import FishResponse, LevelUpInfo
 
 from infrastructure.repositories import UserRepository, ConfigRepository
-from domain.schemas.actions import TimeoutAction
+from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction
 
 class FishingService:
     def __init__(self, user_repo: UserRepository, config_repo: ConfigRepository):
@@ -32,17 +34,12 @@ class FishingService:
         if leveled_up:
             user.level += 1
             
-
         self.user_repo.save_progress(user)
 
-        actions_to_perform = []
-        actions_to_perform.append(
-            TimeoutAction(duration=60, reason="Caught a boot") # Mock action
-        )       
+        actions_to_perform = self.get_actions(catch, twitch_id)      
         
-
         return FishResponse(
-            chat_message=f"{user.username} caught a {catch.get('name', 'mystery item')}!",
+            chat_message=catch.get("base_message", "You caught something!"),
             xp_gained=xp_gain,
             money_change=catch.get("money", 0),
             item_drop=catch.get("item"),
@@ -53,3 +50,64 @@ class FishingService:
             ) if leveled_up else None,
             actions=actions_to_perform
         )
+    
+    def get_actions(self, catch: dict, twitch_id: str) -> list:
+        actions = []
+        if catch.get("type") == "timeout":
+            actions.append(TimeoutAction(
+                duration=catch.get("duration", 30), 
+                reason=catch.get("reason", "No reason")
+                )
+            )
+        if catch.get("type") == "points":
+            actions.append(StreamElementsPointsAction(
+                amount=catch.get("value", 0), 
+                target_user=catch.get("target_user", twitch_id)
+                )
+            )
+        if catch.get("type") == "robbery":
+            actions.append(RobberyAction(
+                attacker_id=twitch_id,
+                victim_scope=catch.get("victim_scope", "active"), 
+                steal_percent=catch.get("percent", 0)
+                )
+            )
+        if catch.get("type") == "russian_roulette":
+            rr_action = self.handle_russian_roulette(catch, twitch_id)
+            actions.append(rr_action)
+        return actions
+
+    def handle_russian_roulette(self, catch: dict, twitch_id: str) -> RussianRouletteAction:
+
+        chambers = catch.get("chambers", 6)
+        bullets = catch.get("bullets", 1)
+
+        is_hit = random.random() < (bullets / chambers)
+        penalty_action = None
+
+        final_message = catch.get("safe_message", "Click... You're safe!")
+
+        if is_hit:
+            final_message = catch.get("shot_message", "Bang! You've been hit!")
+            penalty = catch.get("penalty", {})
+            penalty_type = penalty.get("type")
+
+            if penalty_type == "timeout":
+                penalty_action = TimeoutAction(
+                    duration=penalty.get("duration", 60),
+                    reason=penalty.get("reason", "Roulette"),
+                    action_message=penalty.get("action_message", "")
+                )
+            
+            if penalty_type == "points":
+                penalty_action = StreamElementsPointsAction(
+                    amount=penalty.get("value", -100),
+                    action_message=penalty.get("action_message", "")
+                )
+        
+        action = RussianRouletteAction(
+            hit=is_hit,
+            penalty_action=penalty_action,
+            action_message=final_message
+        )
+        return action
