@@ -4,6 +4,8 @@ from domain.schemas.common import RewardType
 
 class BaseAction(BaseModel):
     type: RewardType
+    base_message: Optional[str] = None
+    action_message: Optional[str] = None
 
 class TimeoutAction(BaseAction):
     type: Literal[RewardType.TIMEOUT] = RewardType.TIMEOUT
