@@ -9,7 +9,6 @@ def roll_loot(loot_table: list[dict], luck_modifier: float = 1.0):
     Returns:
         dict: The selected loot item.
     """
-    # Логика изменения весов на основе удачи
     weighted_pool = []
     for item in loot_table:
         weight = item['weight']

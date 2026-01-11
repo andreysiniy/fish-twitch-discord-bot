@@ -10,40 +10,37 @@ class FishingService:
         self.config_repo = config_repo
 
     def process_cast(self, twitch_id: str, username: str, channel_id: str):
-        # 1. Получаем данные (через репозитории)
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
-            # Авто-регистрация или ошибка
             user = self.user_repo.create(twitch_id, username, channel_id)
             
-        # 2. Определяем контекст (локация, удочка)
+
         location_id = user.current_location_id or "default"
         loot_pool = self.config_repo.get_pool(channel_id, location_id)
         
-        # 3. Применяем логику (Domain Logic)
+
         equipped_rod = user.inventory.get("equipped_rod")
         if not equipped_rod:
             equipped_rod = {"name": "bare hands", "luck": 1.0}
         catch = rng.roll_loot(loot_pool, luck_modifier=equipped_rod.get("luck", 1.0))
         
-        # 4. Сайд-эффекты (начисление XP)
+
         xp_gain = catch.get("xp", 10)
         user.xp += xp_gain
         leveled_up = formulas.is_level_up(user.xp, user.level)
         
         if leveled_up:
             user.level += 1
-            # Тут можно добавить награду за уровень
             
-        # 5. Сохранение (через репозиторий)
+
         self.user_repo.save_progress(user)
 
         actions_to_perform = []
         actions_to_perform.append(
-            TimeoutAction(duration=60, reason="Caught a boot")
+            TimeoutAction(duration=60, reason="Caught a boot") # Mock action
         )       
         
-        # 6. Возвращаем чистый объект результата (DTO)
+
         return FishResponse(
             chat_message=f"{user.username} caught a {catch.get('name', 'mystery item')}!",
             xp_gained=xp_gain,
