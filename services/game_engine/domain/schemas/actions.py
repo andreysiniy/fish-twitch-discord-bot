@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Union
+from typing import Literal, Union, Optional, Any
 from domain.schemas.common import RewardType
 
 class BaseAction(BaseModel):
@@ -23,4 +23,9 @@ class RobberyAction(BaseAction):
     victim_scope: str = "active" # active, random, top
     steal_percent: float
 
-GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction]
+class RussianRouletteAction(BaseAction):
+    type: Literal[RewardType.RUSSIAN_ROULETTE] = RewardType.RUSSIAN_ROULETTE
+    hit: bool
+    penalty_action: Optional[Any] = None
+
+GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction]
