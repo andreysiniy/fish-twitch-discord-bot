@@ -56,20 +56,23 @@ class FishingService:
         if catch.get("type") == "timeout":
             actions.append(TimeoutAction(
                 duration=catch.get("duration", 30), 
-                reason=catch.get("reason", "No reason")
+                reason=catch.get("reason", "No reason"),
+                action_message=catch.get("action_message", "")
                 )
             )
         if catch.get("type") == "points":
             actions.append(StreamElementsPointsAction(
                 amount=catch.get("value", 0), 
-                target_user=catch.get("target_user", twitch_id)
+                target_user=catch.get("target_user", twitch_id),
+                action_message=catch.get("action_message", "")
                 )
             )
         if catch.get("type") == "robbery":
             actions.append(RobberyAction(
                 attacker_id=twitch_id,
                 victim_scope=catch.get("victim_scope", "active"), 
-                steal_percent=catch.get("percent", 0)
+                steal_percent=catch.get("percent", 0),
+                action_message=catch.get("action_message", "")
                 )
             )
         if catch.get("type") == "russian_roulette":
