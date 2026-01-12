@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
-from domain.schemas.rpg import InventoryDTO
+from domain.schemas.rpg import InventoryDTO, DropItemDTO
 
 # --- Channels ---
 
@@ -25,12 +25,16 @@ class ChannelResponseDTO(BaseModel):
 # --- Rewards ---
 
 class RewardPoolUpdateDTO(BaseModel):
+    items_drop_rate: Optional[float] = Field(0.1, description="Chance to drop an item")
     rewards: List[Dict[str, Any]] = Field(..., description="Rewards data to update the pool")
+    items: Optional[List[DropItemDTO]] = Field(None, description="Optional list of detailed drop items")
 
 class RewardPoolResponseDTO(BaseModel):
     location_id: str
     rewards_data: List[Dict[str, Any]]
-
+    items_drop_rate: float
+    items: List[DropItemDTO]
+    
     class Config:
         from_attributes = True
 

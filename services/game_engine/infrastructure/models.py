@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, BigInteger, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger, ForeignKey, Text, Float
 from sqlalchemy.dialects.postgresql import JSONB  
 from sqlalchemy.orm import relationship
 from infrastructure.database import Base
@@ -46,4 +46,33 @@ class RewardPool(Base):
     # [{"type": "points", "weight": 100, ...}, {"type": "item", ...}]
     rewards_data = Column(JSONB, default=[])
 
+    items_drop_rate = Column(Float, default=0.1)
+    items = relationship("LocationItem", back_populates="pool")
+
     channel = relationship("Channel", back_populates="reward_pools")
+
+class LocationItem(Base):
+    __tablename__ = "location_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reward_pool_id = Column(Integer, ForeignKey("reward_pools.id"))
+    
+    name = Column(String, nullable=False)
+    item_id = Column(String, nullable=False) 
+    description = Column(String)
+    image_url = Column(String) 
+
+    type = Column(String, default="fish", nullable=False)
+    
+    weight = Column(Integer, default=100) 
+    rarity = Column(String, default="common")
+    
+    xp_gain = Column(Integer, default=0)
+    
+    quantity = Column(Integer, nullable=True) 
+    
+    message = Column(String, default="You caught {name}!")
+
+    item_stats = Column(JSONB, default={})
+
+    pool = relationship("RewardPool", back_populates="items")

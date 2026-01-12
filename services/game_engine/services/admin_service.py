@@ -1,7 +1,7 @@
 from typing import List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
-from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, PlayerListResponse
+from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, PlayerListResponse, RewardPoolUpdateDTO
 
 class AdminService:
     def __init__(self, channel_repo: ChannelRepository, user_repo: UserRepository):
@@ -21,12 +21,12 @@ class AdminService:
         users, total = self.user_repo.get_users_by_channel(channel_twitch_id, skip, limit)
         return PlayerListResponse(total=total, players=users)
 
-    def update_channel_rewards(self, twitch_id: str, location_id: str, rewards: list):
+    def update_channel_rewards(self, twitch_id: str, location_id: str, data: RewardPoolUpdateDTO):
         channel = self.repo.get_by_twitch_id(twitch_id)
         if not channel:
             raise ValueError("Channel not found")
         
-        return self.repo.update_rewards(channel.id, location_id, rewards)
+        return self.repo.update_rewards(channel.id, location_id, data.rewards, data.items, data.items_drop_rate)
 
     def get_channel_rewards(self, twitch_id: str, location_id: str):
         channel = self.repo.get_by_twitch_id(twitch_id)
@@ -38,7 +38,9 @@ class AdminService:
         if not pool:
             return {
                 "location_id": location_id,
-                "rewards_data": []
+                "items_drop_rate": 0.1,
+                "rewards_data": [],
+                "items": []
             }
             
         return pool

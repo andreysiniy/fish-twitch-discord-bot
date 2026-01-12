@@ -10,18 +10,33 @@ class ItemStats(BaseModel):
     durability: int = 100        # Прочность
     can_break: bool = False      # Может ли сломаться
 
-class ItemDTO(BaseModel):
-    """Предмет в игре"""
-    id: str
+class BaseItemDTO(BaseModel):
+    """Общие поля для предмета (и в базе, и в инвентаре)"""
+    item_id: str
     name: str
     description: str | None = None
     rarity: Rarity = Rarity.COMMON
-    type: str = "fish"           # fish, rod, bait
+    type: str = "fish"
+    image_url: str | None = None
     stats: ItemStats = Field(default_factory=ItemStats)
+
+class DropItemDTO(BaseItemDTO):
+    """Предмет как часть таблицы дропа (настройки)"""
+    weight: int = 100
+    xp_gain: int = 0
+    quantity: Optional[int] = None
+    message: str | None = None
+    
+class InventoryItemDTO(BaseItemDTO):
+    """Предмет в инвентаре игрока"""
+    quantity: int = 1
+    current_durability: int | None = None
+    obtained_at: str | None = None
+
 
 class InventoryDTO(BaseModel):
     """Структура инвентаря игрока"""
-    items: List[ItemDTO] = []
+    items: List[InventoryItemDTO] = []
     equipped_rod_id: Optional[str] = None
     max_slots: int = 20
 

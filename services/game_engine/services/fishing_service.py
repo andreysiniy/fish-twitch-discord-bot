@@ -18,16 +18,24 @@ class FishingService:
             
 
         location_id = user.current_location_id or "default"
-        loot_pool = self.config_repo.get_pool(channel_id, location_id)
+        #loot_pool = self.config_repo.get_pool(channel_id, location_id)
         
+        loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(channel_id, location_id)
+
 
         equipped_rod = user.inventory.get("equipped_rod")
         if not equipped_rod:
             equipped_rod = {"name": "bare hands", "luck": 1.0}
         catch = rng.roll_loot(loot_pool, luck_modifier=equipped_rod.get("luck", 1.0))
         
+        item_catch = None
+        if item_pool and random.random() < items_drop_rate:
+            item_catch = rng.roll_loot(item_pool, luck_modifier=equipped_rod.get("luck", 1.0))
 
-        xp_gain = catch.get("xp", 10)
+        if item_catch:
+            self.user_repo.update_inventory(user, item_catch)
+        print(item_catch)
+        xp_gain = catch.get("xp", 10) + (item_catch.get("xp_gain", 0) if item_catch else 0)
         user.xp += xp_gain
         leveled_up = formulas.is_level_up(user.xp, user.level)
         
@@ -42,7 +50,7 @@ class FishingService:
             chat_message=catch.get("base_message", "You caught something!"),
             xp_gained=xp_gain,
             money_change=catch.get("money", 0),
-            item_drop=catch.get("item"),
+            item_drop=item_catch if item_catch else None,
             level_up=LevelUpInfo(
                 old_level=user.level - 1,
                 new_level=user.level,

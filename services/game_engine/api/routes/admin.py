@@ -36,7 +36,7 @@ def update_rewards(
     service: AdminService = Depends(get_admin_service)
 ):
     try:
-        pool = service.update_channel_rewards(twitch_id, location_id, data.rewards)
+        pool = service.update_channel_rewards(twitch_id, location_id, data)
         return pool
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

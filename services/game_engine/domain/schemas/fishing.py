@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from domain.schemas.actions import GameAction
-from domain.schemas.rpg import ItemDTO
+from domain.schemas.rpg import DropItemDTO
 
 class FishRequest(BaseModel):
     user_id: str
@@ -23,7 +23,7 @@ class FishResponse(BaseModel):
     xp_gained: int
     money_change: int = 0
     
-    item_drop: Optional[ItemDTO] = None
+    item_drop: Optional[DropItemDTO] = None
     
     level_up: Optional[LevelUpInfo] = None
     
