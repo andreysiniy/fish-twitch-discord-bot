@@ -1,7 +1,8 @@
 import random
-
+import time
 from domain.logic import rng, formulas
 from domain.schemas.fishing import FishResponse, LevelUpInfo
+from domain.schemas.rpg import DropItemDTO, InventoryItemDTO
 
 from infrastructure.repositories import UserRepository, ConfigRepository
 from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction
@@ -33,6 +34,11 @@ class FishingService:
             item_catch = rng.roll_loot(item_pool, luck_modifier=equipped_rod.get("luck", 1.0))
 
         if item_catch:
+            item_stats = item_catch.get("stats", {})
+            item_catch.update({
+                "current_durability": item_stats.get("durability", 1),
+                "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            })
             self.user_repo.update_inventory(user, item_catch)
         print(item_catch)
         xp_gain = catch.get("xp", 10) + (item_catch.get("xp_gain", 0) if item_catch else 0)

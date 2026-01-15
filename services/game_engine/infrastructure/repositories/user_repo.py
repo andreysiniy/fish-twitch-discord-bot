@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from infrastructure.models import UserProgress, Channel
 
 class UserRepository:
@@ -49,15 +50,15 @@ class UserRepository:
 
         return users, total
 
-    def update_inventory(self, user: UserProgress, item_name: str):
-        current_inv = dict(user.inventory)
-        
-        if "items" not in current_inv:
-            current_inv["items"] = []
-            
-        current_inv["items"].append(item_name)
-        
-        user.inventory = current_inv
+    def update_inventory(self, user: UserProgress, item_data: dict):
+        if not user.inventory:
+            user.inventory = {"items": [], "equipped_rod": None}
+
+        if "items" not in user.inventory:
+            user.inventory["items"] = []
+        user.inventory["items"].append(item_data)
+        flag_modified(user, "inventory")
+        self.db.add(user)
         self.db.commit()
         self.db.refresh(user)
 
