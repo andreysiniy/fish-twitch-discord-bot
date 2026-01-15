@@ -55,7 +55,8 @@ class ConfigRepository(BaseRepository[RewardPool]):
                 "weight": item.weight,
                 "rarity": item.rarity,
                 "xp_gain": item.xp_gain,
-                "message": item.message
+                "message": item.message,
+                "stats": item.item_stats
             })
 
         return rewards, items, pool_obj.items_drop_rate

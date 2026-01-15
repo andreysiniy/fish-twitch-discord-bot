@@ -1,12 +1,14 @@
 from typing import List
 from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
 from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, PlayerListResponse, RewardPoolUpdateDTO
 
 class AdminService:
-    def __init__(self, channel_repo: ChannelRepository, user_repo: UserRepository):
+    def __init__(self, channel_repo: ChannelRepository, user_repo: UserRepository, config_repo: ConfigRepository):
         self.repo = channel_repo
         self.user_repo = user_repo
+        self.config_repo = config_repo
 
     def create_channel(self, data: ChannelCreateDTO):
         existing = self.repo.get_by_twitch_id(data.twitch_id)
@@ -33,14 +35,22 @@ class AdminService:
         if not channel:
             raise ValueError(f"Channel {twitch_id} not found")
         
-        pool = self.repo.get_rewards(channel.id, location_id)
+        rewards = {}
+        loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(twitch_id, location_id)
         
-        if not pool:
-            return {
+        if not loot_pool:
+            rewards = {
                 "location_id": location_id,
-                "items_drop_rate": 0.1,
+                "items_drop_rate": 0,
                 "rewards_data": [],
                 "items": []
             }
             
-        return pool
+        rewards.update({
+            "location_id": location_id,
+            "items_drop_rate": items_drop_rate,
+            "rewards_data": loot_pool,
+            "items": item_pool
+        })
+
+        return rewards
