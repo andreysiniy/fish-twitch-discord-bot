@@ -5,7 +5,8 @@ from domain.schemas.fishing import FishResponse, LevelUpInfo
 from domain.schemas.rpg import DropItemDTO, InventoryItemDTO
 
 from infrastructure.repositories import UserRepository, ConfigRepository
-from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction
+from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction
+from infrastructure.models import UserProgress
 
 class FishingService:
     def __init__(self, user_repo: UserRepository, config_repo: ConfigRepository):
@@ -47,13 +48,13 @@ class FishingService:
         
         if leveled_up:
             user.level += 1
-            
-        self.user_repo.save_progress(user)
 
-        actions_to_perform = self.get_actions(catch, twitch_id)      
-        
+        user.total_fish_stat += 1
+        actions_to_perform = self.get_actions(catch, user, luck_modifier=equipped_rod.get("luck", 1.0))  
+        self.user_repo.save_progress(user)
+    
         return FishResponse(
-            chat_message=catch.get("base_message", "You caught something!"),
+            chat_message=catch.get("message", "You caught something!"),
             xp_gained=xp_gain,
             money_change=catch.get("money", 0),
             item_drop=item_catch if item_catch else None,
@@ -64,9 +65,10 @@ class FishingService:
             ) if leveled_up else None,
             actions=actions_to_perform
         )
-    
-    def get_actions(self, catch: dict, twitch_id: str) -> list:
+
+    def get_actions(self, catch: dict, user: UserProgress, luck_modifier: float = 1.0) -> list:
         actions = []
+        twitch_id = user.user_twitch_id
         if catch.get("type") == "timeout":
             actions.append(TimeoutAction(
                 duration=catch.get("duration", 30), 
@@ -92,7 +94,31 @@ class FishingService:
         if catch.get("type") == "russian_roulette":
             rr_action = self.handle_russian_roulette(catch, twitch_id)
             actions.append(rr_action)
+        if catch.get("type") == "fish":
+            mass_action = self.handle_fish_mass(catch, user, luck_modifier)
+            actions.append(mass_action)
         return actions
+    
+    def handle_fish_mass(self, catch: dict, user: UserProgress, luck_modifier: float) -> AddMassAction:
+        min_m = catch.get("min_mass", 0.1)
+        max_m = catch.get("max_mass", 5.0)
+        if catch.get("fixed_mass") is not None:
+            min_m = max_m = catch.get("fixed_mass")
+        raw_mass = random.uniform(min_m, max_m)
+        if raw_mass < 0:
+            mass_gain = round(raw_mass / luck_modifier, 2)
+        else:
+            mass_gain = round(raw_mass * luck_modifier, 2)
+        
+        user.current_mass += mass_gain
+        user.total_mass_stat += mass_gain
+        
+        return AddMassAction(
+            amount=mass_gain,
+            amount_now=round(user.current_mass, 2),
+            action_message=catch.get("action_message", ""),
+            total_mass=round(user.total_mass_stat, 2)
+        )
 
     def handle_russian_roulette(self, catch: dict, twitch_id: str) -> RussianRouletteAction:
 

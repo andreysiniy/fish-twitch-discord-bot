@@ -28,6 +28,12 @@ class UserProgress(Base):
     
     level = Column(Integer, default=1)
     xp = Column(Integer, default=0)
+
+    total_fish_stat = Column(Integer, default=0)
+    total_mass_stat = Column(Float, default=0.0)
+
+    current_mass = Column(Float, default=0.0)
+
     current_location_id = Column(String, default="default") 
     
     # Инвентарь: {"equipped_rod": "basic_rod", "items": ["fish1", "boot"]}

@@ -47,5 +47,8 @@ class PlayerStateDTO(BaseModel):
     level: int
     current_xp: int
     xp_to_next_level: int
+    total_fish_stat: int
+    total_mass_stat: float
+    current_mass: float
     current_location_id: str
     inventory: InventoryDTO

@@ -30,4 +30,11 @@ class RussianRouletteAction(BaseAction):
     hit: bool
     penalty_action: Optional[Any] = None
 
-GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction]
+class AddMassAction(BaseAction):
+    """Событие добавления массы (кг)"""
+    type: Literal["add_mass"] = "add_mass"
+    amount: float
+    amount_now: float
+    total_mass: float
+
+GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction, AddMassAction]
