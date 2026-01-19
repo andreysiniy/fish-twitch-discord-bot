@@ -7,7 +7,7 @@ from core.config import settings
 from infrastructure.database import engine, Base
 import infrastructure.models 
 
-from api.routes import fishing, admin
+from api.routes import fishing, admin, inventory
 
 
 Base.metadata.create_all(bind=engine)
@@ -30,6 +30,7 @@ app.add_middleware(
 
 app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
+app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 
 
 @app.get("/health")

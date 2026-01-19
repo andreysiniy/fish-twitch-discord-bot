@@ -10,6 +10,8 @@ from services.admin_service import AdminService
 
 from services.fishing_service import FishingService
 
+from services.inventory_service import InventoryService 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -38,3 +40,8 @@ def get_admin_service(
     config_repo: ConfigRepository = Depends(get_config_repo)
 ) -> AdminService:
     return AdminService(repo, user_repo, config_repo)
+
+def get_inventory_service(
+    user_repo: UserRepository = Depends(get_user_repo)
+) -> InventoryService:
+    return InventoryService(user_repo)

@@ -30,6 +30,7 @@ class DropItemDTO(BaseItemDTO):
 class InventoryItemDTO(BaseItemDTO):
     """Предмет в инвентаре игрока"""
     quantity: int = 1
+    slot_id: int 
     current_durability: int | None = None
     obtained_at: str | None = None
 
@@ -37,8 +38,22 @@ class InventoryItemDTO(BaseItemDTO):
 class InventoryDTO(BaseModel):
     """Структура инвентаря игрока"""
     items: List[InventoryItemDTO] = []
-    equipped_rod_id: Optional[str] = None
+    equipped_rod_slot: Optional[int] = None
     max_slots: int = 20
+
+class InventoryResponseDTO(InventoryDTO):
+    success: bool
+    message: str | None = None
+
+class EquipRequestDTO(BaseModel):
+    user_id: str
+    channel_id: str
+    slot_id: int | None = None
+
+class EquipResponseDTO(BaseModel):
+    success: bool
+    message: str
+    equipped_item_name: str | None = None
 
 class PlayerStateDTO(BaseModel):
     """Полное состояние игрока (Профиль)"""

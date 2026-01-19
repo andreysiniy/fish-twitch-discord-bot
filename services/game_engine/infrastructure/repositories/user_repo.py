@@ -56,7 +56,16 @@ class UserRepository:
 
         if "items" not in user.inventory:
             user.inventory["items"] = []
+        current_items = user.inventory["items"]
+        if current_items:
+            max_slot_id = max(item.get("slot_id", 0) for item in current_items)
+            next_slot_id = max_slot_id + 1
+        else:
+            next_slot_id = 1
+        item_data["slot_id"] = next_slot_id
+
         user.inventory["items"].append(item_data)
+
         flag_modified(user, "inventory")
         self.db.add(user)
         self.db.commit()

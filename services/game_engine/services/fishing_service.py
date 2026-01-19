@@ -3,6 +3,7 @@ import time
 from domain.logic import rng, formulas
 from domain.schemas.fishing import FishResponse, LevelUpInfo
 from domain.schemas.rpg import DropItemDTO, InventoryItemDTO
+from domain.logic.inventory_utils import find_equipped_rod
 
 from infrastructure.repositories import UserRepository, ConfigRepository
 from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction
@@ -25,15 +26,16 @@ class FishingService:
         loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(channel_id, location_id)
 
 
-        equipped_rod = user.inventory.get("equipped_rod")
+        equipped_rod = find_equipped_rod(user.inventory or {})
+        equipped_rod_stats = equipped_rod.get("stats", {}) if equipped_rod else {}
         if not equipped_rod:
-            equipped_rod = {"name": "bare hands", "luck": 1.0}
-        catch = rng.roll_loot(loot_pool, luck_modifier=equipped_rod.get("luck", 1.0))
+            equipped_rod = {"name": "bare hands", "stats": {}}
+        luck = 1 + equipped_rod_stats.get("luck_bonus", 0)
+        catch = rng.roll_loot(loot_pool, luck_modifier=luck)
         
         item_catch = None
         if item_pool and random.random() < items_drop_rate:
-            item_catch = rng.roll_loot(item_pool, luck_modifier=equipped_rod.get("luck", 1.0))
-
+            item_catch = rng.roll_loot(item_pool, luck_modifier=luck)
         if item_catch:
             item_stats = item_catch.get("stats", {})
             item_catch.update({
@@ -41,11 +43,12 @@ class FishingService:
                 "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             })
             self.user_repo.update_inventory(user, item_catch)
-        print(item_catch)
+
         xp_gain = catch.get("xp", 10) + (item_catch.get("xp_gain", 0) if item_catch else 0)
+        xp_gain = int(xp_gain * equipped_rod_stats.get("xp_bonus_pct", 0)) + xp_gain
         user.xp += xp_gain
         leveled_up = formulas.is_level_up(user.xp, user.level)
-        
+        print(f"User {twitch_id} gained {xp_gain} XP (Level {user.level} -> {user.level + 1 if leveled_up else user.level})")
         if leveled_up:
             user.level += 1
 
