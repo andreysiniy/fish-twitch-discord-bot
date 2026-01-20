@@ -1,12 +1,13 @@
 import random
 import time
+from core.messages import resolve_message, MsgKey, format_large_number_mass, format_large_number_mass_signed, format_time
 from domain.logic import rng, formulas
 from domain.schemas.fishing import FishResponse, LevelUpInfo
 from domain.schemas.rpg import DropItemDTO, InventoryItemDTO
 from domain.logic.inventory_utils import find_equipped_rod
 
 from infrastructure.repositories import UserRepository, ConfigRepository
-from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction
+from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction
 from infrastructure.models import UserProgress
 
 class FishingService:
@@ -101,7 +102,26 @@ class FishingService:
             mass_action = self.handle_fish_mass(catch, user, luck_modifier)
             actions.append(mass_action)
         return actions
-    
+
+    def handle_base_message(self, catch: dict, user: UserProgress, **kwargs) -> SendBaseMessageAction:
+        
+        base_msg = resolve_message(
+            user.channel.config or {},
+            MsgKey.FISH_BASE_MSG,
+            username=user.username,
+            **kwargs
+        )
+        msg = resolve_message(
+            user.channel.config or {},
+            catch.get("message", ""),
+            username=user.username,
+            **kwargs
+        ) 
+        
+        return SendBaseMessageAction(
+            action_message=base_msg + " " + msg
+        )
+
     def handle_fish_mass(self, catch: dict, user: UserProgress, luck_modifier: float) -> AddMassAction:
         min_m = catch.get("min_mass", 0.1)
         max_m = catch.get("max_mass", 5.0)
