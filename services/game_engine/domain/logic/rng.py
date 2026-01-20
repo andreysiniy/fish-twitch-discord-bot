@@ -17,3 +17,10 @@ def roll_loot(loot_table: list[dict], luck_modifier: float = 1.0):
         weighted_pool.append(weight)
     
     return random.choices(loot_table, weights=weighted_pool, k=1)[0]
+
+def calculate_chance(chance: float) -> bool:
+    return random.random() < chance
+
+def is_russian_roulette_hit(bullets: int, chambers: int) -> bool:
+    if chambers <= 0: return False
+    return calculate_chance(bullets / chambers)
