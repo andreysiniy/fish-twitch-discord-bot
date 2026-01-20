@@ -100,6 +100,9 @@ class FishingService:
             actions.append(rr_action)
         if catch.get("type") == "fish":
             mass_action = self.handle_fish_mass(catch, user, luck_modifier)
+            mass_amount_formatted = format_large_number_mass_signed(mass_action.amount)
+            message_action = self.handle_base_message(catch, user, mass=mass_amount_formatted)
+            actions.append(message_action)
             actions.append(mass_action)
         return actions
 
@@ -135,11 +138,21 @@ class FishingService:
         
         user.current_mass += mass_gain
         user.total_mass_stat += mass_gain
+
+        cfg = user.channel.config or {}
+
+        msg = resolve_message(
+            cfg,
+            MsgKey.MASS_SET,
+            amount=format_large_number_mass_signed(mass_gain),
+            new_mass=format_large_number_mass(user.current_mass),
+            username=user.username
+        )
         
         return AddMassAction(
             amount=mass_gain,
             amount_now=round(user.current_mass, 2),
-            action_message=catch.get("action_message", ""),
+            action_message=msg,
             total_mass=round(user.total_mass_stat, 2)
         )
 
