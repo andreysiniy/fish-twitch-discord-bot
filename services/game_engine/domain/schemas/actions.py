@@ -41,4 +41,16 @@ class SendBaseMessageAction(BaseAction):
     """Просто отправить сообщение в чат"""
     type: Literal["base_message"] = "base_message"
 
-GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction]
+class AddItemAction(BaseAction):
+    """Добавить предмет в инвентарь"""
+    type: Literal["add_item"] = "add_item"
+    item_id: str
+    item_name: str
+    quantity: int = 1
+
+class LevelUpAction(BaseAction):
+    """Повышение уровня пользователя"""
+    type: Literal["level_up"] = "level_up"
+    new_level: int
+ 
+GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction, AddItemAction, LevelUpAction]
