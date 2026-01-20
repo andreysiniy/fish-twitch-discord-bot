@@ -74,12 +74,24 @@ class FishingService:
         actions = []
         twitch_id = user.user_twitch_id
         if catch.get("type") == "timeout":
-            actions.append(TimeoutAction(
-                duration=catch.get("duration", 30), 
-                reason=catch.get("reason", "No reason"),
-                action_message=catch.get("action_message", "")
-                )
+            duration = catch.get("duration", 30)
+            duration_formatted = format_time(duration)
+            action_message_formatted = resolve_message(
+                user.channel.config or {},
+                MsgKey.TIMEOUT_ISSUED,
+                username=user.username,
+                duration=duration_formatted,
+                reason=catch.get("reason", "No reason")
             )
+            timeout_action = TimeoutAction(
+                duration=duration, 
+                reason=catch.get("reason", "No reason"),
+                action_message=action_message_formatted,
+                target_user=user.username
+            )
+            message_action = self.handle_base_message(catch, user, duration=duration_formatted, reason=timeout_action.reason)
+            actions.append(message_action)
+            actions.append(timeout_action)
         if catch.get("type") == "points":
             actions.append(StreamElementsPointsAction(
                 amount=catch.get("value", 0), 
