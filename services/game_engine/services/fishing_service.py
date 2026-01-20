@@ -7,7 +7,7 @@ from domain.schemas.rpg import DropItemDTO, InventoryItemDTO
 from domain.logic.inventory_utils import find_equipped_rod
 
 from infrastructure.repositories import UserRepository, ConfigRepository
-from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction
+from domain.schemas.actions import TimeoutAction, RobberyAction, StreamElementsPointsAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction, AddItemAction, LevelUpAction
 from infrastructure.models import UserProgress
 
 class FishingService:
@@ -50,11 +50,20 @@ class FishingService:
         user.xp += xp_gain
         leveled_up = formulas.is_level_up(user.xp, user.level)
         print(f"User {twitch_id} gained {xp_gain} XP (Level {user.level} -> {user.level + 1 if leveled_up else user.level})")
-        if leveled_up:
-            user.level += 1
 
         user.total_fish_stat += 1
-        actions_to_perform = self.get_actions(catch, user, luck_modifier=equipped_rod.get("luck", 1.0))  
+        actions_to_perform = self.get_actions(catch, user, luck_modifier=equipped_rod.get("luck", 1.0))
+
+        if leveled_up:
+            user.level += 1
+            lvl_up_msg = resolve_message(
+                user.channel.config or {},
+                MsgKey.LEVEL_UP,
+                username=user.username,
+                new_level=user.level
+            )
+            actions_to_perform.append(LevelUpAction(new_level=user.level, action_message=lvl_up_msg))
+
         self.user_repo.save_progress(user)
     
         return FishResponse(
