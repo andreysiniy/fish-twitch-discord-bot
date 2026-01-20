@@ -1,4 +1,6 @@
 from enum import Enum
+import string
+from typing import Dict, Any
 
 class MsgKey(str, Enum):
     # --- Inventory ---
@@ -159,3 +161,114 @@ DEFAULT_MESSAGES = {
     MsgKey.PROFILE_STATS: "👤 {username} | Lvl: {level} | XP: {xp}/{xp_next} | Fish total weight: {current_mass} | Total fish gained: {total_mass_stat} | Amount of fish caught: {total_fish_stat}",
     MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <slot>, !fishstats",
 }
+
+class SafeFormatter(string.Formatter):
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            return kwargs.get(key, '{' + key + '}')
+        return super().get_value(key, args, kwargs)
+    
+
+formatter = SafeFormatter()
+
+def resolve_message(channel_config: Dict[str, Any], key: MsgKey, **kwargs) -> str:
+    if not channel_config:
+        channel_config = {}
+        
+    custom_messages = channel_config.get("messages", {})
+    if isinstance(key, MsgKey):
+        template = custom_messages.get(key.value)
+        if not template:
+            template = DEFAULT_MESSAGES.get(key, f"Missing text: {key.value}")
+    else:
+        template = key
+
+    try:
+        return formatter.format(template, **kwargs)
+    except Exception as e:
+        return f"{template} (Format Error: {e})"
+    
+def format_large_number_mass(value: float) -> str:
+    abs_value = abs(value)
+    if abs_value >= 1_000_000_000_000_000:
+        value = value / 1_000_000_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "Tt"
+    elif abs_value >= 1_000_000_000_000:
+        value = value / 1_000_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "Gt"
+    elif abs_value >= 1_000_000_000:
+        value = value / 1_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "Mt"
+    elif abs_value >= 1_000_000:
+        value = value / 1_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "kt"
+    elif abs_value >= 1_000:
+        value = value / 1_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "t"
+    else:
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "kg"
+
+def format_large_number_mass_signed(value: float) -> str:
+    sign = "+" if value >= 0 else "-"
+    formatted_value = format_large_number_mass(abs(value))
+    return f"{sign}{formatted_value}"
+
+def format_large_number_points(value) -> str:
+    abs_value = abs(value)
+    if abs_value >= 1_000_000_000_000_000:
+        value = value / 1_000_000_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "Q"
+    elif abs_value >= 1_000_000_000_000:
+        value = value / 1_000_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "T"
+    elif abs_value >= 1_000_000_000:
+        value = value / 1_000_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "B"
+    elif abs_value >= 1_000_000:
+        value = value / 1_000_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "M"
+    elif abs_value >= 1_000:
+        value = value / 1_000
+        return f"{value:.2f}".rstrip('0').rstrip('.') + "K"
+    else:
+        return f"{value:.2f}".rstrip('0').rstrip('.')
+
+def format_large_number_points_signed(value) -> str:
+    sign = "+" if value >= 0 else "-"
+    formatted_value = format_large_number_points(abs(value))
+    return f"{sign}{formatted_value}"
+
+def format_time(seconds):
+    seconds = int(seconds)
+
+    days = seconds // 86400
+    seconds %= 86400
+
+    hours = seconds // 3600
+    seconds %= 3600
+
+    minutes = seconds // 60
+    seconds %= 60
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return ' '.join(parts)
+
+def format_percent(value):
+    percent = abs(value) * 100
+    formatted = f"{percent:.2f}".rstrip('0').rstrip('.')
+    return f"{formatted}%"
+
+def format_percent_signed(value):
+    sign = "+" if value >= 0 else "-"
+    percent = abs(value) * 100
+    formatted = f"{percent:.2f}".rstrip('0').rstrip('.')
+    return f"{sign}{formatted}%"
