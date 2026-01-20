@@ -4,13 +4,13 @@ from domain.schemas.common import RewardType
 
 class BaseAction(BaseModel):
     type: RewardType
-    base_message: Optional[str] = None
     action_message: Optional[str] = None
 
 class TimeoutAction(BaseAction):
     type: Literal[RewardType.TIMEOUT] = RewardType.TIMEOUT
     duration: int
     reason: str
+    target_user: str
 
 class StreamElementsPointsAction(BaseAction):
     """Добавить/Снять очки"""
@@ -37,4 +37,8 @@ class AddMassAction(BaseAction):
     amount_now: float
     total_mass: float
 
-GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction, AddMassAction]
+class SendBaseMessageAction(BaseAction):
+    """Просто отправить сообщение в чат"""
+    type: Literal["base_message"] = "base_message"
+
+GameAction = Union[TimeoutAction, StreamElementsPointsAction, RobberyAction, RussianRouletteAction, AddMassAction, SendBaseMessageAction]
