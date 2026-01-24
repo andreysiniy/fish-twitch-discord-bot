@@ -37,11 +37,11 @@ DEFAULT_GAME_PARAMS: Dict[GParam, Union[int, float]] = {
     GParam.SUBS_FISHING_COOLDOWN: 300
 }
 
-def resolve_param(channel_config: Dict[str, Any], key: GParam) -> float:
-    if not channel_config:
+def resolve_param(custom_params: Dict[str, Any], key: GParam) -> float:
+    if not custom_params:
         return DEFAULT_GAME_PARAMS[key]
         
-    custom_params = channel_config.get("game_params", {})
+    #custom_params = channel_config.get("game_params", {})
     val = custom_params.get(key.value)
     
     if val is None:
