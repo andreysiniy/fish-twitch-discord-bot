@@ -4,8 +4,8 @@ def calculate_xp_required(level: int, base: int = 100, exponent: float = 1.5) ->
     """XP = base * (level ^ exponent)"""
     return int(base * (level ** exponent))
 
-def is_level_up(current_xp: int, current_level: int) -> bool:
-    return current_xp >= calculate_xp_required(current_level)
+def is_level_up(current_xp: int, current_level: int, base: int = 100, exponent: float = 1.5) -> bool:
+    return current_xp >= calculate_xp_required(current_level, base, exponent)
 
 def calculate_xp_gain(base_xp: int, item_xp: int, bonus_pct: float) -> int:
     total_base = base_xp + item_xp
