@@ -1,6 +1,6 @@
 
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from domain.schemas.actions import GameAction
 from domain.schemas.rpg import DropItemDTO
 
@@ -21,10 +21,20 @@ class FishResponse(BaseModel):
     chat_message: str
     
     xp_gained: int
-    money_change: int = 0
     
     item_drop: Optional[DropItemDTO] = None
     
     level_up: Optional[LevelUpInfo] = None
     
     actions: List[GameAction] = []
+
+class FishingResult(BaseModel):
+    loot: Dict[str, Any]
+    item_drop: Optional[Dict]
+    username: str
+    xp_gained: int
+    mass_gained: float
+    is_level_up: bool
+    new_level: int
+    luck_used: float
+    durability_loss: int = 1
