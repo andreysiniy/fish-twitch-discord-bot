@@ -16,6 +16,11 @@ class GParam(str, Enum):
     ROB_RESIST_DIVISOR = "rob_resist_divisor" # 100 (divisor for resistance)
     ROB_LOSS_DIVISOR = "rob_loss_divisor" # 50 (divisor for loss)
 
+    # --- Cooldown ---
+    FISHING_COOLDOWN = "fishing_cooldown" # in seconds
+    SUBS_FISHING_COOLDOWN = "subs_fishing_cooldown" # in seconds
+
+
 DEFAULT_GAME_PARAMS: Dict[GParam, Union[int, float]] = {
     GParam.XP_BASE: 100,
     GParam.XP_EXPONENT: 1.5,
@@ -27,6 +32,9 @@ DEFAULT_GAME_PARAMS: Dict[GParam, Union[int, float]] = {
     GParam.ROB_MAX_CHANCE: 0.95,
     GParam.ROB_RESIST_DIVISOR: 100.0,
     GParam.ROB_LOSS_DIVISOR: 50.0,
+
+    GParam.FISHING_COOLDOWN: 600,
+    GParam.SUBS_FISHING_COOLDOWN: 300
 }
 
 def resolve_param(channel_config: Dict[str, Any], key: GParam) -> float:
