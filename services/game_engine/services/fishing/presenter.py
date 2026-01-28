@@ -152,16 +152,16 @@ class FishingPresenter:
     def _present_robbery(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
         actions = []
 
-        percent = result.loot.get("percent", 0)
+        percent = result.loot.get("percentage", 0)
         amount = result.loot.get("mass", 0)
-        robbery_result = result.get("robbery_result", {})
+        robbery_result = result.robbery_result
 
         base_msg_action = self._present_basic_msg(
             user, result, config, 
-            username=user.username, percent=percent, mass=amount
+            username=user.username, percentage=percent, mass=amount
             )
         
-        actions.append(SendBaseMessageAction(action_message=base_msg_action))
+        actions.append(base_msg_action)
 
         if not robbery_result:
             msg = resolve_message(config, MsgKey.ROBBERY_FAIL, attacker=user.username)
@@ -169,10 +169,10 @@ class FishingPresenter:
             return actions
 
         if robbery_result.is_success:
-            amount_gain_fmt = format_large_number_mass_signed(robbery_result.get("amount_stolen"))
-            amount_lost_fmt = format_large_number_mass_signed(0 - robbery_result.get("amount_stolen"))
+            amount_gain_fmt = format_large_number_mass_signed(robbery_result.amount_stolen)
+            amount_lost_fmt = format_large_number_mass_signed(0 - robbery_result.amount_stolen)
             attacker_mass_fmt = format_large_number_mass(user.current_mass)
-            victim_mass_fmt = format_large_number_mass(robbery_result.get("victim_new_mass"))
+            victim_mass_fmt = format_large_number_mass(robbery_result.victim_new_mass)
 
             msg_text = resolve_message(
                 config, 
