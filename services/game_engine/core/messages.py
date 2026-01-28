@@ -99,7 +99,11 @@ DEFAULT_MESSAGES = {
     # cooldown_time - total cooldown time
     # cooldown_time_left - remaining cooldown time
     # attacker - name of the robbery attacker
+    # attacker_mass - robbery attackers current amount of fish mass
+    # attacker_gain - robbery attackers fish mass gain
     # victim - name of the robbery victim
+    # victim_mass - robbery victims current amount of fish mass
+    # victim_loss - robbery victims fish mass loss
     # percent - percentage of points robbed
     # total_fish_stat - total number of fish caught by user
     # total_mass_stat - total mass of fish caught by user
@@ -129,8 +133,8 @@ DEFAULT_MESSAGES = {
     MsgKey.TIMEOUT_ISSUED: "{username} has been timed out for {duration}!",
     MsgKey.TIMEOUT_ISSUED_FAIL: "Failed to timeout {username}.",
 
-    MsgKey.ROBBERY_SUCCESS: "{attacker} robbed {percent} of {victim}'s points!",
-    MsgKey.ROBBERY_FAIL: "{attacker} tried to rob {victim}, but failed!",
+    MsgKey.ROBBERY_SUCCESS: "{attacker} {attackes_mass} ({attacker_gain}) robbed of {victim}'s pockets {victim_mass} ({victim_loss})!",
+    MsgKey.ROBBERY_FAIL: "{attacker} tried to rob anyone, but failed!",
     MsgKey.ROBBERY_PROTECTED: "{attacker} tried to rob {victim}, but they were protected!",
     MsgKey.ROBBERY_POOR: "{attacker} tried to rob {victim}, but they have empty pockets!",
 
