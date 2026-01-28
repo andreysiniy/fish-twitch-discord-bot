@@ -28,6 +28,13 @@ class FishResponse(BaseModel):
     
     actions: List[GameAction] = []
 
+class RobberyResultDTO(BaseModel):
+    is_success: bool
+    amount_stolen: float
+    victim_name: str
+    victim_twitch_id: str
+    chance_used: float    
+
 class FishingResult(BaseModel):
     loot: Dict[str, Any]
     item_drop: Optional[Dict]
@@ -38,3 +45,4 @@ class FishingResult(BaseModel):
     new_level: int
     luck_used: float
     durability_loss: int = 1
+    robbery_result: Optional[RobberyResultDTO] = None
