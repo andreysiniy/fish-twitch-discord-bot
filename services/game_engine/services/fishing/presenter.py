@@ -148,7 +148,7 @@ class FishingPresenter:
             return [SendBaseMessageAction(action_message=msg), action]
             
         return [action]
-    # над крч объект модели victim сюда наверн
+
     def _present_robbery(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
         actions = []
 
