@@ -133,7 +133,7 @@ DEFAULT_MESSAGES = {
     MsgKey.TIMEOUT_ISSUED: "{username} has been timed out for {duration}!",
     MsgKey.TIMEOUT_ISSUED_FAIL: "Failed to timeout {username}.",
 
-    MsgKey.ROBBERY_SUCCESS: "{attacker} {attackes_mass} ({attacker_gain}) robbed of {victim}'s pockets {victim_mass} ({victim_loss})!",
+    MsgKey.ROBBERY_SUCCESS: "{attacker} {attackes_mass} ({attacker_gain}) robbed {victim}'s pockets of some fish {victim_mass} ({victim_loss})!",
     MsgKey.ROBBERY_FAIL: "{attacker} tried to rob anyone, but failed!",
     MsgKey.ROBBERY_PROTECTED: "{attacker} tried to rob {victim}, but they were protected!",
     MsgKey.ROBBERY_POOR: "{attacker} tried to rob {victim}, but they have empty pockets!",
