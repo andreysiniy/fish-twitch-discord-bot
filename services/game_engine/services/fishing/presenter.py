@@ -182,7 +182,7 @@ class FishingPresenter:
                 victim=robbery_result.victim_name,
                 attacker_gain=amount_gain_fmt,
                 victim_mass=victim_mass_fmt,
-                victim_loss = amount_lost_fmt
+                victim_loss=amount_lost_fmt
             )
             
             actions.append(SendBaseMessageAction(action_message=msg_text))
