@@ -55,6 +55,7 @@ class FishingEngine:
         max_chance = resolve_param(channel_config, GParam.ROB_MAX_CHANCE)       # 0.95
         resist_divisor = resolve_param(channel_config, GParam.ROB_RESIST_DIVISOR) # 100.0
         loss_divisor = resolve_param(channel_config, GParam.ROB_LOSS_DIVISOR)   # 50.0
+        base_rob_chance = resolve_param(channel_config, GParam.ROB_BASE_CHANCE) # 0.8
 
         attacker_rod = inventory_utils.find_equipped_rod(attacker.inventory or {})
         rod_stats = attacker_rod.get("stats", {}) if attacker_rod else {}
@@ -62,8 +63,6 @@ class FishingEngine:
 
         victim_resistance = float(victim.level * 10)
 
-        base_rob_chance = 0.30 
-        
         final_chance = formulas.calculate_robbery_chance(
             base_chance=base_rob_chance,
             attacker_luck=attacker_luck,

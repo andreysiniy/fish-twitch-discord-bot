@@ -15,6 +15,7 @@ class GParam(str, Enum):
     ROB_MAX_CHANCE = "rob_max_chance" # 0.95
     ROB_RESIST_DIVISOR = "rob_resist_divisor" # 100 (divisor for resistance)
     ROB_LOSS_DIVISOR = "rob_loss_divisor" # 50 (divisor for loss)
+    ROB_BASE_CHANCE = "rob_base_chance"
 
     # --- Cooldown ---
     FISHING_COOLDOWN = "fishing_cooldown" # in seconds
@@ -32,6 +33,7 @@ DEFAULT_GAME_PARAMS: Dict[GParam, Union[int, float]] = {
     GParam.ROB_MAX_CHANCE: 0.95,
     GParam.ROB_RESIST_DIVISOR: 100.0,
     GParam.ROB_LOSS_DIVISOR: 50.0,
+    GParam.ROB_BASE_CHANCE: 0.8,
 
     GParam.FISHING_COOLDOWN: 600,
     GParam.SUBS_FISHING_COOLDOWN: 300
