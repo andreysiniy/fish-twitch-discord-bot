@@ -61,7 +61,7 @@ class FishingEngine:
         rod_stats = attacker_rod.get("stats", {}) if attacker_rod else {}
         attacker_luck = 1.0 + rod_stats.get("luck_bonus", 0.0)
 
-        victim_resistance = float(victim.level * 10)
+        victim_resistance = float(victim.level * 5)
 
         final_chance = formulas.calculate_robbery_chance(
             base_chance=base_rob_chance,
