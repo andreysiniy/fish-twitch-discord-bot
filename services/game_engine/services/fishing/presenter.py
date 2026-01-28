@@ -148,22 +148,62 @@ class FishingPresenter:
             return [SendBaseMessageAction(action_message=msg), action]
             
         return [action]
-
+    # над крч объект модели victim сюда наверн
     def _present_robbery(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
-        
+        actions = []
+
         percent = result.loot.get("percent", 0)
+        amount = result.loot.get("mass", 0)
+        robbery_result = result.get("robbery_result", {})
+
+        base_msg_action = self._present_basic_msg(
+            user, result, config, 
+            username=user.username, percent=percent, mass=amount
+            )
         
-        action = RobberyAction(
-            attacker_id=user.user_twitch_id,
-            victim_scope=result.loot.get("victim_scope", "active"),
-            steal_percent=percent,
-            action_message=result.loot.get("action_message", "")
-        )
-        
-        base_msg = SendBaseMessageAction(
-            action_message=resolve_message(config, result.loot.get("message", "Robbery attempt!"), username=user.username)
-        )
-        return [base_msg, action]
+        actions.append(SendBaseMessageAction(action_message=base_msg_action))
+
+        if not robbery_result:
+            msg = resolve_message(config, MsgKey.ROBBERY_FAIL, attacker=user.username)
+            actions.append(SendBaseMessageAction(action_message=msg))
+            return actions
+
+        if robbery_result.is_success:
+            amount_gain_fmt = format_large_number_mass_signed(robbery_result.get("amount_stolen"))
+            amount_lost_fmt = format_large_number_mass_signed(0 - robbery_result.get("amount_stolen"))
+            attacker_mass_fmt = format_large_number_mass(user.current_mass)
+            victim_mass_fmt = format_large_number_mass(robbery_result.get("victim_new_mass"))
+
+            msg_text = resolve_message(
+                config, 
+                MsgKey.ROBBERY_SUCCESS,
+                attacker=user.username,
+                attackes_mass=attacker_mass_fmt,
+                victim=robbery_result.victim_name,
+                attacker_gain=amount_gain_fmt,
+                victim_mass=victim_mass_fmt,
+                victim_loss = amount_lost_fmt
+            )
+            
+            actions.append(SendBaseMessageAction(action_message=msg_text))
+
+            actions.append(AddMassAction(
+                amount=robbery_result.amount_stolen,
+                amount_now=round(user.current_mass, 2),
+                total_mass=round(user.total_mass_stat, 2),
+                action_message=""
+            ))
+
+        else:
+            msg_text = resolve_message(
+                config, 
+                MsgKey.ROBBERY_PROTECTED,
+                attacker=user.username,
+                victim=robbery_result.victim_name
+            )
+            actions.append(SendBaseMessageAction(action_message=msg_text))
+
+        return actions
 
     def _present_roulette(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
         
