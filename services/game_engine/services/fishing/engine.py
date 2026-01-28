@@ -97,6 +97,7 @@ class FishingEngine:
             amount_stolen=final_amount,
             victim_name=victim.username,
             victim_twitch_id=victim.user_twitch_id,
+            victim_new_mass=victim.current_mass - final_amount,
             chance_used=round(final_chance, 3)
         )
 

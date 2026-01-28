@@ -33,6 +33,7 @@ class RobberyResultDTO(BaseModel):
     amount_stolen: float
     victim_name: str
     victim_twitch_id: str
+    victim_new_mass: float
     chance_used: float    
 
 class FishingResult(BaseModel):
