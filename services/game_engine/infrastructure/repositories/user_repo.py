@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.expression import func
+import random
 from infrastructure.models import UserProgress, Channel
 
 class UserRepository:
@@ -49,6 +51,33 @@ class UserRepository:
                      .offset(skip).limit(limit).all()
 
         return users, total
+    
+    def get_random_victim(self, channel_id: int, exclude_user_id: int) -> UserProgress | None:
+        return self.db.query(UserProgress).filter(
+            UserProgress.channel_id == channel_id,
+            UserProgress.id != exclude_user_id,
+            UserProgress.current_mass > 0
+        ).order_by(func.random()).first()
+    
+    def get_rich_victim(self, channel_id: int, attacker_id: int, lookup_range: int = 5) -> UserProgress | None:
+        attacker = self.db.query(UserProgress).filter(UserProgress.id == attacker_id).first()
+        if not attacker:
+            return None
+        attacker_mass = attacker.current_mass
+        candidates = (self.db.query(UserProgress)
+            .filter(
+                UserProgress.channel_id == channel_id,
+                UserProgress.id != attacker_id,
+                UserProgress.current_mass >= attacker_mass,
+                UserProgress.current_mass > 0
+            )
+            .order_by(UserProgress.current_mass.asc())
+            .limit(lookup_range)
+            .all()
+        )
+        if not candidates:
+            return self.get_random_victim(channel_id, attacker_id)
+        return random.choice(candidates)        
 
     def update_inventory(self, user: UserProgress, item_data: dict):
         if not user.inventory:
