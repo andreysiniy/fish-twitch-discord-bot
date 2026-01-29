@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from core.messages import (
     resolve_message, MsgKey, 
     format_large_number_mass, format_large_number_mass_signed, 
-    format_time, format_large_number_points
+    format_time, format_large_number_points, format_percent, format_percent_signed
 )
 from core.action_types import ActionType
 
@@ -85,9 +85,19 @@ class FishingPresenter:
         mass_formatted = format_large_number_mass_signed(result.mass_gained)
         new_mass_formatted = format_large_number_mass(user.current_mass)
         
+        percentage = 0
+        if result.loot.get("percentage") is not None:
+            percentage = result.loot.get("percentage")
+            if percentage >= 0:
+                percentage *= max(1, result.luck_used)
+            else:
+                percentage /= max(1, result.luck_used)
+        percentage_formatted = format_percent_signed(percentage)
+
         base_msg_action = self._present_basic_msg(
             user, result, config, 
-            username=user.username, amount=mass_formatted, new_mass=new_mass_formatted
+            username=user.username, amount=mass_formatted, new_mass=new_mass_formatted,
+            percentage=percentage_formatted
             )
 
         actions.append(base_msg_action)

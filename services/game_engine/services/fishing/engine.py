@@ -2,6 +2,7 @@ import random
 import time
 from domain.logic import rng, formulas, inventory_utils
 from core.game_params import resolve_param, GParam
+from core.action_types import ActionType
 from domain.schemas.fishing import FishingResult, RobberyResultDTO
 from infrastructure.models import UserProgress
 from typing import Dict, Any
@@ -36,8 +37,8 @@ class FishingEngine:
         new_level = user.level + 1 if is_levelup else user.level
 
         mass_gain = 0.0
-        if catch.get("type") == "fish":
-            mass_gain = self._calculate_mass(catch, luck)
+        if catch.get("type") == ActionType.FISH:
+            mass_gain = self._calculate_mass(catch, luck, user.current_mass)
 
         return FishingResult(
             loot=catch,
@@ -111,12 +112,15 @@ class FishingEngine:
             exponent=xp_exponent
             )
 
-    def _calculate_mass(self, catch: dict, luck_modifier: float) -> float:
+    def _calculate_mass(self, catch: dict, luck_modifier: float, user_balance: float) -> float:
         min_m = catch.get("min_mass", 0.1)
         max_m = catch.get("max_mass", 5.0)
         
         if catch.get("fixed_mass") is not None:
             raw_mass = catch.get("fixed_mass")
+        elif catch.get("percentage") is not None:
+            percentage = catch.get("percentage")
+            raw_mass = user_balance * percentage
         else:
             raw_mass = random.uniform(min_m, max_m)
             
