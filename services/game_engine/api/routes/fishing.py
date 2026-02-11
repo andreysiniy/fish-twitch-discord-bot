@@ -15,7 +15,9 @@ def cast_rod(
         result = service.process_cast(
             twitch_id=request.user_id,
             username=request.username,
-            channel_id=request.channel_id
+            channel_id=request.channel_id,
+            is_mod=request.is_mod,
+            is_sub=request.is_sub
         )
         return result
     except Exception as e:

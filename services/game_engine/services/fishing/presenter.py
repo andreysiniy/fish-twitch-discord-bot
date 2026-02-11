@@ -70,6 +70,29 @@ class FishingPresenter:
             actions=actions
         )
 
+    def build_cooldown_response(
+        self,
+        user: UserProgress,
+        cooldown_duration: int,
+        cooldown_left: int
+    ) -> FishResponse:
+        channel_conf = user.channel.config or {}
+        cooldown_message = resolve_message(
+            channel_conf,
+            MsgKey.COOLDOWN_ACTIVE,
+            username=user.username,
+            cooldown_time=format_time(cooldown_duration),
+            cooldown_time_left=format_time(cooldown_left)
+        )
+
+        return FishResponse(
+            chat_message=cooldown_message,
+            xp_gained=0,
+            item_drop=None,
+            level_up=None,
+            actions=[SendBaseMessageAction(action_message=cooldown_message)]
+        )
+
 
     def _present_basic_msg(self, user: UserProgress, result: FishingResult, config: Dict, **kwargs) -> SendBaseMessageAction:
         base_msg = resolve_message(config, MsgKey.FISH_BASE_MSG, **kwargs)
