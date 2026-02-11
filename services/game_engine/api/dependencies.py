@@ -9,6 +9,7 @@ from infrastructure.repositories.channel_repo import ChannelRepository
 from services.admin_service import AdminService
 
 from services.fishing_service import FishingService
+from services.travel_service import TravelService
 
 from services.inventory_service import InventoryService 
 
@@ -30,6 +31,12 @@ def get_fishing_service(
     config_repo: ConfigRepository = Depends(get_config_repo)
 ) -> FishingService:
     return FishingService(user_repo=user_repo, config_repo=config_repo)
+
+def get_travel_service(
+    user_repo: UserRepository = Depends(get_user_repo),
+    config_repo: ConfigRepository = Depends(get_config_repo)
+) -> TravelService:
+    return TravelService(user_repo=user_repo, config_repo=config_repo)
 
 def get_channel_repo(db: Session = Depends(get_db)) -> ChannelRepository:
     return ChannelRepository(db)

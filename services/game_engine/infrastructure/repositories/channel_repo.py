@@ -39,7 +39,22 @@ class ChannelRepository:
         return channel
 
 
-    def update_rewards(self, channel_id: int, location_id: str, rewards: list, items: list[DropItemDTO], items_drop_rate: float) -> RewardPool:
+    def _fallback_location_name(self, location_id: str) -> str:
+        raw = (location_id or "default").strip()
+        if not raw:
+            return "Default"
+        return raw.replace("_", " ").replace("-", " ").title()
+
+    def update_rewards(
+        self,
+        channel_id: int,
+        location_id: str,
+        rewards: list,
+        items: list[DropItemDTO],
+        items_drop_rate: float,
+        requirements: dict | None = None,
+        location_name: str | None = None
+    ) -> RewardPool:
         pool = self.db.query(RewardPool).filter(
             RewardPool.channel_id == channel_id,
             RewardPool.location_id == location_id
@@ -48,7 +63,8 @@ class ChannelRepository:
         if not pool:
             pool = RewardPool(
                 channel_id=channel_id,
-                location_id=location_id
+                location_id=location_id,
+                location_name=location_name or self._fallback_location_name(location_id)
             )
             self.db.add(pool)
             self.db.commit()
@@ -56,6 +72,12 @@ class ChannelRepository:
         
         pool.rewards_data = rewards
         pool.items_drop_rate = items_drop_rate
+        if location_name is not None:
+            pool.location_name = location_name
+        elif not pool.location_name:
+            pool.location_name = self._fallback_location_name(location_id)
+        if requirements is not None:
+            pool.requirements = requirements
 
         self.db.query(LocationItem).filter(LocationItem.reward_pool_id == pool.id).delete()
         for item_dto in items:

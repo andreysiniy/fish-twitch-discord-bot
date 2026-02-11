@@ -28,7 +28,15 @@ class AdminService:
         if not channel:
             raise ValueError("Channel not found")
         
-        return self.repo.update_rewards(channel.id, location_id, data.rewards, data.items, data.items_drop_rate)
+        return self.repo.update_rewards(
+            channel.id,
+            location_id,
+            data.rewards,
+            data.items or [],
+            data.items_drop_rate,
+            data.requirements,
+            data.location_name
+        )
 
     def get_channel_rewards(self, twitch_id: str, location_id: str):
         channel = self.repo.get_by_twitch_id(twitch_id)
@@ -37,10 +45,19 @@ class AdminService:
         
         rewards = {}
         loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(twitch_id, location_id)
+        pool = self.repo.get_rewards(channel.id, location_id)
+        requirements = pool.requirements if pool and isinstance(pool.requirements, dict) else {}
+        location_name = (
+            pool.location_name
+            if pool and isinstance(pool.location_name, str) and pool.location_name.strip()
+            else location_id
+        )
         
         if not loot_pool:
             rewards = {
                 "location_id": location_id,
+                "location_name": location_name,
+                "requirements": requirements,
                 "items_drop_rate": 0,
                 "rewards_data": [],
                 "items": []
@@ -48,6 +65,8 @@ class AdminService:
             
         rewards.update({
             "location_id": location_id,
+            "location_name": location_name,
+            "requirements": requirements,
             "items_drop_rate": items_drop_rate,
             "rewards_data": loot_pool,
             "items": item_pool

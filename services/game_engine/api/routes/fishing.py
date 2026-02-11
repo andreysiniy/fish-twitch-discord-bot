@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from services.fishing_service import FishingService
-from api.dependencies import get_fishing_service
-from domain.schemas.fishing import FishRequest, FishResponse
+from services.travel_service import TravelService
+from api.dependencies import get_fishing_service, get_travel_service
+from domain.schemas.fishing import FishRequest, FishResponse, FishTravelRequest, FishTravelResponse
 
 router = APIRouter()
 
@@ -17,5 +18,15 @@ def cast_rod(
             channel_id=request.channel_id
         )
         return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/fishtravel", response_model=FishTravelResponse)
+def fish_travel(
+    request: FishTravelRequest,
+    service: TravelService = Depends(get_travel_service)
+):
+    try:
+        return service.process_travel(request)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

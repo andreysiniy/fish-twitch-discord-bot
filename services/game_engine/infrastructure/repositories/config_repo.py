@@ -18,6 +18,15 @@ class ConfigRepository(BaseRepository[RewardPool]):
             return pool.rewards_data
         
         return [{"type": "nothing", "weight": 100, "message": "No fish here..."}]
+
+    def get_locations(self, channel_twitch_id: str) -> list[RewardPool]:
+        return (
+            self.db.query(RewardPool)
+            .join(Channel)
+            .filter(Channel.twitch_id == channel_twitch_id)
+            .order_by(RewardPool.location_id.asc())
+            .all()
+        )
     
     def get_dual_pool(self, channel_twitch_id: str, location_id: str):
         """

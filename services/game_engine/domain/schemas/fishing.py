@@ -1,5 +1,5 @@
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from domain.schemas.actions import GameAction
 from domain.schemas.rpg import DropItemDTO
@@ -11,6 +11,34 @@ class FishRequest(BaseModel):
     user_input: Optional[str] = None  # Например !fish <bet>
     is_mod: bool = False
     is_sub: bool = False
+
+class FishTravelRequest(BaseModel):
+    user_id: str
+    username: str
+    channel_id: str
+    user_input: Optional[str] = None
+    location_number: Optional[int] = None
+
+class LocationRequirementDTO(BaseModel):
+    level: int = 0
+    total_fish_stat: int = 0
+    total_mass_stat: float = 0.0
+
+class TravelLocationDTO(BaseModel):
+    number: int
+    location_id: str
+    location_name: str
+    is_current: bool
+    is_available: bool
+    requirements: LocationRequirementDTO
+    missing_requirements: List[str] = Field(default_factory=list)
+
+class FishTravelResponse(BaseModel):
+    success: bool
+    chat_message: str
+    current_location_id: str
+    selected_location_id: Optional[str] = None
+    locations: List[TravelLocationDTO] = Field(default_factory=list)
 
 class LevelUpInfo(BaseModel):
     old_level: int

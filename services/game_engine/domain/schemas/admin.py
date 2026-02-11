@@ -26,11 +26,18 @@ class ChannelResponseDTO(BaseModel):
 
 class RewardPoolUpdateDTO(BaseModel):
     items_drop_rate: Optional[float] = Field(0.1, description="Chance to drop an item")
+    location_name: Optional[str] = Field(None, description="Display name for location")
+    requirements: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Location entry requirements (level, total_fish_stat, total_mass_stat)"
+    )
     rewards: List[Dict[str, Any]] = Field(..., description="Rewards data to update the pool")
     items: Optional[List[DropItemDTO]] = Field(None, description="Optional list of detailed drop items")
 
 class RewardPoolResponseDTO(BaseModel):
     location_id: str
+    location_name: str
+    requirements: Dict[str, Any] = Field(default_factory=dict)
     rewards_data: List[Dict[str, Any]]
     items_drop_rate: float
     items: List[DropItemDTO]

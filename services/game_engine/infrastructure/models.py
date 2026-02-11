@@ -48,9 +48,11 @@ class RewardPool(Base):
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"))
     location_id = Column(String, index=True) 
+    location_name = Column(String, nullable=True)
     
     # [{"type": "points", "weight": 100, ...}, {"type": "item", ...}]
     rewards_data = Column(JSONB, default=[])
+    requirements = Column(JSONB, default={})
 
     items_drop_rate = Column(Float, default=0.1)
     items = relationship("LocationItem", back_populates="pool")

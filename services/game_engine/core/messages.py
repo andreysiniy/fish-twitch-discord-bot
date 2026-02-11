@@ -61,6 +61,11 @@ class MsgKey(str, Enum):
     TRAVEL_FAIL_LEVEL = "travel_fail_level"
     TRAVEL_FAIL_NOT_FOUND = "travel_fail_not_found"
     CURRENT_LOCATION = "current_location"
+    TRAVEL_LIST = "travel_list"
+    TRAVEL_LIST_COMPACT = "travel_list_compact"
+    TRAVEL_FAIL_INVALID_NUMBER = "travel_fail_invalid_number"
+    TRAVEL_FAIL_REQUIREMENTS = "travel_fail_requirements"
+    TRAVEL_NO_LOCATIONS = "travel_no_locations"
 
     # --- Consumables ---
     BAIT_CONSUMED = "bait_consumed"
@@ -154,6 +159,11 @@ DEFAULT_MESSAGES = {
     MsgKey.TRAVEL_FAIL_LEVEL: "You need Level {req_level} to enter {location_name} (Current: {level}).",
     MsgKey.TRAVEL_FAIL_NOT_FOUND: "Location '{location_id}' does not exist.",
     MsgKey.CURRENT_LOCATION: "You are currently fishing at: {location_name}.",
+    MsgKey.TRAVEL_LIST: "Available locations: {locations}. Use !fishtravel <number> to travel.",
+    MsgKey.TRAVEL_LIST_COMPACT: "Available locations: {locations}.",
+    MsgKey.TRAVEL_FAIL_INVALID_NUMBER: "Invalid location number '{location_number}'. Use !fishtravel to see locations.",
+    MsgKey.TRAVEL_FAIL_REQUIREMENTS: "You cannot travel to {location_name}. Missing: {requirements}.",
+    MsgKey.TRAVEL_NO_LOCATIONS: "No travel locations configured yet.",
 
     MsgKey.BAIT_CONSUMED: "Your {item_name} ran out!",
 
