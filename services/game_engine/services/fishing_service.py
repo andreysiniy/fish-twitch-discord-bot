@@ -41,8 +41,11 @@ class FishingService:
             user.level = result.new_level
             
         if result.mass_gained != 0:
-            user.current_mass += result.mass_gained
-            user.total_mass_stat += result.mass_gained
+            previous_mass = user.current_mass
+            user.current_mass = max(previous_mass + result.mass_gained, 0.0)
+            applied_mass_delta = round(user.current_mass - previous_mass, 2)
+            user.total_mass_stat += applied_mass_delta
+            result.mass_gained = applied_mass_delta
             
         if result.item_drop:
             self.user_repo.update_inventory(user, result.item_drop)
@@ -71,10 +74,18 @@ class FishingService:
         )
 
         if robbery_result.is_success:
-            user.current_mass += robbery_result.amount_stolen
-            user.total_mass_stat += robbery_result.amount_stolen
-            victim.current_mass -= robbery_result.amount_stolen
-            victim.total_mass_stat -= robbery_result.amount_stolen
+            requested_stolen = max(float(robbery_result.amount_stolen or 0), 0.0)
+            victim_previous_mass = max(float(victim.current_mass or 0), 0.0)
+            applied_stolen = round(min(requested_stolen, victim_previous_mass), 2)
+
+            user.current_mass += applied_stolen
+            user.total_mass_stat += applied_stolen
+
+            victim.current_mass = round(max(victim_previous_mass - applied_stolen, 0.0), 2)
+            victim.total_mass_stat -= applied_stolen
+
+            robbery_result.amount_stolen = applied_stolen
+            robbery_result.victim_new_mass = victim.current_mass
             self.user_repo.save_progress(victim)
         
         return robbery_result
