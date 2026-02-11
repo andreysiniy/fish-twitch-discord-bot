@@ -3,9 +3,9 @@ import time
 from domain.logic import rng, formulas, inventory_utils
 from core.game_params import resolve_param, GParam
 from core.action_types import ActionType
-from domain.schemas.fishing import FishingResult, RobberyResultDTO
+from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
 from infrastructure.models import UserProgress
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class FishingEngine:
     def calculate_result(self, user, loot_pool, item_pool, items_drop_rate, custom_params) -> FishingResult:
@@ -37,8 +37,12 @@ class FishingEngine:
         new_level = user.level + 1 if is_levelup else user.level
 
         mass_gain = 0.0
+        roulette_result = None
         if catch.get("type") == ActionType.FISH:
             mass_gain = self._calculate_mass(catch, luck, user.current_mass)
+        elif catch.get("type") == ActionType.RUSSIAN_ROULETTE:
+            roulette_result = self.calculate_russian_roulette(user=user, catch=catch, luck_modifier=luck)
+            mass_gain = roulette_result.mass_delta
 
         return FishingResult(
             loot=catch,
@@ -48,7 +52,8 @@ class FishingEngine:
             mass_gained=mass_gain,
             is_level_up=is_levelup,
             new_level=new_level,
-            luck_used=luck
+            luck_used=luck,
+            roulette_result=roulette_result
         )
     
     def calculate_mass_robbery(self, attacker: UserProgress, victim: UserProgress, channel_config: Dict[str, Any], catch: Dict) -> RobberyResultDTO:
@@ -102,6 +107,37 @@ class FishingEngine:
             chance_used=round(final_chance, 3)
         )
 
+    def calculate_russian_roulette(self, user: UserProgress, catch: Dict[str, Any], luck_modifier: float) -> RussianRouletteResultDTO:
+        bullets = max(int(catch.get("bullets", 1)), 0)
+        chambers = max(int(catch.get("chambers", 6)), 1)
+        is_hit = rng.is_russian_roulette_hit(bullets=bullets, chambers=chambers)
+
+        message = catch.get("shot_message" if is_hit else "safe_message")
+        if not message:
+            message = "BANG!" if is_hit else "Click..."
+
+        penalty = catch.get("penalty")
+        reward = catch.get("reward")
+        effect_conf = penalty if is_hit else reward
+
+        if not is_hit and not effect_conf:
+            if "mass" in catch:
+                effect_conf = {"type": ActionType.ADD_MASS, "mass": catch.get("mass", 0)}
+            elif "percentage" in catch:
+                effect_conf = {"type": ActionType.ADD_PERCENTAGE_MASS, "percentage": catch.get("percentage", 0)}
+
+        mass_delta = self._calculate_roulette_mass_delta(effect_conf, user.current_mass, luck_modifier)
+
+        return RussianRouletteResultDTO(
+            is_hit=is_hit,
+            bullets=bullets,
+            chambers=chambers,
+            message=message,
+            mass_delta=mass_delta,
+            penalty=penalty,
+            reward=reward
+        )
+
     def _check_level_up(self, current_xp: int, user_level: int, custom_params: Dict[str, Any]) -> bool:
         xp_exponent = resolve_param(custom_params, GParam.XP_EXPONENT)
         xp_base = resolve_param(custom_params, GParam.XP_BASE)
@@ -127,3 +163,28 @@ class FishingEngine:
         if raw_mass < 0:
             return round(raw_mass / luck_modifier, 2)
         return round(raw_mass * luck_modifier, 2)
+
+    def _calculate_roulette_mass_delta(self, effect_conf: Optional[Dict[str, Any]], user_balance: float, luck_modifier: float) -> float:
+        if not isinstance(effect_conf, dict):
+            return 0.0
+
+        effect_type = str(effect_conf.get("type", "")).lower()
+        if effect_type in {
+            ActionType.ADD_MASS.value,
+            "mass",
+            "add_mass"
+        }:
+            raw_mass = float(effect_conf.get("mass", effect_conf.get("value", 0)) or 0)
+        elif effect_type in {
+            ActionType.ADD_PERCENTAGE_MASS.value,
+            "percentage_mass",
+            "add_percentage_mass"
+        }:
+            pct = float(effect_conf.get("percentage", effect_conf.get("value", 0)) or 0)
+            raw_mass = user_balance * pct
+        else:
+            return 0.0
+
+        if raw_mass < 0:
+            return round(raw_mass / max(luck_modifier, 1), 2)
+        return round(raw_mass * max(luck_modifier, 1), 2)

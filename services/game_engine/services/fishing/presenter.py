@@ -12,7 +12,6 @@ from domain.schemas.actions import (
     TimeoutAction, 
     StreamElementsPointsAction, 
     RobberyAction, 
-    RussianRouletteAction, 
     AddMassAction, 
     SendBaseMessageAction, 
     LevelUpAction,
@@ -216,32 +215,87 @@ class FishingPresenter:
         return actions
 
     def _present_roulette(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
-        
-        bullets = result.loot.get("bullets", 1)
-        chambers = result.loot.get("chambers", 6)
-        is_hit = random.random() < (bullets / chambers)
-        
-        message_key = "shot_message" if is_hit else "safe_message"
-        final_msg = result.loot.get(message_key, "Click..." if not is_hit else "BANG!")
-        
-        penalty_action = None
-        if is_hit:
-            penalty_conf = result.loot.get("penalty", {})
-            if penalty_conf.get("type") == "timeout":
-                penalty_action = TimeoutAction(
-                    duration=penalty_conf.get("duration", 60),
-                    reason=penalty_conf.get("reason", "Roulette Death"),
-                    target_user=user.username,
-                    action_message=""
-                )
-        
-        roulette_action = RussianRouletteAction(
-            hit=is_hit,
-            penalty_action=penalty_action,
-            action_message=final_msg
+        roulette = result.roulette_result
+        if roulette:
+            is_hit = roulette.is_hit
+            final_msg_template = roulette.message
+            active_effect = roulette.penalty if is_hit else roulette.reward
+        else:
+            bullets = max(int(result.loot.get("bullets", 1)), 0)
+            chambers = max(int(result.loot.get("chambers", 6)), 1)
+            is_hit = random.random() < (bullets / chambers)
+            message_key = "shot_message" if is_hit else "safe_message"
+            final_msg_template = result.loot.get(message_key, "Click..." if not is_hit else "BANG!")
+            active_effect = result.loot.get("penalty", {}) if is_hit else result.loot.get("reward", {})
+
+        if not final_msg_template:
+            fallback_key = MsgKey.ROULETTE_SHOT if is_hit else MsgKey.ROULETTE_SAFE
+            final_msg_template = resolve_message(config, fallback_key, username=user.username)
+
+        actions: List[GameAction] = []
+        active_effect = active_effect if isinstance(active_effect, dict) else {}
+
+        mass_formatted = format_large_number_mass_signed(result.mass_gained)
+        new_mass_formatted = format_large_number_mass(user.current_mass)
+
+        percentage_value = float(active_effect.get("percentage", 0) or 0)
+        if percentage_value != 0:
+            if percentage_value >= 0:
+                percentage_value *= max(1, result.luck_used)
+            else:
+                percentage_value /= max(1, result.luck_used)
+        percentage_formatted = format_percent_signed(percentage_value)
+
+        timeout_duration = int(active_effect.get("duration", 0) or 0)
+        duration_formatted = format_time(timeout_duration) if timeout_duration > 0 else "0s"
+        timeout_reason = active_effect.get("reason", "Roulette Death")
+
+        final_msg = resolve_message(
+            config,
+            final_msg_template,
+            username=user.username,
+            amount=mass_formatted,
+            mass=mass_formatted,
+            new_mass=new_mass_formatted,
+            percentage=percentage_formatted,
+            percent=percentage_formatted,
+            duration=duration_formatted,
+            reason=timeout_reason
         )
-        
-        return [roulette_action]
+        actions.append(SendBaseMessageAction(action_message=final_msg))
+
+        effect_type = str(active_effect.get("type", "")).lower()
+        if effect_type == "timeout":
+            duration = int(active_effect.get("duration", 60))
+            reason = active_effect.get("reason", "Roulette Death")
+            timeout_msg = resolve_message(
+                config, MsgKey.TIMEOUT_ISSUED,
+                username=user.username,
+                duration=format_time(duration),
+                reason=reason
+            )
+            actions.append(TimeoutAction(
+                duration=duration,
+                reason=reason,
+                target_user=user.username,
+                action_message=timeout_msg
+            ))
+
+        if result.mass_gained != 0:
+            mass_update_msg = resolve_message(
+                config, MsgKey.MASS_SET,
+                amount=mass_formatted,
+                new_mass=new_mass_formatted,
+                username=user.username
+            )
+            actions.append(AddMassAction(
+                amount=result.mass_gained,
+                amount_now=round(user.current_mass, 2),
+                total_mass=round(user.total_mass_stat, 2),
+                action_message=mass_update_msg
+            ))
+
+        return actions
 
     def _present_item_drop(self, user: UserProgress, item: Dict, config: Dict) -> List[GameAction]:
         item_name = item.get("name", "Unknown Item")

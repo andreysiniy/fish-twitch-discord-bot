@@ -36,6 +36,15 @@ class RobberyResultDTO(BaseModel):
     victim_new_mass: float
     chance_used: float    
 
+class RussianRouletteResultDTO(BaseModel):
+    is_hit: bool
+    bullets: int
+    chambers: int
+    message: str
+    mass_delta: float = 0.0
+    penalty: Optional[Dict[str, Any]] = None
+    reward: Optional[Dict[str, Any]] = None
+
 class FishingResult(BaseModel):
     loot: Dict[str, Any]
     item_drop: Optional[Dict]
@@ -47,3 +56,4 @@ class FishingResult(BaseModel):
     luck_used: float
     durability_loss: int = 1
     robbery_result: Optional[RobberyResultDTO] = None
+    roulette_result: Optional[RussianRouletteResultDTO] = None
