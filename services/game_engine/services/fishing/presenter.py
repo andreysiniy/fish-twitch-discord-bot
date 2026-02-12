@@ -239,23 +239,28 @@ class FishingPresenter:
 
     def _present_roulette(self, user: UserProgress, result: FishingResult, config: Dict) -> List[GameAction]:
         roulette = result.roulette_result
+        bullets = max(int(result.loot.get("bullets", 1)), 0)
+        chambers = max(int(result.loot.get("chambers", 6)), 1)
         if roulette:
             is_hit = roulette.is_hit
             final_msg_template = roulette.message
             active_effect = roulette.penalty if is_hit else roulette.reward
         else:
-            bullets = max(int(result.loot.get("bullets", 1)), 0)
-            chambers = max(int(result.loot.get("chambers", 6)), 1)
             is_hit = random.random() < (bullets / chambers)
             message_key = "shot_message" if is_hit else "safe_message"
             final_msg_template = result.loot.get(message_key, "Click..." if not is_hit else "BANG!")
             active_effect = result.loot.get("penalty", {}) if is_hit else result.loot.get("reward", {})
 
+        base_msg_action = self._present_basic_msg(
+            user, result, config, 
+            username=user.username, bullets=bullets, chambers=chambers
+            )
         if not final_msg_template:
             fallback_key = MsgKey.ROULETTE_SHOT if is_hit else MsgKey.ROULETTE_SAFE
             final_msg_template = resolve_message(config, fallback_key, username=user.username)
 
         actions: List[GameAction] = []
+        actions.append(base_msg_action)
         active_effect = active_effect if isinstance(active_effect, dict) else {}
 
         mass_formatted = format_large_number_mass_signed(result.mass_gained)
