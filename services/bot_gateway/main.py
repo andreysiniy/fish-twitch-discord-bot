@@ -1,40 +1,67 @@
-import os
-import aiohttp
 from twitchio.ext import commands
 
-class Bot(commands.Bot):
-    def __init__(self):
+from action_handler import ActionHandler
+from api_client import EngineApiClient
+from commands.fishing import FishingCog
+from commands.inventory import InventoryCog
+from commands.travel import TravelCog
+from config import BotConfig
+
+
+class BotGateway(commands.Bot):
+    def __init__(self, cfg: BotConfig):
         super().__init__(
-            token=os.environ['TWITCH_TOKEN'],
-            prefix='!',
-            initial_channels=[os.environ['INITIAL_CHANNELS']],
-            client_secret=os.environ.get('TWITCH_CLIENT_SECRET', None),
-            client_id=os.environ.get('TWITCH_CLIENT_ID', None),
-            bot_id=os.environ.get('BOT_NICK', None)
+            token=cfg.twitch_token,
+            prefix=cfg.command_prefix,
+            initial_channels=cfg.initial_channels,
+            client_secret=cfg.twitch_client_secret or None,
+            client_id=cfg.twitch_client_id or None,
+            bot_id=cfg.bot_nick or None
         )
-        self.engine_url = os.environ['ENGINE_URL']
+        self.cfg = cfg
+        self.api_client = EngineApiClient(cfg.engine_url)
+        self.action_handler = ActionHandler()
+
+        self.add_cog(FishingCog(self))
+        self.add_cog(InventoryCog(self))
+        self.add_cog(TravelCog(self))
+
+    def resolve_channel_id(self, ctx: commands.Context) -> str:
+        channel = getattr(ctx, "channel", None)
+        if channel is None:
+            return ""
+
+        for attr in ("id", "channel_id", "broadcaster_id"):
+            value = getattr(channel, attr, None)
+            if value is not None and str(value).strip():
+                return str(value)
+
+        broadcaster = getattr(ctx, "broadcaster", None)
+        if broadcaster is not None:
+            value = getattr(broadcaster, "id", None)
+            if value is not None and str(value).strip():
+                return str(value)
+
+        # Fallback for unexpected context shapes.
+        return str(getattr(channel, "name", "")).strip()
 
     async def event_ready(self):
-        print(f'Logged in as | {self.nick}')
+        print(f"Logged in as | {self.nick}")
+        print(f"Engine URL    | {self.cfg.engine_url}")
 
-    @commands.command(name='fish')
-    async def fish_command(self, ctx):
-        payload = {
-            "user_id": str(ctx.author.id),
-            "username": ctx.author.name,
-            "channel_name": ctx.channel.name
-        }
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.engine_url}/v1/fish", json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        await ctx.send(data['text'])
-                    else:
-                        await ctx.send(" :( ")
-        except Exception as e:
-            print(f"Error calling engine: {e}")
-            await ctx.send("Lost my fishing rod...")
+    async def event_error(self, error: Exception, data=None):
+        print(f"[bot-error] {error}")
 
-bot = Bot()
-bot.run()
+    async def close(self):
+        await self.api_client.close()
+        await super().close()
+
+
+def main() -> None:
+    cfg = BotConfig.from_env()
+    bot = BotGateway(cfg)
+    bot.run()
+
+
+if __name__ == "__main__":
+    main()

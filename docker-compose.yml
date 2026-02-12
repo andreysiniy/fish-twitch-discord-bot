@@ -53,23 +53,23 @@ services:
     networks:
       - fisher_net
 
-#  bot_gateway:
-#    build: ./services/bot_gateway
-#    container_name: fisher_bot
-#    restart: always
-#    command: python main.py
-#    volumes:
-#      - ./services/bot_gateway:/app
-#    environment:
-#      TWITCH_TOKEN: ${TWITCH_TOKEN}
-#      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
-#      BOT_NICK: ${BOT_NICK}
-#      INITIAL_CHANNELS: ${INITIAL_CHANNELS}
-#      ENGINE_URL: http://game_engine:8000 
-#    depends_on:
-#      - game_engine
-#    networks:
-#      - fisher_net
+  bot_gateway:
+    build: ./services/bot_gateway
+    container_name: fisher_bot
+    restart: always
+    command: python main.py
+    volumes:
+      - ./services/bot_gateway:/app
+    environment:
+      TWITCH_TOKEN: ${TWITCH_TOKEN}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
+      BOT_NICK: ${BOT_NICK}
+      INITIAL_CHANNELS: ${INITIAL_CHANNELS}
+      ENGINE_URL: http://game_engine:8000 
+    depends_on:
+      - game_engine
+    networks:
+      - fisher_net
 
 networks:
   fisher_net:
