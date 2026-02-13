@@ -7,7 +7,7 @@ from core.config import settings
 from infrastructure.database import engine, Base
 import infrastructure.models 
 
-from api.routes import fishing, admin, inventory
+from api.routes import fishing, admin, inventory, auth
 
 
 Base.metadata.create_all(bind=engine)
@@ -28,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/v1/auth", tags=["Auth"])
 app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])

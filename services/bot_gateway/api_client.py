@@ -1,7 +1,9 @@
 from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
+import os
 
+API_KEY = os.getenv("BOT_API_KEY", "")
 
 class EngineApiError(Exception):
     pass
@@ -31,6 +33,12 @@ class EngineApiClient:
 
     async def equip_item(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/inventory/equip", json=payload)
+    
+    def _get_headers(self) -> Dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "X-API-KEY": API_KEY
+        }
 
     async def _request(
         self,
@@ -44,7 +52,8 @@ class EngineApiClient:
             raise EngineApiError("HTTP session is not initialized")
 
         url = f"{self.base_url}{path}"
-        async with self._session.request(method, url, json=json) as response:
+        async with self._session.request(method, url, json=json, headers=self._get_headers()) as response:
+            print(f"Request: {method} {url} - Status: {response.status}, headers: {response.headers}")
             data, text = await self._read_payload(response)
             if response.status >= 400:
                 detail = data.get("detail") if isinstance(data, dict) else text

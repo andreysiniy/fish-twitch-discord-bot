@@ -1,4 +1,5 @@
-from fastapi import Depends
+from fastapi import Header, Depends, HTTPException, Security, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from sqlalchemy.orm import Session
 
 from infrastructure.database import SessionLocal
@@ -6,14 +7,16 @@ from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.redis_client import RedisClient
-
 from infrastructure.repositories.channel_repo import ChannelRepository
-from services.admin_service import AdminService
 
+from services.admin_service import AdminService
+from services.auth_service import AuthService
 from services.fishing_service import FishingService
 from services.travel_service import TravelService
-
 from services.inventory_service import InventoryService 
+
+from core.security import decode_access_token
+from core.config import settings
 
 def get_db():
     db = SessionLocal()
@@ -21,6 +24,9 @@ def get_db():
         yield db
     finally:
         db.close()
+
+jwt_scheme = HTTPBearer(auto_error=False)
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def get_user_repo(db: Session = Depends(get_db)) -> UserRepository:
     return UserRepository(db)
@@ -62,3 +68,48 @@ def get_inventory_service(
     user_repo: UserRepository = Depends(get_user_repo)
 ) -> InventoryService:
     return InventoryService(user_repo)
+
+def get_auth_service(
+    channel_repo: ChannelRepository = Depends(get_channel_repo)
+) -> AuthService:
+    return AuthService(channel_repo)
+
+async def get_current_user_id(
+    auth: HTTPAuthorizationCredentials | None = Depends(jwt_scheme)
+) -> str:
+    if not auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = auth.credentials 
+    
+    twitch_id = decode_access_token(token)
+    if not twitch_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    return twitch_id
+
+async def verify_security(
+    auth: HTTPAuthorizationCredentials | None = Depends(jwt_scheme),
+    x_api_key: str | None = Security(api_key_scheme)
+) -> str | None:
+    if x_api_key == settings.BOT_API_KEY:
+        return "BOT_SERVICE"
+
+    if auth and auth.credentials:
+        token = auth.credentials 
+        user_id = decode_access_token(token)
+        if user_id:
+            return user_id
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+    )
