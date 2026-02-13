@@ -57,7 +57,7 @@ class EngineApiClient:
             data, text = await self._read_payload(response)
             if response.status >= 400:
                 detail = data.get("detail") if isinstance(data, dict) else text
-                raise EngineApiError(f"Engine error {response.status}: {detail}")
+                raise EngineApiError(f"{detail}")
 
             if isinstance(data, dict):
                 return data
