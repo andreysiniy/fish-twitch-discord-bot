@@ -23,7 +23,7 @@ class InventoryCog(commands.Cog):
             await ctx.send("Could not retrieve inventory.")
 
     @commands.command(name="fishequip")
-    async def fishequip(self, ctx: commands.Context, slot_id: int) -> None:
+    async def fishequip(self, ctx: commands.Context, slot_id: int | None = None) -> None:
         channel_id = self.bot.resolve_channel_id(ctx)
         payload = {
             "user_id": str(ctx.author.id),
