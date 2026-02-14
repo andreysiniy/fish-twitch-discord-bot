@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, BigInteger, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger, ForeignKey, Text, Float, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB  
 from sqlalchemy.orm import relationship
 from infrastructure.database import Base
@@ -15,6 +15,25 @@ class Channel(Base):
 
     users_progress = relationship("UserProgress", back_populates="channel")
     reward_pools = relationship("RewardPool", back_populates="channel")
+    access_list = relationship(
+        "ChannelAccessRole",
+        back_populates="channel",
+        cascade="all, delete-orphan"
+    )
+
+
+class ChannelAccessRole(Base):
+    __tablename__ = "channel_access_roles"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "user_twitch_id", name="uq_channel_user_access"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
+    user_twitch_id = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False, default="editor")
+
+    channel = relationship("Channel", back_populates="access_list")
 
 
 class UserProgress(Base):

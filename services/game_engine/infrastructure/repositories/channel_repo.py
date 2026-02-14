@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from infrastructure.models import Channel, RewardPool, LocationItem
+from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole
 from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
 from domain.schemas.rpg import DropItemDTO
 
@@ -12,6 +12,41 @@ class ChannelRepository:
 
     def get_by_twitch_id(self, twitch_id: str) -> Channel | None:
         return self.db.query(Channel).filter(Channel.twitch_id == twitch_id).first()
+
+    def get_access_record(self, channel_id: int, user_twitch_id: str) -> ChannelAccessRole | None:
+        return self.db.query(ChannelAccessRole).filter(
+            ChannelAccessRole.channel_id == channel_id,
+            ChannelAccessRole.user_twitch_id == user_twitch_id
+        ).first()
+
+    def upsert_access_record(self, channel_id: int, user_twitch_id: str, role: str) -> ChannelAccessRole:
+        record = self.get_access_record(channel_id, user_twitch_id)
+        if record:
+            record.role = role
+        else:
+            record = ChannelAccessRole(
+                channel_id=channel_id,
+                user_twitch_id=user_twitch_id,
+                role=role
+            )
+            self.db.add(record)
+
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def delete_access_record(self, channel_id: int, user_twitch_id: str) -> bool:
+        record = self.get_access_record(channel_id, user_twitch_id)
+        if not record:
+            return False
+        self.db.delete(record)
+        self.db.commit()
+        return True
+
+    def list_access_records(self, channel_id: int) -> list[ChannelAccessRole]:
+        return self.db.query(ChannelAccessRole).filter(
+            ChannelAccessRole.channel_id == channel_id
+        ).all()
 
     def create(self, data: ChannelCreateDTO) -> Channel:
         channel = Channel(

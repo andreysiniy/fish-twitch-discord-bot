@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from domain.schemas.rpg import InventoryDTO, DropItemDTO
 
+ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
+
 # --- Channels ---
 
 class ChannelCreateDTO(BaseModel):
@@ -61,3 +63,16 @@ class AdminPlayerDTO(BaseModel):
 class PlayerListResponse(BaseModel):
     total: int
     players: List[AdminPlayerDTO]
+
+
+class ChannelAccessUpsertDTO(BaseModel):
+    user_twitch_id: str
+    role: str = Field(..., description="Role for the channel user access")
+
+
+class ChannelAccessResponseDTO(BaseModel):
+    user_twitch_id: str
+    role: str
+
+    class Config:
+        from_attributes = True
