@@ -9,7 +9,7 @@ class FishingCog(commands.Cog):
 
     @commands.command(name="fish")
     async def fish(self, ctx: commands.Context) -> None:
-        channel_id = self.bot.resolve_channel_id(ctx)
+        channel_id = (await ctx.message.channel.user()).id.__str__()
         payload = {
             "user_id": str(ctx.author.id),
             "username": ctx.author.name,
