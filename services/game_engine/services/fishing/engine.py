@@ -59,6 +59,15 @@ class FishingEngine:
         )
     
     def calculate_mass_robbery(self, attacker: UserProgress, victim: UserProgress, channel_config: Dict[str, Any], catch: Dict) -> RobberyResultDTO:
+        if victim is None:
+            return RobberyResultDTO(
+                is_success=False,
+                amount_stolen=0.0,
+                victim_name="",
+                victim_twitch_id="",
+                victim_new_mass=0.0,
+                chance_used=0.0
+            )
         min_chance = resolve_param(channel_config, GParam.ROB_MIN_CHANCE)       # 0.05
         max_chance = resolve_param(channel_config, GParam.ROB_MAX_CHANCE)       # 0.95
         resist_divisor = resolve_param(channel_config, GParam.ROB_RESIST_DIVISOR) # 100.0
