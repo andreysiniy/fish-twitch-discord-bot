@@ -132,11 +132,19 @@ class AdminService:
         role = data.role.strip().lower()
         if role not in ALLOWED_CHANNEL_ROLES:
             raise ValueError(f"Unsupported role. Allowed values: {', '.join(sorted(ALLOWED_CHANNEL_ROLES))}")
+        username = data.user_twitch_name.strip()
+        if not username:
+            raise ValueError("user_twitch_name is required")
 
         if data.user_twitch_id == channel.twitch_id:
             raise ValueError("Channel owner role is managed by channel ownership")
 
-        record = self.repo.upsert_access_record(channel.id, data.user_twitch_id, role)
+        record = self.repo.upsert_access_record(
+            channel.id,
+            data.user_twitch_id,
+            username,
+            role
+        )
         return ChannelAccessResponseDTO.model_validate(record)
 
     def remove_channel_access(self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str) -> None:

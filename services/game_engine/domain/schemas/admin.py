@@ -67,12 +67,30 @@ class PlayerListResponse(BaseModel):
 
 class ChannelAccessUpsertDTO(BaseModel):
     user_twitch_id: str
+    user_twitch_name: str
     role: str = Field(..., description="Role for the channel user access")
 
 
 class ChannelAccessResponseDTO(BaseModel):
     user_twitch_id: str
+    user_twitch_name: str
     role: str
 
     class Config:
         from_attributes = True
+
+
+class ChannelAccessListRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+
+
+class ChannelAccessManageRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    user_twitch_id: str
+    user_twitch_name: str
+    role: str = Field(..., description="Role for the channel user access")
+
+
+class ChannelAccessRemoveRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    user_twitch_id: str

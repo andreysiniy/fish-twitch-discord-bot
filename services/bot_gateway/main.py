@@ -2,6 +2,7 @@ from twitchio.ext import commands
 
 from action_handler import ActionHandler
 from api_client import EngineApiClient
+from commands.admin import AdminCog
 from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
@@ -25,6 +26,7 @@ class BotGateway(commands.Bot):
         self.add_cog(FishingCog(self))
         self.add_cog(InventoryCog(self))
         self.add_cog(TravelCog(self))
+        self.add_cog(AdminCog(self))
 
     def resolve_channel_id(self, ctx: commands.Context) -> str:
         channel = getattr(ctx, "channel", None)

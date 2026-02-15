@@ -2,6 +2,7 @@ from twitchio.ext import commands
 
 from api_client import EngineApiError
 
+from heplers.context_tool import get_channel_id
 
 class InventoryCog(commands.Cog):
     def __init__(self, bot):
@@ -9,7 +10,7 @@ class InventoryCog(commands.Cog):
 
     @commands.command(name="fishbag")
     async def fishbag(self, ctx: commands.Context) -> None:
-        channel_id = self.bot.resolve_channel_id(ctx)
+        channel_id = await get_channel_id(ctx)
         try:
             response = await self.bot.api_client.get_inventory(
                 channel_id=channel_id,
@@ -24,7 +25,7 @@ class InventoryCog(commands.Cog):
 
     @commands.command(name="fishequip")
     async def fishequip(self, ctx: commands.Context, slot_id: int | None = None) -> None:
-        channel_id = self.bot.resolve_channel_id(ctx)
+        channel_id = await get_channel_id(ctx)
         payload = {
             "user_id": str(ctx.author.id),
             "channel_id": channel_id,

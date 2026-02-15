@@ -19,14 +19,22 @@ class ChannelRepository:
             ChannelAccessRole.user_twitch_id == user_twitch_id
         ).first()
 
-    def upsert_access_record(self, channel_id: int, user_twitch_id: str, role: str) -> ChannelAccessRole:
+    def upsert_access_record(
+        self,
+        channel_id: int,
+        user_twitch_id: str,
+        user_twitch_name: str,
+        role: str
+    ) -> ChannelAccessRole:
         record = self.get_access_record(channel_id, user_twitch_id)
         if record:
+            record.user_twitch_name = user_twitch_name
             record.role = role
         else:
             record = ChannelAccessRole(
                 channel_id=channel_id,
                 user_twitch_id=user_twitch_id,
+                user_twitch_name=user_twitch_name,
                 role=role
             )
             self.db.add(record)

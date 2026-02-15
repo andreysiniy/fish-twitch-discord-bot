@@ -33,6 +33,48 @@ class EngineApiClient:
 
     async def equip_item(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/inventory/equip", json=payload)
+
+    async def admin_list_moderators(self, channel_id: str, actor_twitch_id: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/moderators/list",
+            json={"actor_twitch_id": actor_twitch_id}
+        )
+
+    async def admin_upsert_moderator(
+        self,
+        channel_id: str,
+        actor_twitch_id: str,
+        user_twitch_id: str,
+        user_twitch_name: str,
+        role: str
+    ) -> Dict[str, Any]:
+        payload = {
+            "actor_twitch_id": actor_twitch_id,
+            "user_twitch_id": user_twitch_id,
+            "user_twitch_name": user_twitch_name,
+            "role": role,
+        }
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/moderators/upsert",
+            json=payload
+        )
+
+    async def admin_remove_moderator(
+        self,
+        channel_id: str,
+        actor_twitch_id: str,
+        user_twitch_id: str
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/moderators/remove",
+            json={
+                "actor_twitch_id": actor_twitch_id,
+                "user_twitch_id": user_twitch_id,
+            }
+        )
     
     def _get_headers(self) -> Dict[str, str]:
         return {
@@ -52,7 +94,12 @@ class EngineApiClient:
             raise EngineApiError("HTTP session is not initialized")
 
         url = f"{self.base_url}{path}"
-        async with self._session.request(method, url, json=json, headers=self._get_headers()) as response:
+        async with self._session.request(
+            method,
+            url,
+            json=json,
+            headers=self._get_headers()
+        ) as response:
             print(f"Request: {method} {url} - Status: {response.status}, headers: {response.headers}")
             data, text = await self._read_payload(response)
             if response.status >= 400:
@@ -61,6 +108,8 @@ class EngineApiClient:
 
             if isinstance(data, dict):
                 return data
+            if isinstance(data, list):
+                return {"items": data}
             return {"raw": text}
 
     async def _read_payload(self, response: aiohttp.ClientResponse) -> Tuple[Any, str]:

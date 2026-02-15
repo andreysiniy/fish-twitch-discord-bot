@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 
 from services.admin_service import AdminService
-from api.dependencies import get_admin_service, get_current_user_id
+from api.dependencies import get_admin_service, get_current_user_id, verify_security
 from domain.schemas.admin import (
+    ChannelAccessListRequestDTO,
+    ChannelAccessManageRequestDTO,
+    ChannelAccessRemoveRequestDTO,
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
     ChannelCreateDTO, 
@@ -14,6 +17,14 @@ from domain.schemas.admin import (
 )
 
 router = APIRouter()
+
+
+def _resolve_actor_twitch_id(security_subject: str, actor_twitch_id: str | None) -> str:
+    if security_subject == "BOT_SERVICE":
+        if not actor_twitch_id:
+            raise HTTPException(status_code=401, detail="Missing actor_twitch_id in request body")
+        return actor_twitch_id
+    return security_subject
 
 @router.post("/channels", response_model=ChannelResponseDTO)
 def register_channel(
@@ -79,12 +90,15 @@ def get_channel_players(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/channels/{channel_twitch_id}/moderators", response_model=List[ChannelAccessResponseDTO])
+@router.post("/channels/{channel_twitch_id}/moderators/list", response_model=List[ChannelAccessResponseDTO])
 def list_channel_moderators(
     channel_twitch_id: str,
-    current_user_id: str = Depends(get_current_user_id),
+    data: ChannelAccessListRequestDTO,
+    security_subject: str = Depends(verify_security),
     service: AdminService = Depends(get_admin_service)
 ):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    print(f"[AdminAPI] list_channel_moderators called by {current_user_id} for channel {channel_twitch_id}")
     try:
         return service.list_channel_access(current_user_id, channel_twitch_id)
     except PermissionError as e:
@@ -92,31 +106,37 @@ def list_channel_moderators(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-@router.put("/channels/{channel_twitch_id}/moderators", response_model=ChannelAccessResponseDTO)
+@router.post("/channels/{channel_twitch_id}/moderators/upsert", response_model=ChannelAccessResponseDTO)
 def upsert_channel_moderator(
     channel_twitch_id: str,
-    data: ChannelAccessUpsertDTO,
-    current_user_id: str = Depends(get_current_user_id),
+    data: ChannelAccessManageRequestDTO,
+    security_subject: str = Depends(verify_security),
     service: AdminService = Depends(get_admin_service)
 ):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    upsert_data = ChannelAccessUpsertDTO(
+        user_twitch_id=data.user_twitch_id,
+        user_twitch_name=data.user_twitch_name,
+        role=data.role
+    )
     try:
-        return service.upsert_channel_access(current_user_id, channel_twitch_id, data)
+        return service.upsert_channel_access(current_user_id, channel_twitch_id, upsert_data)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/channels/{channel_twitch_id}/moderators/{user_twitch_id}")
+@router.post("/channels/{channel_twitch_id}/moderators/remove")
 def remove_channel_moderator(
     channel_twitch_id: str,
-    user_twitch_id: str,
-    current_user_id: str = Depends(get_current_user_id),
+    data: ChannelAccessRemoveRequestDTO,
+    security_subject: str = Depends(verify_security),
     service: AdminService = Depends(get_admin_service)
 ):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
     try:
-        service.remove_channel_access(current_user_id, channel_twitch_id, user_twitch_id)
+        service.remove_channel_access(current_user_id, channel_twitch_id, data.user_twitch_id)
         return {"status": "ok"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))

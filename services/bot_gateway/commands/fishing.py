@@ -1,5 +1,7 @@
 from twitchio.ext import commands
 
+from heplers.context_tool import get_channel_id
+
 from api_client import EngineApiError
 
 
@@ -9,7 +11,7 @@ class FishingCog(commands.Cog):
 
     @commands.command(name="fish")
     async def fish(self, ctx: commands.Context) -> None:
-        channel_id = (await ctx.message.channel.user()).id.__str__()
+        channel_id = await get_channel_id(ctx)
         payload = {
             "user_id": str(ctx.author.id),
             "username": ctx.author.name,

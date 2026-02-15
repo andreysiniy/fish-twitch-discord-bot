@@ -31,6 +31,7 @@ class ChannelAccessRole(Base):
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     user_twitch_id = Column(String, nullable=False, index=True)
+    user_twitch_name = Column(String, nullable=False, default="")
     role = Column(String, nullable=False, default="editor")
 
     channel = relationship("Channel", back_populates="access_list")
