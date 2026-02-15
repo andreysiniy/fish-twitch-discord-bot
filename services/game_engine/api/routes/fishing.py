@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from services.fishing_service import FishingService
 from services.travel_service import TravelService
 from api.dependencies import get_fishing_service, get_travel_service, verify_security
-from domain.schemas.fishing import FishRequest, FishResponse, FishTravelRequest, FishTravelResponse
+from domain.schemas.fishing import (
+    FishRequest,
+    FishResponse,
+    FishTravelRequest,
+    FishTravelResponse,
+    FishStatsResponse,
+    FishTopResponse,
+)
 
 router = APIRouter()
 
@@ -44,5 +51,41 @@ def fish_travel(
     try:
         request.user_id = real_user_id
         return service.process_travel(request)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/fishstats/{channel_id}/{user_id}", response_model=FishStatsResponse)
+def fish_stats(
+    channel_id: str,
+    user_id: str,
+    username: str | None = None,
+    service: FishingService = Depends(get_fishing_service),
+    auth_id: str = Depends(verify_security)
+):
+    # Any authenticated caller can request stats for any user.
+    if not auth_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    try:
+        return service.get_profile_stats(twitch_id=user_id, channel_id=channel_id, username=username)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/fishtop/{channel_id}", response_model=FishTopResponse)
+def fish_top(
+    channel_id: str,
+    limit: int = 10,
+    mode: str = "current",
+    service: FishingService = Depends(get_fishing_service),
+    auth_id: str = Depends(verify_security)
+):
+    if not auth_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    normalized_mode = (mode or "current").lower()
+    if normalized_mode not in {"current", "alltime", "catches", "level"}:
+        raise HTTPException(status_code=400, detail="Invalid mode. Use: current, alltime, catches, level")
+    try:
+        return service.get_channel_top(channel_id=channel_id, limit=max(1, min(limit, 25)), mode=normalized_mode)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

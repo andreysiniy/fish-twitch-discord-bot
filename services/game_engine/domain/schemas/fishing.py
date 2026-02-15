@@ -85,3 +85,41 @@ class FishingResult(BaseModel):
     durability_loss: int = 1
     robbery_result: Optional[RobberyResultDTO] = None
     roulette_result: Optional[RussianRouletteResultDTO] = None
+
+
+class PlayerStatsDTO(BaseModel):
+    level: int = 1
+    xp: int = 0
+    xp_to_next_level: int = 0
+    current_mass: float = 0.0
+    total_fish_stat: int = 0
+    rod_name: str
+    luck_bonus: float = 0.0
+    resist_bonus: float = 0.0
+    xp_bonus_pct: float = 0.0
+    rank: int = 0
+    total_mass_stat: float = 0.0
+
+
+class FishStatsResponse(BaseModel):
+    success: bool
+    chat_message: str
+    stats: PlayerStatsDTO
+
+
+class TopPlayerDTO(BaseModel):
+    rank: int
+    user_twitch_id: str
+    username: str
+    level: int = 1
+    xp: int = 0
+    current_mass: float = 0.0
+    total_fish_stat: int = 0
+    total_mass_stat: float
+
+
+class FishTopResponse(BaseModel):
+    success: bool
+    chat_message: str
+    mode: str = "current"
+    top: List[TopPlayerDTO] = Field(default_factory=list)

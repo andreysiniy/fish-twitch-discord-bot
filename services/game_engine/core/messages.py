@@ -78,6 +78,8 @@ class MsgKey(str, Enum):
 
     # --- Info ---
     PROFILE_STATS = "profile_stats"
+    PROFILE_STATS_DETAILED = "profile_stats_detailed"
+    PROFILE_TOP = "profile_top"
     HELP_TEXT = "help_text"
 
 
@@ -173,7 +175,19 @@ DEFAULT_MESSAGES = {
     MsgKey.ERR_NO_PERMISSION: "You don't have permission to do that.",
 
     MsgKey.PROFILE_STATS: "👤 {username} | Lvl: {level} | XP: {xp}/{xp_next} | Fish total weight: {current_mass} | Total fish gained: {total_mass_stat} | Amount of fish caught: {total_fish_stat}",
-    MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <slot>, !fishstats",
+    MsgKey.PROFILE_STATS_DETAILED: (
+        "📊 {username} Stats: "
+        "⭐ Level: {level} | XP: {xp}/{xp_next} | "
+        "🐟 Current Mass: {current_mass} | "
+        "🎯 Total Catches: {total_fish_stat} | "
+        "🎣 Rod: {rod_name} | "
+        "🍀 Luck: {luck_fmt} | "
+        "🛡 Resist: {resist_fmt} | "
+        "✨ XP Bonus: {xp_fmt} | "
+        "🏆 Rank: #{rank} (Total: {total_mass})"
+    ),
+    MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
+    MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <slot>, !fishstats, !fishtop",
 }
 
 class SafeFormatter(string.Formatter):

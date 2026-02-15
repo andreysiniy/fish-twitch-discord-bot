@@ -1,6 +1,7 @@
 import random
 import time
-from domain.logic import rng, formulas, inventory_utils
+from domain.logic import rng, formulas
+from domain.logic.stats_calculator import calculate_player_stats
 from core.game_params import resolve_param, GParam
 from core.action_types import ActionType
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
@@ -9,10 +10,9 @@ from typing import Dict, Any, Optional
 
 class FishingEngine:
     def calculate_result(self, user, loot_pool, item_pool, items_drop_rate, custom_params) -> FishingResult:
-        equipped_rod = inventory_utils.find_equipped_rod(user.inventory or {}, getattr(user, "items", None))
-        rod_stats = equipped_rod.get("stats", {}) if equipped_rod else {}
-        luck = 1 + rod_stats.get("luck_bonus", 0.0)
-        xp_bonus = rod_stats.get("xp_bonus_pct", 0.0)
+        player_stats = calculate_player_stats(user)
+        luck = 1 + player_stats.get("luck_bonus", 0.0)
+        xp_bonus = player_stats.get("xp_bonus_pct", 0.0)
 
         catch = rng.roll_loot(loot_pool, luck_modifier=luck)
         
@@ -65,9 +65,8 @@ class FishingEngine:
         loss_divisor = resolve_param(channel_config, GParam.ROB_LOSS_DIVISOR)   # 50.0
         base_rob_chance = resolve_param(channel_config, GParam.ROB_BASE_CHANCE) # 0.8
 
-        attacker_rod = inventory_utils.find_equipped_rod(attacker.inventory or {}, getattr(attacker, "items", None))
-        rod_stats = attacker_rod.get("stats", {}) if attacker_rod else {}
-        attacker_luck = 1.0 + rod_stats.get("luck_bonus", 0.0)
+        attacker_stats = calculate_player_stats(attacker)
+        attacker_luck = 1.0 + attacker_stats.get("luck_bonus", 0.0)
 
         victim_resistance = float(victim.level * 5)
 

@@ -4,11 +4,14 @@ from infrastructure.models import UserProgress
 
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
+from core.messages import MsgKey, resolve_message, format_percent_signed, format_large_number_mass
+from domain.logic.formulas import calculate_xp_required
+from domain.logic.stats_calculator import calculate_player_stats
 
 from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
 
-from domain.schemas.fishing import RobberyResultDTO
+from domain.schemas.fishing import RobberyResultDTO, FishStatsResponse, FishTopResponse
 
 class FishingService:
     def __init__(
@@ -129,3 +132,103 @@ class FishingService:
             self.user_repo.save_progress(victim)
         
         return robbery_result
+
+    def get_profile_stats(self, twitch_id: str, channel_id: str, username: str | None = None) -> FishStatsResponse:
+        user = self.user_repo.get_progress(twitch_id, channel_id)
+        if not user:
+            return FishStatsResponse(
+                success=False,
+                chat_message=resolve_message({}, MsgKey.ERR_NO_PROFILE, username=username or twitch_id),
+                stats={
+                    "level": 1,
+                    "xp": 0,
+                    "xp_to_next_level": 100,
+                    "current_mass": 0.0,
+                    "total_fish_stat": 0,
+                    "rod_name": "No rod equipped",
+                    "luck_bonus": 0.0,
+                    "resist_bonus": 0.0,
+                    "xp_bonus_pct": 0.0,
+                    "rank": 0,
+                    "total_mass_stat": 0.0,
+                }
+            )
+
+        stats = calculate_player_stats(user)
+        channel_config = user.channel.config or {}
+        custom_params = channel_config.get("custom_params", {})
+        xp_base = int(resolve_param(custom_params, GParam.XP_BASE))
+        xp_exponent = float(resolve_param(custom_params, GParam.XP_EXPONENT))
+        xp_required = calculate_xp_required(stats["level"], base=xp_base, exponent=xp_exponent)
+        stats["xp_to_next_level"] = max(int(xp_required), 0)
+
+        rank = self.user_repo.get_user_rank(user.channel_id, user.id)
+        stats["rank"] = rank
+
+        chat_message = resolve_message(
+            channel_config,
+            MsgKey.PROFILE_STATS_DETAILED,
+            username=user.username,
+            level=stats["level"],
+            xp=stats["xp"],
+            xp_next=stats["xp_to_next_level"],
+            rod_name=stats["rod_name"],
+            luck_fmt=format_percent_signed(stats["luck_bonus"]),
+            resist_fmt=format_percent_signed(stats["resist_bonus"]),
+            xp_fmt=format_percent_signed(stats["xp_bonus_pct"]),
+            current_mass=format_large_number_mass(stats["current_mass"]),
+            total_fish_stat=stats["total_fish_stat"],
+            rank=rank,
+            total_mass=format_large_number_mass(stats["total_mass_stat"])
+        )
+
+        return FishStatsResponse(success=True, chat_message=chat_message, stats=stats)
+
+    def get_channel_top(self, channel_id: str, limit: int = 10, mode: str = "current") -> FishTopResponse:
+        mode = (mode or "current").lower()
+        top_users = self.user_repo.get_top_users_by_channel(channel_id, limit=limit, mode=mode)
+        if not top_users:
+            return FishTopResponse(success=True, chat_message="No players in leaderboard yet.", top=[], mode=mode)
+
+        top_entries = []
+        top_lines = []
+        for idx, player in enumerate(top_users, start=1):
+            total_mass = float(player.total_mass_stat or 0.0)
+            current_mass = float(player.current_mass or 0.0)
+            total_fish = int(player.total_fish_stat or 0)
+            top_entries.append({
+                "rank": idx,
+                "user_twitch_id": player.user_twitch_id,
+                "username": player.username,
+                "level": int(player.level or 1),
+                "xp": int(player.xp or 0),
+                "current_mass": current_mass,
+                "total_fish_stat": total_fish,
+                "total_mass_stat": total_mass
+            })
+
+            if mode == "alltime":
+                score_fmt = format_large_number_mass(total_mass)
+            elif mode == "catches":
+                score_fmt = str(total_fish)
+            elif mode == "level":
+                score_fmt = f"Lvl {int(player.level or 1)} ({int(player.xp or 0)} XP)"
+            else:
+                score_fmt = format_large_number_mass(current_mass)
+
+            top_lines.append(f"#{idx} {player.username} ({score_fmt})")
+
+        channel_config = top_users[0].channel.config if top_users[0].channel else {}
+        mode_label_map = {
+            "alltime": "alltime",
+            "catches": "catches",
+            "level": "level",
+            "current": "current",
+        }
+        chat_message = resolve_message(
+            channel_config or {},
+            MsgKey.PROFILE_TOP,
+            mode=mode_label_map.get(mode, "current"),
+            top_lines=" | ".join(top_lines)
+        )
+        return FishTopResponse(success=True, chat_message=chat_message, top=top_entries, mode=mode)

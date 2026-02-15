@@ -1,4 +1,5 @@
 from twitchio.ext import commands
+from twitchio import User
 
 from heplers.context_tool import get_channel_id
 
@@ -38,3 +39,42 @@ class FishingCog(commands.Cog):
             return "subscriber" in badges
 
         return False
+
+    @commands.command(name="fishstats")
+    async def fishstats(self, ctx: commands.Context, user: User | None = None) -> None:
+        channel_id = await get_channel_id(ctx)
+        target_user = user or ctx.author
+        target_user_id = str(target_user.id)
+        target_username = target_user.name
+        try:
+            response = await self.bot.api_client.fish_stats(
+                channel_id=channel_id,
+                user_id=target_user_id,
+                username=target_username
+            )
+            await ctx.send(response.get("chat_message", "Stats are unavailable."))
+        except EngineApiError as error:
+            await ctx.send(f"Stats error: {error}")
+        except Exception as error:
+            print(f"[fishstats] unexpected error: {error}")
+            await ctx.send("Could not retrieve stats.")
+
+    @commands.command(name="fishtop")
+    async def fishtop(self, ctx: commands.Context, mode: str | None = None) -> None:
+        channel_id = await get_channel_id(ctx)
+        normalized_mode = (mode or "current").strip().lower()
+        if normalized_mode not in {"current", "alltime", "catches", "level"}:
+            await ctx.send("Usage: !fishtop [alltime|catches|level]")
+            return
+        try:
+            response = await self.bot.api_client.fish_top(
+                channel_id=channel_id,
+                limit=10,
+                mode=normalized_mode
+            )
+            await ctx.send(response.get("chat_message", "Top is unavailable."))
+        except EngineApiError as error:
+            await ctx.send(f"Top error: {error}")
+        except Exception as error:
+            print(f"[fishtop] unexpected error: {error}")
+            await ctx.send("Could not retrieve top players.")

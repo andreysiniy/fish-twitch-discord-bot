@@ -50,6 +50,40 @@ class UserRepository:
                      .offset(skip).limit(limit).all()
 
         return users, total
+
+    def get_user_rank(self, channel_id: int, user_id: int) -> int:
+        user = self.db.query(UserProgress).filter(UserProgress.id == user_id).first()
+        if not user:
+            return 0
+
+        higher_count = (
+            self.db.query(UserProgress)
+            .filter(
+                UserProgress.channel_id == channel_id,
+                UserProgress.current_mass > user.current_mass
+            )
+            .count()
+        )
+        return higher_count + 1
+
+    def get_top_users_by_channel(self, channel_twitch_id: str, limit: int = 10, mode: str = "current") -> list[UserProgress]:
+        channel = self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
+        if not channel:
+            return []
+
+        mode = (mode or "current").lower()
+        query = self.db.query(UserProgress).filter(UserProgress.channel_id == channel.id)
+
+        if mode == "alltime":
+            query = query.order_by(UserProgress.total_mass_stat.desc(), UserProgress.id.asc())
+        elif mode == "catches":
+            query = query.order_by(UserProgress.total_fish_stat.desc(), UserProgress.id.asc())
+        elif mode == "level":
+            query = query.order_by(UserProgress.level.desc(), UserProgress.xp.desc(), UserProgress.id.asc())
+        else:
+            query = query.order_by(UserProgress.current_mass.desc(), UserProgress.id.asc())
+
+        return query.limit(limit).all()
     
     def get_random_victim(self, channel_id: int, exclude_user_id: int) -> UserProgress | None:
         return self.db.query(UserProgress).filter(

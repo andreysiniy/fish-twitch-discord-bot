@@ -28,6 +28,15 @@ class EngineApiClient:
     async def fish_travel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fishtravel", json=payload)
 
+    async def fish_stats(self, channel_id: str, user_id: str, username: str | None = None) -> Dict[str, Any]:
+        path = f"/v1/fishstats/{channel_id}/{user_id}"
+        if username:
+            path = f"{path}?username={username}"
+        return await self._request("GET", path)
+
+    async def fish_top(self, channel_id: str, limit: int = 10, mode: str = "current") -> Dict[str, Any]:
+        return await self._request("GET", f"/v1/fishtop/{channel_id}?limit={limit}&mode={mode}")
+
     async def get_inventory(self, channel_id: str, user_id: str) -> Dict[str, Any]:
         return await self._request("GET", f"/v1/inventory/{channel_id}/{user_id}")
 
