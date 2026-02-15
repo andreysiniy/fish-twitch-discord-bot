@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, BigInteger, ForeignKey, Text, Float, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB  
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Float, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from infrastructure.database import Base
 
@@ -56,10 +56,39 @@ class UserProgress(Base):
 
     current_location_id = Column(String, default="default") 
     
-    # Инвентарь: {"equipped_rod": "basic_rod", "items": ["fish1", "boot"]}
-    inventory = Column(JSONB, default={"items": [], "equipped_rod": None})
+    inventory = Column(JSONB, default={"equipped_rod_slot": None, "max_slots": 20})
 
     channel = relationship("Channel", back_populates="users_progress")
+    items = relationship("InventoryItem", back_populates="owner", cascade="all, delete-orphan")
+
+
+class ItemDefinition(Base):
+    __tablename__ = "item_definitions"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String)
+    type = Column(String, default="fish", nullable=False)
+    rarity = Column(String, default="common", nullable=False)
+    image_url = Column(String)
+    base_stats = Column(JSONB, default={})
+    is_sellable = Column(Boolean, default=True, nullable=False)
+    is_tradeable = Column(Boolean, default=True, nullable=False)
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users_progress.id"), nullable=False, index=True)
+    item_id = Column(String, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    slot_id = Column(Integer, nullable=False)
+    quantity = Column(Integer, default=1, nullable=False)
+    current_durability = Column(Integer, nullable=True)
+    meta = Column(JSONB, default={})
+
+    definition = relationship("ItemDefinition", lazy="joined")
+    owner = relationship("UserProgress", back_populates="items")
 
 
 class RewardPool(Base):
@@ -70,7 +99,6 @@ class RewardPool(Base):
     location_id = Column(String, index=True) 
     location_name = Column(String, nullable=True)
     
-    # [{"type": "points", "weight": 100, ...}, {"type": "item", ...}]
     rewards_data = Column(JSONB, default=[])
     requirements = Column(JSONB, default={})
 
@@ -84,23 +112,11 @@ class LocationItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     reward_pool_id = Column(Integer, ForeignKey("reward_pools.id"))
-    
-    name = Column(String, nullable=False)
-    item_id = Column(String, nullable=False) 
-    description = Column(String)
-    image_url = Column(String) 
-
-    type = Column(String, default="fish", nullable=False)
-    
-    weight = Column(Integer, default=100) 
-    rarity = Column(String, default="common")
-    
-    xp_gain = Column(Integer, default=0)
-    
-    quantity = Column(Integer, nullable=True) 
-    
+    item_id = Column(String, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    weight = Column(Integer, default=100)
+    xp_gain = Column(Integer, default=0, nullable=False)
+    quantity = Column(Integer, nullable=True)
     message = Column(String, default="You caught {name}!")
 
-    item_stats = Column(JSONB, default={})
-
     pool = relationship("RewardPool", back_populates="items")
+    definition = relationship("ItemDefinition", lazy="joined")

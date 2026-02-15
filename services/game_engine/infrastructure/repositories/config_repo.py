@@ -57,15 +57,32 @@ class ConfigRepository(BaseRepository[RewardPool]):
         for item in db_items:
             
             items.append({
-                "type": "item",
                 "db_id": item.id,
                 "item_id": item.item_id,
-                "name": item.name,
+                "name": item.definition.name if item.definition else item.item_id,
+                "description": item.definition.description if item.definition else None,
+                "image_url": item.definition.image_url if item.definition else None,
+                "rarity": item.definition.rarity if item.definition else "common",
+                "type": item.definition.type if item.definition else "fish",
                 "weight": item.weight,
-                "rarity": item.rarity,
                 "xp_gain": item.xp_gain,
+                "quantity": item.quantity,
                 "message": item.message,
-                "stats": item.item_stats
+                "stats": item.definition.base_stats if item.definition else {}
             })
 
         return rewards, items, pool_obj.items_drop_rate
+
+    def consume_location_item_stock(self, location_item_id: int, amount: int = 1) -> None:
+        if amount <= 0:
+            return
+
+        db_item = self.db.query(LocationItem).filter(LocationItem.id == location_item_id).first()
+        if not db_item:
+            return
+
+        if db_item.quantity is None:
+            return
+
+        db_item.quantity = max(int(db_item.quantity) - amount, 0)
+        self.db.commit()

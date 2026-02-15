@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
-from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole
-from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
-from domain.schemas.rpg import DropItemDTO
+from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole, ItemDefinition
+from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, LocationItemUpdateDTO
 
 class ChannelRepository:
     def __init__(self, db: Session):
@@ -93,7 +92,7 @@ class ChannelRepository:
         channel_id: int,
         location_id: str,
         rewards: list,
-        items: list[DropItemDTO],
+        items: list[LocationItemUpdateDTO],
         items_drop_rate: float,
         requirements: dict | None = None,
         location_name: str | None = None
@@ -124,21 +123,21 @@ class ChannelRepository:
 
         self.db.query(LocationItem).filter(LocationItem.reward_pool_id == pool.id).delete()
         for item_dto in items:
+            item_id = item_dto.item_id.strip()
+            if not item_id:
+                continue
+
+            definition = self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
+            if not definition:
+                raise ValueError(f"ItemDefinition '{item_id}' not found")
+
             db_item = LocationItem(
                 reward_pool_id=pool.id,
-                name=item_dto.name,
-                item_id=item_dto.item_id,
-                description=item_dto.description,
-                image_url=item_dto.image_url,
-                type=item_dto.type,
-                
+                item_id=item_id,
                 weight=item_dto.weight,
-                rarity=item_dto.rarity.value, 
                 xp_gain=item_dto.xp_gain,
                 quantity=item_dto.quantity,
                 message=item_dto.message,
-                
-                item_stats=item_dto.stats.model_dump()
             )
             self.db.add(db_item)
 
@@ -152,3 +151,44 @@ class ChannelRepository:
             RewardPool.channel_id == channel_id, 
             RewardPool.location_id == location_id
         ).first()
+
+    def upsert_item_definition(
+        self,
+        item_id: str,
+        name: str,
+        description: str | None = None,
+        item_type: str = "fish",
+        rarity: str = "common",
+        image_url: str | None = None,
+        base_stats: dict | None = None,
+        is_sellable: bool = True,
+        is_tradeable: bool = True
+    ) -> ItemDefinition:
+        definition = self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
+        if not definition:
+            definition = ItemDefinition(id=item_id)
+            self.db.add(definition)
+
+        definition.name = name
+        definition.description = description
+        definition.type = item_type
+        definition.rarity = rarity
+        definition.image_url = image_url
+        definition.base_stats = base_stats or {}
+        definition.is_sellable = is_sellable
+        definition.is_tradeable = is_tradeable
+        self.db.commit()
+        self.db.refresh(definition)
+        return definition
+
+    def get_item_definition(self, item_id: str) -> ItemDefinition | None:
+        return self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
+
+    def list_item_definitions(self, skip: int = 0, limit: int = 200) -> list[ItemDefinition]:
+        return (
+            self.db.query(ItemDefinition)
+            .order_by(ItemDefinition.id.asc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )

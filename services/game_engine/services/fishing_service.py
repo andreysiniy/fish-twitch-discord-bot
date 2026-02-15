@@ -77,6 +77,9 @@ class FishingService:
             
         if result.item_drop:
             self.user_repo.update_inventory(user, result.item_drop)
+            location_item_id = result.item_drop.get("db_id")
+            if location_item_id:
+                self.config_repo.consume_location_item_stock(location_item_id, amount=1)
 
         self.user_repo.save_progress(user)
         if cooldown_duration > 0:

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from domain.schemas.common import Rarity
 
 class ItemStats(BaseModel):
@@ -18,7 +18,7 @@ class BaseItemDTO(BaseModel):
     rarity: Rarity = Rarity.COMMON
     type: str = "fish"
     image_url: str | None = None
-    stats: ItemStats = Field(default_factory=ItemStats)
+    stats: Dict[str, Any] = Field(default_factory=dict)
 
 class DropItemDTO(BaseItemDTO):
     """Предмет как часть таблицы дропа (настройки)"""
@@ -37,7 +37,7 @@ class InventoryItemDTO(BaseItemDTO):
 
 class InventoryDTO(BaseModel):
     """Структура инвентаря игрока"""
-    items: List[InventoryItemDTO] = []
+    items: List[InventoryItemDTO] = Field(default_factory=list)
     equipped_rod_slot: Optional[int] = None
     max_slots: int = 20
 

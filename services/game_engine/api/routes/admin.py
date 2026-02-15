@@ -11,10 +11,15 @@ from domain.schemas.admin import (
     ChannelAccessUpsertDTO,
     ChannelCreateDTO, 
     ChannelResponseDTO, 
+    ItemDefinitionCreateDTO,
+    ItemDefinitionResponseDTO,
+    GrantItemRequestDTO,
+    GrantItemResponseDTO,
     RewardPoolUpdateDTO,
     RewardPoolResponseDTO,
     PlayerListResponse
 )
+from domain.schemas.rpg import InventoryDTO
 
 router = APIRouter()
 
@@ -138,6 +143,76 @@ def remove_channel_moderator(
     try:
         service.remove_channel_access(current_user_id, channel_twitch_id, data.user_twitch_id)
         return {"status": "ok"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/items/definitions", response_model=ItemDefinitionResponseDTO)
+def upsert_item_definition(
+    data: ItemDefinitionCreateDTO,
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service)
+):
+    try:
+        return service.upsert_item_definition(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/items/definitions", response_model=List[ItemDefinitionResponseDTO])
+def list_item_definitions(
+    skip: int = 0,
+    limit: int = 200,
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service)
+):
+    return service.list_item_definitions(skip=skip, limit=limit)
+
+
+@router.post("/items/grant", response_model=GrantItemResponseDTO)
+def grant_item_to_player(
+    data: GrantItemRequestDTO,
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service)
+):
+    try:
+        item = service.grant_item_to_player(current_user_id, data)
+        definition = item.definition
+        response_item = {
+            "item_id": item.item_id,
+            "name": definition.name if definition else item.item_id,
+            "description": definition.description if definition else None,
+            "rarity": definition.rarity if definition else "common",
+            "type": definition.type if definition else "fish",
+            "image_url": definition.image_url if definition else None,
+            "stats": definition.base_stats if definition else {},
+            "quantity": item.quantity,
+            "slot_id": item.slot_id,
+            "current_durability": item.current_durability,
+            "obtained_at": (item.meta or {}).get("obtained_at")
+        }
+        return {
+            "success": True,
+            "message": f"Granted {response_item['name']} x{response_item['quantity']} to user {data.user_twitch_id}.",
+            "item": response_item
+        }
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/players/{channel_twitch_id}/{user_twitch_id}/inventory", response_model=InventoryDTO)
+def get_player_inventory(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service)
+):
+    try:
+        return service.get_player_inventory(current_user_id, channel_twitch_id, user_twitch_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:

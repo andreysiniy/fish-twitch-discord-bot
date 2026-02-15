@@ -10,6 +10,8 @@ from domain.schemas.admin import (
     ChannelUpdateDTO,
     PlayerListResponse,
     RewardPoolUpdateDTO,
+    ItemDefinitionCreateDTO,
+    GrantItemRequestDTO,
 )
 
 class AdminService:
@@ -156,3 +158,68 @@ class AdminService:
         removed = self.repo.delete_access_record(channel.id, user_twitch_id)
         if not removed:
             raise ValueError("Channel access record not found")
+
+    def upsert_item_definition(self, data: ItemDefinitionCreateDTO):
+        item_id = data.item_id.strip()
+        if not item_id:
+            raise ValueError("item_id is required")
+        return self.repo.upsert_item_definition(
+            item_id=item_id,
+            name=data.name,
+            description=data.description,
+            item_type=data.type,
+            rarity=data.rarity,
+            image_url=data.image_url,
+            base_stats=data.base_stats,
+            is_sellable=data.is_sellable,
+            is_tradeable=data.is_tradeable
+        )
+
+    def list_item_definitions(self, skip: int = 0, limit: int = 200):
+        return self.repo.list_item_definitions(skip=skip, limit=limit)
+
+    def grant_item_to_player(self, requester_twitch_id: str, data: GrantItemRequestDTO):
+        self.check_access(data.channel_twitch_id, requester_twitch_id)
+        user = self.user_repo.get_progress(data.user_twitch_id, data.channel_twitch_id)
+        if not user:
+            raise ValueError("Player not found")
+
+        inv_item = self.user_repo.grant_item_to_user(
+            user=user,
+            item_id=data.item_id,
+            quantity=data.quantity,
+            slot_id=data.slot_id,
+            current_durability=data.current_durability,
+            meta=data.meta
+        )
+        return inv_item
+
+    def get_player_inventory(self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str):
+        self.check_access(channel_twitch_id, requester_twitch_id)
+        user = self.user_repo.get_progress(user_twitch_id, channel_twitch_id)
+        if not user:
+            raise ValueError("Player not found")
+
+        inventory_meta = dict(user.inventory or {})
+        items = [self._serialize_inventory_item(item) for item in self.user_repo.get_user_inventory_items(user.id)]
+        return {
+            "items": items,
+            "equipped_rod_slot": inventory_meta.get("equipped_rod_slot"),
+            "max_slots": inventory_meta.get("max_slots", 20)
+        }
+
+    def _serialize_inventory_item(self, item):
+        definition = item.definition
+        return {
+            "item_id": item.item_id,
+            "name": definition.name if definition else item.item_id,
+            "description": definition.description if definition else None,
+            "rarity": definition.rarity if definition else "common",
+            "type": definition.type if definition else "fish",
+            "image_url": definition.image_url if definition else None,
+            "stats": definition.base_stats if definition else {},
+            "quantity": item.quantity,
+            "slot_id": item.slot_id,
+            "current_durability": item.current_durability,
+            "obtained_at": (item.meta or {}).get("obtained_at")
+        }

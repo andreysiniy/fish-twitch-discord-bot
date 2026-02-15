@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 
 class FishingEngine:
     def calculate_result(self, user, loot_pool, item_pool, items_drop_rate, custom_params) -> FishingResult:
-        equipped_rod = inventory_utils.find_equipped_rod(user.inventory or {})
+        equipped_rod = inventory_utils.find_equipped_rod(user.inventory or {}, getattr(user, "items", None))
         rod_stats = equipped_rod.get("stats", {}) if equipped_rod else {}
         luck = 1 + rod_stats.get("luck_bonus", 0.0)
         xp_bonus = rod_stats.get("xp_bonus_pct", 0.0)
@@ -22,6 +22,8 @@ class FishingEngine:
             if item_catch:
                 item_stats = item_catch.get("stats", {})
                 item_catch.update({
+                    "type": item_catch.get("type", "fish"),
+                    "quantity": 1,
                     "current_durability": item_stats.get("durability", 100),
                     "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 })
@@ -63,7 +65,7 @@ class FishingEngine:
         loss_divisor = resolve_param(channel_config, GParam.ROB_LOSS_DIVISOR)   # 50.0
         base_rob_chance = resolve_param(channel_config, GParam.ROB_BASE_CHANCE) # 0.8
 
-        attacker_rod = inventory_utils.find_equipped_rod(attacker.inventory or {})
+        attacker_rod = inventory_utils.find_equipped_rod(attacker.inventory or {}, getattr(attacker, "items", None))
         rod_stats = attacker_rod.get("stats", {}) if attacker_rod else {}
         attacker_luck = 1.0 + rod_stats.get("luck_bonus", 0.0)
 
