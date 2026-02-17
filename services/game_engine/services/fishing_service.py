@@ -11,7 +11,7 @@ from domain.logic.stats_calculator import calculate_player_stats
 from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
 
-from domain.schemas.fishing import RobberyResultDTO, FishStatsResponse, FishTopResponse
+from domain.schemas.fishing import RobberyResultDTO, FishStatsResponse, FishTopResponse, FishCooldownResponse
 
 class FishingService:
     def __init__(
@@ -232,3 +232,24 @@ class FishingService:
             top_lines=" | ".join(top_lines)
         )
         return FishTopResponse(success=True, chat_message=chat_message, top=top_entries, mode=mode)
+
+    def get_cooldown_status(
+        self,
+        channel_id: str,
+        twitch_id: str,
+        username: str,
+        is_mod: bool = False,
+        is_sub: bool = False
+    ) -> FishCooldownResponse:
+        channel = self.user_repo.get_channel(channel_id)
+        channel_config = channel.config if channel else {}
+        custom_params = (channel_config or {}).get("custom_params", {})
+        cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
+        is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
+        return self.presenter.build_cooldown_status_response(
+            channel_config=channel_config or {},
+            username=username,
+            cooldown_duration=cooldown_duration,
+            cooldown_left=seconds_left,
+            is_active=is_active
+        )

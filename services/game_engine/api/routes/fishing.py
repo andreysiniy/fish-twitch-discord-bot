@@ -5,6 +5,8 @@ from api.dependencies import get_fishing_service, get_travel_service, verify_sec
 from domain.schemas.fishing import (
     FishRequest,
     FishResponse,
+    FishCooldownRequest,
+    FishCooldownResponse,
     FishTravelRequest,
     FishTravelResponse,
     FishStatsResponse,
@@ -51,6 +53,30 @@ def fish_travel(
     try:
         request.user_id = real_user_id
         return service.process_travel(request)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/fishcd", response_model=FishCooldownResponse)
+def fish_cooldown(
+    request: FishCooldownRequest,
+    service: FishingService = Depends(get_fishing_service),
+    auth_id: str = Depends(verify_security)
+):
+    # Any authenticated caller can request cooldown for any user.
+    if not auth_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not request.user_id or not request.username:
+        raise HTTPException(status_code=400, detail="user_id and username are required")
+    try:
+        response = service.get_cooldown_status(
+            twitch_id=request.user_id,
+            username=request.username,
+            channel_id=request.channel_id,
+            is_mod=request.is_mod,
+            is_sub=request.is_sub
+        )
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

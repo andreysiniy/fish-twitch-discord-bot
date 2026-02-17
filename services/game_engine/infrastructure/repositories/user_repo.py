@@ -7,8 +7,11 @@ class UserRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def get_channel(self, channel_twitch_id: str) -> Channel | None:
+        return self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
+
     def get_progress(self, user_twitch_id: str, channel_twitch_id: str) -> UserProgress | None:
-        channel = self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
+        channel = self.get_channel(channel_twitch_id)
         
         if not channel:
             return None

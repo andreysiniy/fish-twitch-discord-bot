@@ -28,6 +28,9 @@ class EngineApiClient:
     async def fish_travel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fishtravel", json=payload)
 
+    async def fish_cooldown(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._request("POST", "/v1/fishcd", json=payload)
+
     async def fish_stats(self, channel_id: str, user_id: str, username: str | None = None) -> Dict[str, Any]:
         path = f"/v1/fishstats/{channel_id}/{user_id}"
         if username:
@@ -83,6 +86,25 @@ class EngineApiClient:
                 "actor_twitch_id": actor_twitch_id,
                 "user_twitch_id": user_twitch_id,
             }
+        )
+
+    async def admin_set_fish_cooldown(
+        self,
+        channel_id: str,
+        actor_twitch_id: str,
+        seconds: int,
+        scope: str | None = None
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "actor_twitch_id": actor_twitch_id,
+            "seconds": int(seconds),
+        }
+        if scope:
+            payload["scope"] = scope
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/fishcd/set",
+            json=payload
         )
     
     def _get_headers(self) -> Dict[str, str]:

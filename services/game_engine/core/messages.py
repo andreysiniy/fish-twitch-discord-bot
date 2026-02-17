@@ -44,6 +44,8 @@ class MsgKey(str, Enum):
     # --- Cooldown ---
     COOLDOWN_ACTIVE = "cooldown_active"
     COOLDOWN_OVER = "cooldown_over"
+    COOLDOWN_DISABLED = "cooldown_disabled"
+    COOLDOWN_UPDATED = "cooldown_updated"
 
     # --- Economy (Selling) ---
     SELL_SUCCESS = "sell_success"
@@ -147,6 +149,8 @@ DEFAULT_MESSAGES = {
 
     MsgKey.COOLDOWN_ACTIVE: "Fish cooldown for {username} is {cooldown_time} ({cooldown_time_left} left)",
     MsgKey.COOLDOWN_OVER: "Fish cooldown for {username} is {cooldown_time}, ready to fish again!",
+    MsgKey.COOLDOWN_DISABLED: "Fish cooldown for {username} is disabled.",
+    MsgKey.COOLDOWN_UPDATED: "Cooldown updated ({updated_scope}): global={fishing_cooldown}, sub={subs_fishing_cooldown}",
 
     MsgKey.SELL_SUCCESS: "Sold {item_name} x{quantity} for {amount} points.",
     MsgKey.SELL_FAIL_NOT_SELLABLE: "You cannot sell {item_name}, it's priceless!",

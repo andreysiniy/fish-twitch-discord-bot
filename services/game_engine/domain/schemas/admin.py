@@ -107,6 +107,19 @@ class ChannelAccessRemoveRequestDTO(BaseModel):
     user_twitch_id: str
 
 
+class FishCooldownSetRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    seconds: int = Field(..., ge=0)
+    scope: Optional[str] = None
+
+
+class FishCooldownSetResponseDTO(BaseModel):
+    chat_message: str
+    fishing_cooldown: int
+    subs_fishing_cooldown: int
+    updated_scope: str
+
+
 class ItemDefinitionCreateDTO(BaseModel):
     item_id: str
     name: str

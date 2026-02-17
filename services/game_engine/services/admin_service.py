@@ -2,6 +2,8 @@ from typing import List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
+from core.game_params import DEFAULT_GAME_PARAMS, GParam
+from core.messages import MsgKey, resolve_message, format_time
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
     ChannelAccessResponseDTO,
@@ -158,6 +160,50 @@ class AdminService:
         removed = self.repo.delete_access_record(channel.id, user_twitch_id)
         if not removed:
             raise ValueError("Channel access record not found")
+
+    def set_fishing_cooldown(
+        self,
+        requester_twitch_id: str,
+        channel_twitch_id: str,
+        seconds: int,
+        scope: str | None = None
+    ) -> dict:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+
+        normalized_scope = (scope or "").strip().lower()
+        if normalized_scope not in {"", "sub"}:
+            raise ValueError("Invalid scope. Use empty scope for general cooldown or 'sub' for subscribers")
+
+        config = dict(channel.config or {})
+        custom_params = dict(config.get("custom_params") or {})
+        target_key = GParam.SUBS_FISHING_COOLDOWN if normalized_scope == "sub" else GParam.FISHING_COOLDOWN
+        custom_params[target_key.value] = int(seconds)
+        config["custom_params"] = custom_params
+        self.repo.update(channel.id, ChannelUpdateDTO(config=config))
+
+        fishing_cd = int(custom_params.get(
+            GParam.FISHING_COOLDOWN.value,
+            DEFAULT_GAME_PARAMS[GParam.FISHING_COOLDOWN]
+        ))
+        subs_cd = int(custom_params.get(
+            GParam.SUBS_FISHING_COOLDOWN.value,
+            DEFAULT_GAME_PARAMS[GParam.SUBS_FISHING_COOLDOWN]
+        ))
+        updated_scope = "sub" if normalized_scope == "sub" else "global"
+        chat_message = resolve_message(
+            config,
+            MsgKey.COOLDOWN_UPDATED,
+            updated_scope=updated_scope,
+            fishing_cooldown=format_time(fishing_cd),
+            subs_fishing_cooldown=format_time(subs_cd)
+        )
+
+        return {
+            "chat_message": chat_message,
+            "fishing_cooldown": fishing_cd,
+            "subs_fishing_cooldown": subs_cd,
+            "updated_scope": updated_scope
+        }
 
     def upsert_item_definition(self, data: ItemDefinitionCreateDTO):
         item_id = data.item_id.strip()

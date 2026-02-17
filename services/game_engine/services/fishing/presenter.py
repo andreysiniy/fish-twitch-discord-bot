@@ -17,7 +17,7 @@ from domain.schemas.actions import (
     LevelUpAction,
     AddItemAction
 )
-from domain.schemas.fishing import FishResponse, LevelUpInfo, FishingResult
+from domain.schemas.fishing import FishResponse, FishCooldownResponse, LevelUpInfo, FishingResult
 from infrastructure.models import UserProgress
 
 import random
@@ -91,6 +91,39 @@ class FishingPresenter:
             item_drop=None,
             level_up=None,
             actions=[SendBaseMessageAction(action_message=cooldown_message)]
+        )
+
+    def build_cooldown_status_response(
+        self,
+        channel_config: Dict[str, Any],
+        username: str,
+        cooldown_duration: int,
+        cooldown_left: int,
+        is_active: bool
+    ) -> FishCooldownResponse:
+        if cooldown_duration <= 0:
+            message = resolve_message(channel_config, MsgKey.COOLDOWN_DISABLED, username=username)
+            return FishCooldownResponse(
+                success=True,
+                chat_message=message,
+                cooldown_time=0,
+                cooldown_left=0
+            )
+
+        message_key = MsgKey.COOLDOWN_ACTIVE if is_active else MsgKey.COOLDOWN_OVER
+        effective_left = cooldown_left if is_active else 0
+        message = resolve_message(
+            channel_config,
+            message_key,
+            username=username,
+            cooldown_time=format_time(cooldown_duration),
+            cooldown_time_left=format_time(effective_left)
+        )
+        return FishCooldownResponse(
+            success=True,
+            chat_message=message,
+            cooldown_time=cooldown_duration,
+            cooldown_left=effective_left
         )
 
 

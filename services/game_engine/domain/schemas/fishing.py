@@ -12,6 +12,22 @@ class FishRequest(BaseModel):
     is_mod: bool = False
     is_sub: bool = False
 
+
+class FishCooldownRequest(BaseModel):
+    channel_id: str
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    is_mod: bool = False
+    is_sub: bool = False
+
+
+class FishCooldownResponse(BaseModel):
+    success: bool
+    chat_message: str
+    cooldown_time: int
+    cooldown_left: int
+
+
 class FishTravelRequest(BaseModel):
     user_id: str
     username: str

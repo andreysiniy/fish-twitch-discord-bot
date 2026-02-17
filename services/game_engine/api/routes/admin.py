@@ -9,6 +9,8 @@ from domain.schemas.admin import (
     ChannelAccessRemoveRequestDTO,
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
+    FishCooldownSetRequestDTO,
+    FishCooldownSetResponseDTO,
     ChannelCreateDTO, 
     ChannelResponseDTO, 
     ItemDefinitionCreateDTO,
@@ -147,6 +149,29 @@ def remove_channel_moderator(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/channels/{channel_twitch_id}/fishcd/set", response_model=FishCooldownSetResponseDTO)
+def set_channel_fish_cooldown(
+    channel_twitch_id: str,
+    data: FishCooldownSetRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    print(f"[AdminAPI] set_channel_fish_cooldown called by {security_subject} for channel {channel_twitch_id} with seconds={data.seconds} and scope={data.scope}")
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.set_fishing_cooldown(
+            requester_twitch_id=current_user_id,
+            channel_twitch_id=channel_twitch_id,
+            seconds=data.seconds,
+            scope=data.scope
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
 
 
 @router.post("/items/definitions", response_model=ItemDefinitionResponseDTO)
