@@ -142,7 +142,7 @@ class AdminCog(commands.Cog):
                 )
                 await ctx.send(response.get("chat_message", "Cooldown updated"))
             except EngineApiError as error:
-                await ctx.send(f"Admin error: {error}")
+                await ctx.send(str(error))
             except Exception as error:
                 print(f"[fishcd:set] unexpected error: {error}")
                 await ctx.send("Could not update cooldown")
@@ -164,7 +164,7 @@ class AdminCog(commands.Cog):
             response = await self.bot.api_client.fish_cooldown(payload)
             await ctx.send(response.get("chat_message", "Cooldown is unavailable."))
         except EngineApiError as error:
-            await ctx.send(f"Cooldown error: {error}")
+            await ctx.send(str(error))
         except Exception as error:
             print(f"[fishcd] unexpected error: {error}")
             await ctx.send("Could not retrieve cooldown")

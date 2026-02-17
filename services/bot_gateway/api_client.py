@@ -135,7 +135,7 @@ class EngineApiClient:
             data, text = await self._read_payload(response)
             if response.status >= 400:
                 detail = data.get("detail") if isinstance(data, dict) else text
-                raise EngineApiError(f"{detail}")
+                raise EngineApiError(self._format_error_detail(detail))
 
             if isinstance(data, dict):
                 return data
@@ -149,3 +149,24 @@ class EngineApiClient:
             return await response.json(content_type=None), text
         except Exception:
             return {"raw": text}, text
+
+    def _format_error_detail(self, detail: Any) -> str:
+        if isinstance(detail, list):
+            messages = []
+            for entry in detail:
+                if isinstance(entry, dict):
+                    msg = entry.get("msg") or entry.get("detail")
+                    if msg:
+                        messages.append(str(msg))
+                    else:
+                        messages.append(str(entry))
+                else:
+                    messages.append(str(entry))
+            return "; ".join(messages) if messages else "Request failed"
+
+        if isinstance(detail, dict):
+            return str(detail.get("msg") or detail.get("detail") or detail)
+
+        if detail is None:
+            return "Request failed"
+        return str(detail)
