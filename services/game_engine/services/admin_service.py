@@ -3,6 +3,7 @@ from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
+from core.game_limits import validate_cooldown_seconds
 from core.messages import MsgKey, resolve_message, format_time
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
@@ -173,11 +174,12 @@ class AdminService:
         normalized_scope = (scope or "").strip().lower()
         if normalized_scope not in {"", "sub"}:
             raise ValueError("Invalid scope. Use empty scope for general cooldown or 'sub' for subscribers")
+        seconds = validate_cooldown_seconds(seconds)
 
         config = dict(channel.config or {})
         custom_params = dict(config.get("custom_params") or {})
         target_key = GParam.SUBS_FISHING_COOLDOWN if normalized_scope == "sub" else GParam.FISHING_COOLDOWN
-        custom_params[target_key.value] = int(seconds)
+        custom_params[target_key.value] = seconds
         config["custom_params"] = custom_params
         self.repo.update(channel.id, ChannelUpdateDTO(config=config))
 

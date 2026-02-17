@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
+from core.game_limits import MAX_COOLDOWN_SECONDS, MIN_COOLDOWN_SECONDS
 
 ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
 
@@ -109,7 +110,7 @@ class ChannelAccessRemoveRequestDTO(BaseModel):
 
 class FishCooldownSetRequestDTO(BaseModel):
     actor_twitch_id: Optional[str] = None
-    seconds: int = Field(..., ge=0)
+    seconds: int = Field(..., ge=MIN_COOLDOWN_SECONDS, le=MAX_COOLDOWN_SECONDS)
     scope: Optional[str] = None
 
 
