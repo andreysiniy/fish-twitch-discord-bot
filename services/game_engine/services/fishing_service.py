@@ -75,7 +75,7 @@ class FishingService:
             previous_mass = user.current_mass
             user.current_mass = max(previous_mass + result.mass_gained, 0.0)
             applied_mass_delta = round(user.current_mass - previous_mass, 2)
-            user.total_mass_stat += applied_mass_delta
+            user.total_mass_stat += max(applied_mass_delta, 0.0)
             result.mass_gained = applied_mass_delta
             
         if result.item_drop:
@@ -125,7 +125,6 @@ class FishingService:
             user.total_mass_stat += applied_stolen
 
             victim.current_mass = round(max(victim_previous_mass - applied_stolen, 0.0), 2)
-            victim.total_mass_stat -= applied_stolen
 
             robbery_result.amount_stolen = applied_stolen
             robbery_result.victim_new_mass = victim.current_mass
