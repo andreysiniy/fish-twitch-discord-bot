@@ -15,6 +15,7 @@ class Channel(Base):
 
     users_progress = relationship("UserProgress", back_populates="channel")
     reward_pools = relationship("RewardPool", back_populates="channel")
+    fishing_events = relationship("FishingEvent", back_populates="channel")
     access_list = relationship(
         "ChannelAccessRole",
         back_populates="channel",
@@ -120,3 +121,15 @@ class LocationItem(Base):
 
     pool = relationship("RewardPool", back_populates="items")
     definition = relationship("ItemDefinition", lazy="joined")
+
+
+class FishingEvent(Base):
+    __tablename__ = "fishing_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
+    event_title = Column(String, nullable=False, default="Untitled Event")
+    is_active = Column(Boolean, default=False, nullable=False)
+    modifiers = Column(JSONB, default={})
+
+    channel = relationship("Channel", back_populates="fishing_events")

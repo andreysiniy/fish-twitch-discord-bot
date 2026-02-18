@@ -1,0 +1,11 @@
+{
+  "actor_twitch_id": "123456789",
+  "event_title": "Weekend Madness",
+  "modifiers": {
+    "luck_mult": 2.0,
+    "xp_mult": 1.25,
+    "cd_reduction": 0.35,
+    "bonus_mass": 0.3
+  },
+  "is_active": true
+}

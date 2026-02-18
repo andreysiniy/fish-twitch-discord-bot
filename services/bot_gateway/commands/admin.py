@@ -169,6 +169,83 @@ class AdminCog(commands.Cog):
             print(f"[fishcd] unexpected error: {error}")
             await ctx.send("Could not retrieve cooldown")
 
+    @commands.command(name="fishevent")
+    async def fishevent(
+        self,
+        ctx: commands.Context,
+        arg1: str | None = None,
+        arg2: str | None = None
+    ) -> None:
+        channel_id = await get_channel_id(ctx)
+        actor_id = str(ctx.author.id)
+
+        if not arg1:
+            try:
+                response = await self.bot.api_client.admin_list_fishing_events(
+                    channel_id=channel_id,
+                    actor_twitch_id=actor_id
+                )
+                await ctx.send(response.get("chat_message", "Available events: none"))
+            except EngineApiError as error:
+                await ctx.send(str(error))
+            except Exception as error:
+                print(f"[fishevent:list] unexpected error: {error}")
+                await ctx.send("Could not load events")
+            return
+
+        try:
+            event_number = int(arg1)
+            if event_number <= 0:
+                raise ValueError
+        except ValueError:
+            await ctx.send("Usage: !fishevent <event_number> [duration_seconds]")
+            return
+
+        duration_seconds: int | None = None
+        if arg2 is not None:
+            try:
+                duration_seconds = int(arg2)
+                if duration_seconds <= 0:
+                    raise ValueError
+            except ValueError:
+                await ctx.send("duration_seconds must be a positive integer")
+                return
+
+        try:
+            response = await self.bot.api_client.admin_toggle_fishing_event(
+                channel_id=channel_id,
+                actor_twitch_id=actor_id,
+                event_number=event_number,
+                duration_seconds=duration_seconds
+            )
+            status = str(response.get("status", "")).lower()
+            event = response.get("event") or {}
+            title = event.get("event_title", "Untitled Event")
+            eid = event.get("id", event_number)
+            scheduled_at = response.get("scheduled_disable_at")
+            chat_message = response.get("chat_message")
+
+            if chat_message:
+                await ctx.send(chat_message)
+                return
+
+            if status == "deactivated":
+                await ctx.send(f"Event disabled: [{eid}] {title}")
+                return
+
+            if scheduled_at:
+                await ctx.send(
+                    f"Event enabled: [{eid}] {title}. Auto-disable scheduled at unix={scheduled_at}"
+                )
+                return
+
+            await ctx.send(f"Event enabled: [{eid}] {title}")
+        except EngineApiError as error:
+            await ctx.send(str(error))
+        except Exception as error:
+            print(f"[fishevent:toggle] unexpected error: {error}")
+            await ctx.send("Could not toggle event")
+
     def _resolve_is_subscriber(self, ctx: commands.Context) -> bool:
         explicit_flag = getattr(ctx.author, "is_subscriber", None)
         if explicit_flag is not None:

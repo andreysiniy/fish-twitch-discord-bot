@@ -47,6 +47,13 @@ class MsgKey(str, Enum):
     COOLDOWN_DISABLED = "cooldown_disabled"
     COOLDOWN_UPDATED = "cooldown_updated"
 
+    # --- Fishing Events ---
+    FISHEVENT_LIST = "fishevent_list"
+    FISHEVENT_LIST_EMPTY = "fishevent_list_empty"
+    FISHEVENT_ENABLED = "fishevent_enabled"
+    FISHEVENT_ENABLED_TIMED = "fishevent_enabled_timed"
+    FISHEVENT_DISABLED = "fishevent_disabled"
+
     # --- Economy (Selling) ---
     SELL_SUCCESS = "sell_success"
     SELL_FAIL_NOT_SELLABLE = "sell_fail_not_sellable"
@@ -151,6 +158,12 @@ DEFAULT_MESSAGES = {
     MsgKey.COOLDOWN_OVER: "Fish cooldown for {username} is {cooldown_time}, ready to fish again!",
     MsgKey.COOLDOWN_DISABLED: "Fish cooldown for {username} is disabled.",
     MsgKey.COOLDOWN_UPDATED: "Cooldown updated ({updated_scope}): global={fishing_cooldown}, sub={subs_fishing_cooldown}",
+
+    MsgKey.FISHEVENT_LIST: "Available events: {events}.",
+    MsgKey.FISHEVENT_LIST_EMPTY: "Available events: none.",
+    MsgKey.FISHEVENT_ENABLED: "Event enabled: [{event_id}] {event_title}.",
+    MsgKey.FISHEVENT_ENABLED_TIMED: "Event enabled: [{event_id}] {event_title} for {duration}.",
+    MsgKey.FISHEVENT_DISABLED: "Event disabled: [{event_id}] {event_title}.",
 
     MsgKey.SELL_SUCCESS: "Sold {item_name} x{quantity} for {amount} points.",
     MsgKey.SELL_FAIL_NOT_SELLABLE: "You cannot sell {item_name}, it's priceless!",

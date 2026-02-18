@@ -1,7 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
-from core.game_limits import MAX_COOLDOWN_SECONDS, MIN_COOLDOWN_SECONDS
+from core.game_limits import (
+    MAX_COOLDOWN_SECONDS,
+    MAX_EVENT_DURATION_SECONDS,
+    MIN_COOLDOWN_SECONDS,
+    MIN_EVENT_DURATION_SECONDS,
+)
 
 ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
 
@@ -162,3 +167,64 @@ class GrantItemResponseDTO(BaseModel):
     success: bool
     message: str
     item: InventoryItemDTO
+
+
+class FishingEventResponseDTO(BaseModel):
+    id: int
+    event_title: str
+    is_active: bool
+    modifiers: Dict[str, Any] = Field(default_factory=dict)
+    override_loot_pool: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FishingEventListRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+
+
+class FishingEventCreateRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    event_title: str = Field(..., min_length=1, max_length=120)
+    modifiers: Dict[str, Any] = Field(default_factory=dict)
+    override_loot_pool: Optional[str] = None
+    is_active: bool = False
+
+
+class FishingEventUpdateRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    event_title: Optional[str] = Field(None, min_length=1, max_length=120)
+    modifiers: Optional[Dict[str, Any]] = None
+    override_loot_pool: Optional[str] = None
+    clear_override_loot_pool: bool = False
+    is_active: Optional[bool] = None
+
+
+class FishingEventDeleteRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+
+
+class FishingEventToggleRequestDTO(BaseModel):
+    actor_twitch_id: Optional[str] = None
+    event_number: int = Field(..., ge=1)
+    duration_seconds: Optional[int] = Field(
+        None,
+        ge=MIN_EVENT_DURATION_SECONDS,
+        le=MAX_EVENT_DURATION_SECONDS
+    )
+
+
+class FishingEventToggleResponseDTO(BaseModel):
+    status: str
+    chat_message: str
+    event: Optional[FishingEventResponseDTO] = None
+    active_event_id: Optional[int] = None
+    scheduled_disable_at: Optional[int] = None
+    scheduler_job: Optional[Dict[str, Any]] = None
+
+
+class FishingEventListResponseDTO(BaseModel):
+    chat_message: str
+    active_event_id: Optional[int] = None
+    items: List[FishingEventResponseDTO] = Field(default_factory=list)

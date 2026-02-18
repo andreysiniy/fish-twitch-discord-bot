@@ -192,3 +192,100 @@ class ChannelRepository:
             .limit(limit)
             .all()
         )
+
+    def get_active_fishing_event(self, channel_id: int) -> FishingEvent | None:
+        return (
+            self.db.query(FishingEvent)
+            .filter(FishingEvent.channel_id == channel_id, FishingEvent.is_active.is_(True))
+            .order_by(FishingEvent.id.desc())
+            .first()
+        )
+
+    def list_fishing_events(self, channel_id: int) -> list[FishingEvent]:
+        return (
+            self.db.query(FishingEvent)
+            .filter(FishingEvent.channel_id == channel_id)
+            .order_by(FishingEvent.id.asc())
+            .all()
+        )
+
+    def get_fishing_event(self, channel_id: int, event_id: int) -> FishingEvent | None:
+        return (
+            self.db.query(FishingEvent)
+            .filter(FishingEvent.channel_id == channel_id, FishingEvent.id == event_id)
+            .first()
+        )
+
+    def create_fishing_event(
+        self,
+        channel_id: int,
+        event_title: str,
+        modifiers: dict | None = None,
+        is_active: bool = False
+    ) -> FishingEvent:
+        self._validate_override_loot_pool(channel_id, override_loot_pool)
+        event = FishingEvent(
+            channel_id=channel_id,
+            event_title=event_title,
+            modifiers=modifiers or {},
+            is_active=False
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        if is_active:
+            event = self.set_active_fishing_event(channel_id, event.id)
+        return event
+
+    def update_fishing_event(
+        self,
+        channel_id: int,
+        event_id: int,
+        event_title: str | None = None,
+        modifiers: dict | None = None,
+        is_active: bool | None = None
+    ) -> FishingEvent | None:
+        event = self.get_fishing_event(channel_id, event_id)
+        if not event:
+            return None
+
+        if override_loot_pool is not UNSET:
+            self._validate_override_loot_pool(channel_id, override_loot_pool)
+
+        if event_title is not None:
+            event.event_title = event_title
+        if modifiers is not None:
+            event.modifiers = modifiers
+
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+
+        if is_active is True:
+            event = self.set_active_fishing_event(channel_id, event.id)
+        elif is_active is False and event.is_active:
+            event = self.set_active_fishing_event(channel_id, None)
+        return event
+
+    def delete_fishing_event(self, channel_id: int, event_id: int) -> bool:
+        event = self.get_fishing_event(channel_id, event_id)
+        if not event:
+            return False
+        self.db.delete(event)
+        self.db.commit()
+        return True
+
+    def set_active_fishing_event(self, channel_id: int, event_id: int | None) -> FishingEvent | None:
+        events = self.list_fishing_events(channel_id)
+        target: FishingEvent | None = None
+        for event in events:
+            should_be_active = event_id is not None and event.id == event_id
+            event.is_active = bool(should_be_active)
+            if should_be_active:
+                target = event
+
+        self.db.commit()
+        if target:
+            self.db.refresh(target)
+        return target
+

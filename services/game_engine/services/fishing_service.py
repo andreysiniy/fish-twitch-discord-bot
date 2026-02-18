@@ -1,4 +1,4 @@
-from infrastructure.repositories import UserRepository, ConfigRepository
+from infrastructure.repositories import UserRepository, ConfigRepository, ChannelRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.models import UserProgress
 
@@ -10,6 +10,7 @@ from domain.logic.stats_calculator import calculate_player_stats
 
 from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
+from services.fishing.strategy_resolver import FishingStrategyResolver
 
 from domain.schemas.fishing import RobberyResultDTO, FishStatsResponse, FishTopResponse, FishCooldownResponse
 
@@ -18,13 +19,16 @@ class FishingService:
         self,
         user_repo: UserRepository,
         config_repo: ConfigRepository,
-        cooldown_repo: CooldownRepository
+        cooldown_repo: CooldownRepository,
+        channel_repo: ChannelRepository
     ):
         self.user_repo = user_repo
         self.config_repo = config_repo
         self.cooldown_repo = cooldown_repo
+        self.channel_repo = channel_repo
         self.engine = FishingEngine()
         self.presenter = FishingPresenter()
+        self.strategy_resolver = FishingStrategyResolver(channel_repo=channel_repo)
 
     def process_cast(
         self,
@@ -40,7 +44,9 @@ class FishingService:
 
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
+        strategy_ctx = self.strategy_resolver.resolve(user.channel_id)
         cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
+        cooldown_duration = max(int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0)
 
         if cooldown_duration > 0:
             is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)

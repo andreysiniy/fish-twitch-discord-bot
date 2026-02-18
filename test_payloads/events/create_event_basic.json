@@ -1,0 +1,11 @@
+{
+  "actor_twitch_id": "123456789",
+  "event_title": "Golden Rush",
+  "modifiers": {
+    "luck_mult": 1.5,
+    "xp_mult": 2.0,
+    "cd_reduction": 0.2,
+    "bonus_mass": 0.2
+  },
+  "is_active": false
+}

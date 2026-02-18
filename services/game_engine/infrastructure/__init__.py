@@ -5,4 +5,5 @@ from .models import (
     ItemDefinition,
     InventoryItem,
     LocationItem,
+    FishingEvent,
 )

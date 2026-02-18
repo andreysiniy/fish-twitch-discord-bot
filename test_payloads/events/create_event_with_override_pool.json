@@ -1,0 +1,12 @@
+{
+  "actor_twitch_id": "123456789",
+  "event_title": "Night Fishing",
+  "modifiers": {
+    "luck_mult": 1.1,
+    "xp_mult": 1.4,
+    "cd_reduction": 0.1,
+    "bonus_mass": 0.05
+  },
+  "override_loot_pool": "default",
+  "is_active": false
+}

@@ -271,3 +271,147 @@ class AdminService:
             "current_durability": item.current_durability,
             "obtained_at": (item.meta or {}).get("obtained_at")
         }
+
+    def list_fishing_events(self, requester_twitch_id: str, channel_twitch_id: str) -> FishingEventListResponseDTO:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        channel_config = channel.config or {}
+        events = [self._serialize_fishing_event(event) for event in self.repo.list_fishing_events(channel.id)]
+        active_event = next((event for event in events if event.is_active), None)
+
+        if not events:
+            return FishingEventListResponseDTO(
+                chat_message=resolve_message(channel_config, MsgKey.FISHEVENT_LIST_EMPTY),
+                active_event_id=None,
+                items=[]
+            )
+
+        labels = []
+        for event in events:
+            status = "CURRENT" if event.is_active else "OPEN"
+            labels.append(f"[{event.id}] {event.event_title} [{status}]")
+
+        return FishingEventListResponseDTO(
+            chat_message=resolve_message(
+                channel_config,
+                MsgKey.FISHEVENT_LIST,
+                events=", ".join(labels)
+            ),
+            active_event_id=active_event.id if active_event else None,
+            items=events
+        )
+
+    def create_fishing_event(
+        self,
+        requester_twitch_id: str,
+        channel_twitch_id: str,
+        data: FishingEventCreateRequestDTO
+    ) -> FishingEventResponseDTO:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        event_title = data.event_title.strip()
+        if not event_title:
+            raise ValueError("event_title is required")
+
+        event = self.repo.create_fishing_event(
+            channel_id=channel.id,
+            event_title=event_title,
+            modifiers=data.modifiers or {},
+            is_active=bool(data.is_active)
+        )
+        return self._serialize_fishing_event(event)
+
+    def update_fishing_event(
+        self,
+        requester_twitch_id: str,
+        channel_twitch_id: str,
+        event_id: int,
+        data: FishingEventUpdateRequestDTO
+    ) -> FishingEventResponseDTO:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        update_kwargs: dict[str, Any] = {
+            "channel_id": channel.id,
+            "event_id": event_id,
+            "event_title": data.event_title.strip() if data.event_title is not None else None,
+            "modifiers": data.modifiers,
+            "is_active": data.is_active,
+        }
+        if data.event_title is not None and not update_kwargs["event_title"]:
+            raise ValueError("event_title cannot be empty")
+
+        event = self.repo.update_fishing_event(**update_kwargs)
+        if not event:
+            raise ValueError("Fishing event not found")
+
+        return self._serialize_fishing_event(event)
+
+    def delete_fishing_event(self, requester_twitch_id: str, channel_twitch_id: str, event_id: int) -> None:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        event = self.repo.get_fishing_event(channel.id, event_id)
+        if not event:
+            raise ValueError("Fishing event not found")
+
+        was_active = bool(event.is_active)
+        removed = self.repo.delete_fishing_event(channel.id, event_id)
+        if not removed:
+            raise ValueError("Fishing event not found")
+
+    def toggle_fishing_event(
+        self,
+        requester_twitch_id: str,
+        channel_twitch_id: str,
+        event_id: int,
+        duration_seconds: int | None = None
+    ) -> FishingEventToggleResponseDTO:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        target = self.repo.get_fishing_event(channel.id, event_id)
+        if not target:
+            raise ValueError("Fishing event not found")
+
+        active = self.repo.get_active_fishing_event(channel.id)
+
+        if active and active.id == target.id:
+            self.repo.set_active_fishing_event(channel.id, None)
+            refreshed = self.repo.get_fishing_event(channel.id, target.id)
+            return FishingEventToggleResponseDTO(
+                status="deactivated",
+                chat_message=resolve_message(
+                    channel.config or {},
+                    MsgKey.FISHEVENT_DISABLED,
+                    event_id=refreshed.id if refreshed else target.id,
+                    event_title=refreshed.event_title if refreshed else target.event_title
+                ),
+                event=self._serialize_fishing_event(refreshed) if refreshed else None,
+                active_event_id=None
+            )
+
+        activated = self.repo.set_active_fishing_event(channel.id, target.id)
+        if not activated:
+            raise ValueError("Fishing event not found")
+
+        scheduled_disable_at = None
+        scheduler_job = None
+        if duration_seconds is not None:
+            duration_seconds = validate_event_duration_seconds(duration_seconds)
+            scheduled_disable_at = int(scheduler_job.get("execute_at", 0) or 0)
+
+        return FishingEventToggleResponseDTO(
+            status="activated",
+            chat_message=resolve_message(
+                channel.config or {},
+                MsgKey.FISHEVENT_ENABLED_TIMED if duration_seconds is not None else MsgKey.FISHEVENT_ENABLED,
+                event_id=activated.id,
+                event_title=activated.event_title,
+                duration=format_time(duration_seconds) if duration_seconds is not None else ""
+            ),
+            event=self._serialize_fishing_event(activated),
+            active_event_id=activated.id,
+            scheduled_disable_at=scheduled_disable_at,
+            scheduler_job=scheduler_job
+        )
+
+    def _serialize_fishing_event(self, event) -> FishingEventResponseDTO:
+        return FishingEventResponseDTO(
+            id=event.id,
+            event_title=event.event_title,
+            is_active=bool(event.is_active),
+            modifiers=dict(event.modifiers or {}),
+        )

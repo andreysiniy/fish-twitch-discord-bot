@@ -106,6 +106,32 @@ class EngineApiClient:
             f"/v1/admin/channels/{channel_id}/fishcd/set",
             json=payload
         )
+
+    async def admin_list_fishing_events(self, channel_id: str, actor_twitch_id: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/events/list",
+            json={"actor_twitch_id": actor_twitch_id}
+        )
+
+    async def admin_toggle_fishing_event(
+        self,
+        channel_id: str,
+        actor_twitch_id: str,
+        event_number: int,
+        duration_seconds: int | None = None
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "actor_twitch_id": actor_twitch_id,
+            "event_number": int(event_number),
+        }
+        if duration_seconds is not None:
+            payload["duration_seconds"] = int(duration_seconds)
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/events/toggle",
+            json=payload
+        )
     
     def _get_headers(self) -> Dict[str, str]:
         return {
