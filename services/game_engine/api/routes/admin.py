@@ -9,6 +9,14 @@ from domain.schemas.admin import (
     ChannelAccessRemoveRequestDTO,
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
+    FishingEventCreateRequestDTO,
+    FishingEventDeleteRequestDTO,
+    FishingEventListResponseDTO,
+    FishingEventListRequestDTO,
+    FishingEventResponseDTO,
+    FishingEventToggleRequestDTO,
+    FishingEventToggleResponseDTO,
+    FishingEventUpdateRequestDTO,
     FishCooldownSetRequestDTO,
     FishCooldownSetResponseDTO,
     ChannelCreateDTO, 
@@ -149,6 +157,100 @@ def remove_channel_moderator(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/channels/{channel_twitch_id}/events/list", response_model=FishingEventListResponseDTO)
+def list_fishing_events(
+    channel_twitch_id: str,
+    data: FishingEventListRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.list_fishing_events(current_user_id, channel_twitch_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/channels/{channel_twitch_id}/events", response_model=FishingEventResponseDTO)
+def create_fishing_event(
+    channel_twitch_id: str,
+    data: FishingEventCreateRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.create_fishing_event(current_user_id, channel_twitch_id, data)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
+
+
+@router.put("/channels/{channel_twitch_id}/events/{event_id}", response_model=FishingEventResponseDTO)
+def update_fishing_event(
+    channel_twitch_id: str,
+    event_id: int,
+    data: FishingEventUpdateRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.update_fishing_event(current_user_id, channel_twitch_id, event_id, data)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
+
+
+@router.delete("/channels/{channel_twitch_id}/events/{event_id}")
+def delete_fishing_event(
+    channel_twitch_id: str,
+    event_id: int,
+    data: FishingEventDeleteRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        service.delete_fishing_event(current_user_id, channel_twitch_id, event_id)
+        return {"status": "ok"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/channels/{channel_twitch_id}/events/toggle", response_model=FishingEventToggleResponseDTO)
+def toggle_fishing_event(
+    channel_twitch_id: str,
+    data: FishingEventToggleRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service)
+):
+    current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.toggle_fishing_event(
+            requester_twitch_id=current_user_id,
+            channel_twitch_id=channel_twitch_id,
+            event_id=data.event_number,
+            duration_seconds=data.duration_seconds
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
 
 @router.post("/channels/{channel_twitch_id}/fishcd/set", response_model=FishCooldownSetResponseDTO)
 def set_channel_fish_cooldown(
