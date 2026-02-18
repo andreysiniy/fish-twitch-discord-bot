@@ -37,15 +37,20 @@ def get_config_repo(db: Session = Depends(get_db)) -> ConfigRepository:
 def get_cooldown_repo() -> CooldownRepository:
     return CooldownRepository(redis_client=RedisClient.get_client())
 
+def get_channel_repo(db: Session = Depends(get_db)) -> ChannelRepository:
+    return ChannelRepository(db)
+
 def get_fishing_service(
     user_repo: UserRepository = Depends(get_user_repo),
     config_repo: ConfigRepository = Depends(get_config_repo),
-    cooldown_repo: CooldownRepository = Depends(get_cooldown_repo)
+    cooldown_repo: CooldownRepository = Depends(get_cooldown_repo),
+    channel_repo: ChannelRepository = Depends(get_channel_repo)
 ) -> FishingService:
     return FishingService(
         user_repo=user_repo,
         config_repo=config_repo,
-        cooldown_repo=cooldown_repo
+        cooldown_repo=cooldown_repo,
+        channel_repo=channel_repo
     )
 
 def get_travel_service(
@@ -53,9 +58,6 @@ def get_travel_service(
     config_repo: ConfigRepository = Depends(get_config_repo)
 ) -> TravelService:
     return TravelService(user_repo=user_repo, config_repo=config_repo)
-
-def get_channel_repo(db: Session = Depends(get_db)) -> ChannelRepository:
-    return ChannelRepository(db)
 
 def get_admin_service(
     repo: ChannelRepository = Depends(get_channel_repo),
