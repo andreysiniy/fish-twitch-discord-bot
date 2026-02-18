@@ -1,16 +1,21 @@
-from typing import List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
-from core.game_limits import validate_cooldown_seconds
+from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
 from core.messages import MsgKey, resolve_message, format_time
+from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
     ChannelCreateDTO,
     ChannelUpdateDTO,
+    FishingEventCreateRequestDTO,
+    FishingEventListResponseDTO,
+    FishingEventResponseDTO,
+    FishingEventToggleResponseDTO,
+    FishingEventUpdateRequestDTO,
     PlayerListResponse,
     RewardPoolUpdateDTO,
     ItemDefinitionCreateDTO,
@@ -22,6 +27,7 @@ class AdminService:
         self.repo = channel_repo
         self.user_repo = user_repo
         self.config_repo = config_repo
+        self.event_lifecycle = FishingEventLifecycleService(channel_repo=self.repo)
 
     def create_channel(self, data: ChannelCreateDTO):
         existing = self.repo.get_by_twitch_id(data.twitch_id)
@@ -317,6 +323,8 @@ class AdminService:
             modifiers=data.modifiers or {},
             is_active=bool(data.is_active)
         )
+        if event.is_active:
+            self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
         return self._serialize_fishing_event(event)
 
     def update_fishing_event(
@@ -341,6 +349,10 @@ class AdminService:
         if not event:
             raise ValueError("Fishing event not found")
 
+        if data.is_active is False:
+            self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
+        elif data.is_active is True:
+            self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
         return self._serialize_fishing_event(event)
 
     def delete_fishing_event(self, requester_twitch_id: str, channel_twitch_id: str, event_id: int) -> None:
@@ -353,6 +365,8 @@ class AdminService:
         removed = self.repo.delete_fishing_event(channel.id, event_id)
         if not removed:
             raise ValueError("Fishing event not found")
+        if was_active:
+            self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
 
     def toggle_fishing_event(
         self,
@@ -367,6 +381,7 @@ class AdminService:
             raise ValueError("Fishing event not found")
 
         active = self.repo.get_active_fishing_event(channel.id)
+        self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
 
         if active and active.id == target.id:
             self.repo.set_active_fishing_event(channel.id, None)
@@ -391,6 +406,14 @@ class AdminService:
         scheduler_job = None
         if duration_seconds is not None:
             duration_seconds = validate_event_duration_seconds(duration_seconds)
+            scheduler_job = self.event_lifecycle.schedule_auto_disable(
+                channel_twitch_id=channel.twitch_id,
+                channel_id=channel.id,
+                event_id=activated.id,
+                event_title=activated.event_title,
+                delay_seconds=duration_seconds,
+                requested_by=requester_twitch_id,
+            )
             scheduled_disable_at = int(scheduler_job.get("execute_at", 0) or 0)
 
         return FishingEventToggleResponseDTO(
