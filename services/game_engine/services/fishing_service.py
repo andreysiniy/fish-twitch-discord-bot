@@ -72,7 +72,8 @@ class FishingService:
             loot_pool=loot_pool, 
             item_pool=item_pool, 
             items_drop_rate=rate,
-            custom_params=custom_params
+            custom_params=custom_params,
+            calculation_strategy=strategy_ctx.calculation_strategy
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
@@ -257,6 +258,9 @@ class FishingService:
         channel_config = channel.config if channel else {}
         custom_params = (channel_config or {}).get("custom_params", {})
         cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
+        if channel:
+            strategy_ctx = self.strategy_resolver.resolve(channel.id)
+            cooldown_duration = max(int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0)
         is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
         return self.presenter.build_cooldown_status_response(
             channel_config=channel_config or {},
