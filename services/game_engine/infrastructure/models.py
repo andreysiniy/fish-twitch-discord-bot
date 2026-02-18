@@ -131,5 +131,6 @@ class FishingEvent(Base):
     event_title = Column(String, nullable=False, default="Untitled Event")
     is_active = Column(Boolean, default=False, nullable=False)
     modifiers = Column(JSONB, default={})
+    override_loot_pool = Column(String, nullable=True)
 
     channel = relationship("Channel", back_populates="fishing_events")

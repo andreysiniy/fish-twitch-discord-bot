@@ -86,3 +86,43 @@ class ConfigRepository(BaseRepository[RewardPool]):
 
         db_item.quantity = max(int(db_item.quantity) - amount, 0)
         self.db.commit()
+
+    def get_dual_pool_by_id(self, channel_twitch_id: str, reward_pool_id: int):
+        pool_obj = (
+            self.db.query(RewardPool)
+            .join(Channel)
+            .filter(Channel.twitch_id == channel_twitch_id)
+            .filter(RewardPool.id == reward_pool_id)
+            .first()
+        )
+
+        if not pool_obj:
+            return None
+
+        rewards = list(pool_obj.rewards_data or [])
+        if not rewards:
+            rewards = [{"type": "nothing", "weight": 100, "base_message": "No fish here..."}]
+
+        db_items = self.db.query(LocationItem).filter(
+            LocationItem.reward_pool_id == pool_obj.id,
+            or_(LocationItem.quantity == None, LocationItem.quantity > 0)
+        ).all()
+
+        items = []
+        for item in db_items:
+            items.append({
+                "db_id": item.id,
+                "item_id": item.item_id,
+                "name": item.definition.name if item.definition else item.item_id,
+                "description": item.definition.description if item.definition else None,
+                "image_url": item.definition.image_url if item.definition else None,
+                "rarity": item.definition.rarity if item.definition else "common",
+                "type": item.definition.type if item.definition else "fish",
+                "weight": item.weight,
+                "xp_gain": item.xp_gain,
+                "quantity": item.quantity,
+                "message": item.message,
+                "stats": item.definition.base_stats if item.definition else {}
+            })
+
+        return rewards, items, pool_obj.items_drop_rate

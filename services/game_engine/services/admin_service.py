@@ -1,3 +1,4 @@
+from typing import Any, List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
@@ -321,6 +322,7 @@ class AdminService:
             channel_id=channel.id,
             event_title=event_title,
             modifiers=data.modifiers or {},
+            override_loot_pool=data.override_loot_pool,
             is_active=bool(data.is_active)
         )
         if event.is_active:
@@ -344,6 +346,10 @@ class AdminService:
         }
         if data.event_title is not None and not update_kwargs["event_title"]:
             raise ValueError("event_title cannot be empty")
+        if data.clear_override_loot_pool:
+            update_kwargs["override_loot_pool"] = None
+        elif data.override_loot_pool is not None:
+            update_kwargs["override_loot_pool"] = data.override_loot_pool
 
         event = self.repo.update_fishing_event(**update_kwargs)
         if not event:
@@ -437,4 +443,5 @@ class AdminService:
             event_title=event.event_title,
             is_active=bool(event.is_active),
             modifiers=dict(event.modifiers or {}),
+            override_loot_pool=event.override_loot_pool
         )

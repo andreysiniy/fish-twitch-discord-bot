@@ -9,6 +9,7 @@ from services.fishing.engine import CalculationStrategy, EventLootStrategy, Defa
 class ResolvedFishingStrategy:
     calculation_strategy: CalculationStrategy
     cooldown_multiplier: float
+    override_loot_pool_location_id: Optional[str]
     modifiers: Dict[str, Any]
 
 
@@ -22,6 +23,7 @@ class FishingStrategyResolver:
             return ResolvedFishingStrategy(
                 calculation_strategy=DefaultLootStrategy(),
                 cooldown_multiplier=1.0,
+                override_loot_pool_location_id=None,
                 modifiers={},
             )
 
@@ -37,5 +39,6 @@ class FishingStrategyResolver:
         return ResolvedFishingStrategy(
             calculation_strategy=strategy,
             cooldown_multiplier=cooldown_multiplier,
+            override_loot_pool_location_id=override_pool_id,
             modifiers=modifiers,
         )

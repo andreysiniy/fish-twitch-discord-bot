@@ -60,6 +60,13 @@ class FishingService:
         location_id = user.current_location_id or "default"
         loot_pool, item_pool, rate = self.config_repo.get_dual_pool(channel_id, location_id)
 
+        if strategy_ctx.override_loot_pool_location_id is not None:
+            override_location_id = str(strategy_ctx.override_loot_pool_location_id).strip()
+            if override_location_id:
+                override_result = self.config_repo.get_dual_pool(channel_id, override_location_id)
+                if override_result:
+                    loot_pool, item_pool, rate = override_result
+
         result = self.engine.calculate_result(
             user=user, 
             loot_pool=loot_pool, 

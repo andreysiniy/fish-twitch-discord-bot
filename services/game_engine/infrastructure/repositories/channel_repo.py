@@ -1,6 +1,9 @@
 from sqlalchemy.orm import Session
-from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole, ItemDefinition
+from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole, ItemDefinition, FishingEvent
 from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, LocationItemUpdateDTO
+
+UNSET = object()
+
 
 class ChannelRepository:
     def __init__(self, db: Session):
@@ -221,6 +224,7 @@ class ChannelRepository:
         channel_id: int,
         event_title: str,
         modifiers: dict | None = None,
+        override_loot_pool: str | None = None,
         is_active: bool = False
     ) -> FishingEvent:
         self._validate_override_loot_pool(channel_id, override_loot_pool)
@@ -228,6 +232,7 @@ class ChannelRepository:
             channel_id=channel_id,
             event_title=event_title,
             modifiers=modifiers or {},
+            override_loot_pool=str(override_loot_pool).strip() if override_loot_pool is not None else None,
             is_active=False
         )
         self.db.add(event)
@@ -243,6 +248,7 @@ class ChannelRepository:
         event_id: int,
         event_title: str | None = None,
         modifiers: dict | None = None,
+        override_loot_pool: str | None | object = UNSET,
         is_active: bool | None = None
     ) -> FishingEvent | None:
         event = self.get_fishing_event(channel_id, event_id)
@@ -256,6 +262,8 @@ class ChannelRepository:
             event.event_title = event_title
         if modifiers is not None:
             event.modifiers = modifiers
+        if override_loot_pool is not UNSET:
+            event.override_loot_pool = str(override_loot_pool).strip() if override_loot_pool is not None else None
 
         self.db.add(event)
         self.db.commit()
@@ -289,3 +297,18 @@ class ChannelRepository:
             self.db.refresh(target)
         return target
 
+    def _validate_override_loot_pool(self, channel_id: int, override_loot_pool: str | None) -> None:
+        if override_loot_pool is None:
+            return
+
+        normalized_location_id = str(override_loot_pool).strip()
+        if not normalized_location_id:
+            raise ValueError("override_loot_pool location_id cannot be empty")
+
+        pool = (
+            self.db.query(RewardPool)
+            .filter(RewardPool.location_id == normalized_location_id, RewardPool.channel_id == channel_id)
+            .first()
+        )
+        if not pool:
+            raise ValueError("override_loot_pool location_id not found for this channel")
