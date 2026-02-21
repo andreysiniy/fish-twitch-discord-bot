@@ -3,6 +3,7 @@ from twitchio.ext import commands
 from action_handler import ActionHandler
 from api_client import EngineApiClient
 from commands.admin import AdminCog
+from commands.economy import EconomyCog
 from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
@@ -24,6 +25,7 @@ class BotGateway(commands.Bot):
         self.action_handler = ActionHandler()
 
         self.add_cog(FishingCog(self))
+        self.add_cog(EconomyCog(self))
         self.add_cog(InventoryCog(self))
         self.add_cog(TravelCog(self))
         self.add_cog(AdminCog(self))

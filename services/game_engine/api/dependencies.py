@@ -12,6 +12,7 @@ from infrastructure.se_client import SEApiClient
 
 from services.admin_service import AdminService
 from services.auth_service import AuthService
+from services.economy_service import EconomyService
 from services.fishing_service import FishingService
 from services.travel_service import TravelService
 from services.inventory_service import InventoryService 
@@ -76,6 +77,17 @@ def get_auth_service(
     channel_repo: ChannelRepository = Depends(get_channel_repo)
 ) -> AuthService:
     return AuthService(channel_repo)
+
+def get_economy_service(
+    user_repo: UserRepository = Depends(get_user_repo),
+    channel_repo: ChannelRepository = Depends(get_channel_repo),
+) -> EconomyService:
+    return EconomyService(
+        user_repo=user_repo,
+        channel_repo=channel_repo,
+        redis_client=RedisClient.get_client(),
+        se_client=SEApiClient(),
+    )
 
 async def get_current_user_id(
     auth: HTTPAuthorizationCredentials | None = Depends(jwt_scheme)

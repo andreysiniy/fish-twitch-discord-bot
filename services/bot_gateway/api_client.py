@@ -25,6 +25,12 @@ class EngineApiClient:
     async def fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fish", json=payload)
 
+    async def sell_fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._request("POST", "/v1/fishsell", json=payload)
+
+    async def buy_fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._request("POST", "/v1/fishbuy", json=payload)
+
     async def fish_travel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fishtravel", json=payload)
 

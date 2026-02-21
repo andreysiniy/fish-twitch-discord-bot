@@ -9,7 +9,7 @@ from services.eventing.se_job_runner import SEJobRunner
 from infrastructure.database import engine, Base
 import infrastructure.models 
 
-from api.routes import fishing, admin, inventory, auth
+from api.routes import fishing, admin, inventory, auth, economy
 
 
 Base.metadata.create_all(bind=engine)
@@ -34,6 +34,7 @@ app.include_router(auth.router, prefix="/v1/auth", tags=["Auth"])
 app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
+app.include_router(economy.router, prefix="/v1", tags=["Economy"])
 
 event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
 se_job_runner = SEJobRunner()

@@ -63,6 +63,11 @@ class MsgKey(str, Enum):
     SELL_MASS_SUCCESS = "sell_mass_success"
     SELL_MASS_EMPTY = "sell_mass_empty"
     SELL_MASS_DISABLED = "sell_mass_disabled"
+    SELL_MASS_INVALID_AMOUNT = "sell_mass_invalid_amount"
+    BUY_SUCCESS = "buy_success"
+    BUY_FAIL_FUNDS = "buy_fail_funds"
+    BUY_INVALID_AMOUNT = "buy_invalid_amount"
+    SE_NOT_CONFIGURED = "se_not_configured"
     MARKET_INFO = "market_info"
 
     # --- Travel / Locations ---
@@ -172,6 +177,11 @@ DEFAULT_MESSAGES = {
     MsgKey.SELL_MASS_SUCCESS: "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg).",   
     MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",    
     MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",    
+    MsgKey.SELL_MASS_INVALID_AMOUNT: "Invalid amount. Use !fishsell <kg> or !fishsell all.",
+    MsgKey.BUY_SUCCESS: "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg).",
+    MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
+    MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg>.",
+    MsgKey.SE_NOT_CONFIGURED: "StreamElements integration is not configured.",
     MsgKey.MARKET_INFO: "📈 Current Fish Market Rate: {rate} points per 1kg.",    
 
     MsgKey.TRAVEL_SUCCESS: "You traveled to {location_name}.",
@@ -204,7 +214,7 @@ DEFAULT_MESSAGES = {
         "🏆 Rank: #{rank} (Total: {total_mass})"
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
-    MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <slot>, !fishstats, !fishtop",
+    MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop",
 }
 
 class SafeFormatter(string.Formatter):

@@ -9,6 +9,8 @@ class GParam(str, Enum):
     # --- Sell Price ---
     SELL_MAX_BONUS = "sell_max_bonus" # 2.0 (max bonus multiplier)
     SELL_MID_LEVEL = "sell_mid_level" # 50 (level where bonus is half of max)
+    SELL_RATE = "sell_rate"           # 100 points per 1kg
+    BUY_RATE = "buy_rate"             # 120 points per 1kg
 
     # --- Robbery ---
     ROB_MIN_CHANCE = "rob_min_chance" # 0.05
@@ -28,6 +30,8 @@ DEFAULT_GAME_PARAMS: Dict[GParam, Union[int, float]] = {
     
     GParam.SELL_MAX_BONUS: 2.0,
     GParam.SELL_MID_LEVEL: 50,
+    GParam.SELL_RATE: 100,
+    GParam.BUY_RATE: 120,
     
     GParam.ROB_MIN_CHANCE: 0.05,
     GParam.ROB_MAX_CHANCE: 0.95,
