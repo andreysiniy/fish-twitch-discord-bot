@@ -10,6 +10,8 @@ class Channel(Base):
     twitch_id = Column(String, unique=True, index=True)
     name = Column(String)
     is_active = Column(Boolean, default=True)
+    se_token = Column(String, nullable=True)
+    se_channel_id = Column(String, nullable=True)
     
     config = Column(JSONB, default={})
 

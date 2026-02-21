@@ -2,6 +2,7 @@ from typing import Any, List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
+from infrastructure.se_client import SEApiClient
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
 from core.messages import MsgKey, resolve_message, format_time
@@ -24,10 +25,17 @@ from domain.schemas.admin import (
 )
 
 class AdminService:
-    def __init__(self, channel_repo: ChannelRepository, user_repo: UserRepository, config_repo: ConfigRepository):
+    def __init__(
+        self,
+        channel_repo: ChannelRepository,
+        user_repo: UserRepository,
+        config_repo: ConfigRepository,
+        se_client: SEApiClient | None = None
+    ):
         self.repo = channel_repo
         self.user_repo = user_repo
         self.config_repo = config_repo
+        self.se_client = se_client or SEApiClient()
         self.event_lifecycle = FishingEventLifecycleService(channel_repo=self.repo)
 
     def create_channel(self, data: ChannelCreateDTO):
@@ -212,6 +220,37 @@ class AdminService:
             "fishing_cooldown": fishing_cd,
             "subs_fishing_cooldown": subs_cd,
             "updated_scope": updated_scope
+        }
+
+    async def upsert_stream_elements_integration(
+        self,
+        requester_twitch_id: str,
+        channel_twitch_id: str,
+        se_token: str
+    ) -> dict:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id, owner_only=True)
+        normalized_token = str(se_token or "").strip()
+        if not normalized_token:
+            raise ValueError("se_token is required")
+
+        try:
+            se_channel_id = await self.se_client.get_channel_id(normalized_token)
+        except PermissionError as error:
+            raise ValueError("Invalid StreamElements token") from error
+        except ValueError as error:
+            raise ValueError("Failed to resolve StreamElements channel") from error
+
+        self.repo.update(
+            channel.id,
+            ChannelUpdateDTO(
+                se_token=normalized_token,
+                se_channel_id=se_channel_id
+            )
+        )
+
+        return {
+            "status": "ok",
+            "se_channel_id": se_channel_id
         }
 
     def upsert_item_definition(self, data: ItemDefinitionCreateDTO):

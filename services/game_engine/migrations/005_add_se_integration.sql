@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE channels
+    ADD COLUMN IF NOT EXISTS se_token VARCHAR,
+    ADD COLUMN IF NOT EXISTS se_channel_id VARCHAR;
+
+COMMIT;

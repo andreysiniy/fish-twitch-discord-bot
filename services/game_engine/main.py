@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
 from services.eventing.event_job_runner import FishingEventJobRunner
+from services.eventing.se_job_runner import SEJobRunner
 
 from infrastructure.database import engine, Base
 import infrastructure.models 
@@ -35,16 +36,19 @@ app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 
 event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
+se_job_runner = SEJobRunner()
 
 
 @app.on_event("startup")
 async def start_background_workers():
     await event_job_runner.start()
+    await se_job_runner.start()
 
 
 @app.on_event("shutdown")
 async def stop_background_workers():
     await event_job_runner.stop()
+    await se_job_runner.stop()
 
 
 @app.get("/health")

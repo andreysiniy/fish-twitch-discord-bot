@@ -8,6 +8,7 @@ from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.redis_client import RedisClient
 from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.se_client import SEApiClient
 
 from services.admin_service import AdminService
 from services.auth_service import AuthService
@@ -64,7 +65,7 @@ def get_admin_service(
     user_repo: UserRepository = Depends(get_user_repo),
     config_repo: ConfigRepository = Depends(get_config_repo)
 ) -> AdminService:
-    return AdminService(repo, user_repo, config_repo)
+    return AdminService(repo, user_repo, config_repo, se_client=SEApiClient())
 
 def get_inventory_service(
     user_repo: UserRepository = Depends(get_user_repo)

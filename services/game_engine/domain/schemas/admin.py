@@ -18,7 +18,9 @@ class ChannelCreateDTO(BaseModel):
 
 class ChannelUpdateDTO(BaseModel):
     is_active: Optional[bool] = None
-    config: Optional[Dict[str, Any]] = None 
+    config: Optional[Dict[str, Any]] = None
+    se_token: Optional[str] = None
+    se_channel_id: Optional[str] = None
 
 class ChannelResponseDTO(BaseModel):
     id: int
@@ -26,9 +28,19 @@ class ChannelResponseDTO(BaseModel):
     name: str
     is_active: bool
     config: Dict[str, Any]
+    se_channel_id: Optional[str] = None
 
     class Config:
         from_attributes = True 
+
+
+class StreamElementsIntegrationUpsertDTO(BaseModel):
+    se_token: str = Field(..., min_length=1)
+
+
+class StreamElementsIntegrationResponseDTO(BaseModel):
+    status: str
+    se_channel_id: str
 
 # --- Rewards ---
 

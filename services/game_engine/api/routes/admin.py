@@ -21,6 +21,8 @@ from domain.schemas.admin import (
     FishCooldownSetResponseDTO,
     ChannelCreateDTO, 
     ChannelResponseDTO, 
+    StreamElementsIntegrationResponseDTO,
+    StreamElementsIntegrationUpsertDTO,
     ItemDefinitionCreateDTO,
     ItemDefinitionResponseDTO,
     GrantItemRequestDTO,
@@ -57,6 +59,30 @@ def register_channel(
 @router.get("/channels", response_model=List[ChannelResponseDTO])
 def list_channels(service: AdminService = Depends(get_admin_service)):
     return service.get_channels()
+
+
+@router.post(
+    "/channels/{channel_twitch_id}/streamelements",
+    response_model=StreamElementsIntegrationResponseDTO
+)
+async def upsert_streamelements_integration(
+    channel_twitch_id: str,
+    data: StreamElementsIntegrationUpsertDTO,
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service)
+):
+    try:
+        return await service.upsert_stream_elements_integration(
+            requester_twitch_id=current_user_id,
+            channel_twitch_id=channel_twitch_id,
+            se_token=data.se_token
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
 
 
 @router.put("/rewards/{twitch_id}/{location_id}", response_model=RewardPoolResponseDTO)
