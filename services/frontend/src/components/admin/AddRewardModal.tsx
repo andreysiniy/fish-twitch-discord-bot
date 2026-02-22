@@ -5,7 +5,12 @@ import { FishFields } from './forms/FishFields';
 import { TimeoutFields } from './forms/TimeoutFields';
 import { RouletteFields } from './forms/RouletteFields';
 import { RobberyFields } from './forms/RobberyFields';
-import { Reward, RewardType, DraftRewardParams } from '../../types';
+import {
+  DraftRewardParams,
+  Reward,
+  RewardType,
+  RouletteOutcome,
+} from '../../types';
 
 interface AddRewardModalProps {
   isOpen: boolean;
@@ -15,41 +20,96 @@ interface AddRewardModalProps {
 
 export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose, onAdd }) => {
   const [type, setType] = useState<RewardType>('fish');
-  const [weight, setWeight] = useState<string>("1000");
+  const [weight, setWeight] = useState<string>('1000');
+  const [name, setName] = useState<string>('');
   const [message, setMessage] = useState<string>('');
-  
+
   const [params, setParams] = useState<DraftRewardParams>(DEFAULT_PARAMS);
 
-  const handleParamChange = (key: keyof DraftRewardParams, value: any) => {
+  const handleParamChange = (
+    key: keyof DraftRewardParams,
+    value: DraftRewardParams[keyof DraftRewardParams],
+  ) => {
     setParams(prev => ({ ...prev, [key]: value }));
+  };
+
+  const toOptionalNumber = (value: number | null | undefined): number | undefined => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return undefined;
+    }
+    return value;
+  };
+
+  const buildRouletteOutcome = (kind: 'reward' | 'penalty'): RouletteOutcome => {
+    if (kind === 'reward') {
+      return {
+        type: params.roulette_reward_type,
+        mass: toOptionalNumber(params.roulette_reward_mass),
+        percentage: toOptionalNumber(params.roulette_reward_percentage),
+        duration: toOptionalNumber(params.roulette_reward_duration),
+        reason: params.roulette_reward_reason || undefined,
+      };
+    }
+
+    return {
+      type: params.roulette_penalty_type,
+      mass: toOptionalNumber(params.roulette_penalty_mass),
+      percentage: toOptionalNumber(params.roulette_penalty_percentage),
+      duration: toOptionalNumber(params.roulette_penalty_duration),
+      reason: params.roulette_penalty_reason || undefined,
+    };
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const base = { 
-        type, 
-        weight: parseInt(weight) || 0, 
-        message 
+
+    const base = {
+      type,
+      weight: parseInt(weight, 10) || 0,
+      name: name.trim() || undefined,
+      xp: toOptionalNumber(params.xp),
+      message,
     };
 
     let newReward: any = { ...base };
 
     switch (type) {
-        case 'fish':
-            newReward = { ...newReward, min_mass: params.min_mass, max_mass: params.max_mass };
-            break;
-        case 'timeout':
-            newReward = { ...newReward, duration: params.duration, reason: params.reason };
-            break;
-        case 'russian_roulette':
-            newReward = { ...newReward, bullets: params.bullets, chambers: params.chambers };
-            break;
-        case 'robbery':
-            newReward = { ...newReward, percentage: params.percentage };
-            break;
-        case 'nothing':
-            break;
+      case 'fish':
+        newReward = {
+          ...newReward,
+          min_mass: toOptionalNumber(params.min_mass),
+          max_mass: toOptionalNumber(params.max_mass),
+          fixed_mass: toOptionalNumber(params.fish_fixed_mass),
+          percentage: toOptionalNumber(params.fish_percentage),
+        };
+        break;
+      case 'timeout':
+        newReward = {
+          ...newReward,
+          duration: params.duration ?? 0,
+          reason: params.reason,
+        };
+        break;
+      case 'russian_roulette':
+        newReward = {
+          ...newReward,
+          bullets: params.bullets,
+          chambers: params.chambers,
+          safe_message: params.safe_message || undefined,
+          shot_message: params.shot_message || undefined,
+          reward: buildRouletteOutcome('reward'),
+          penalty: buildRouletteOutcome('penalty'),
+        };
+        break;
+      case 'robbery':
+        newReward = {
+          ...newReward,
+          percentage: toOptionalNumber(params.robbery_percentage),
+          mass: toOptionalNumber(params.robbery_mass),
+        };
+        break;
+      case 'nothing':
+        break;
     }
 
     onAdd(newReward as Omit<Reward, 'id'>);
@@ -65,7 +125,7 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden transition-colors
+      <div className="w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden transition-colors
         bg-white border border-slate-200 
         dark:bg-slate-900 dark:border-slate-700"
       >
@@ -115,7 +175,7 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
             </div>
 
             {/* Base Fields */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="col-span-1">
                 <label className={labelClass}>Weight</label>
                 <input 
@@ -125,7 +185,26 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
                   className={inputClass}
                 />
               </div>
+              <div className="col-span-1">
+                <label className={labelClass}>XP</label>
+                <input
+                  type="number"
+                  value={params.xp ?? ''}
+                  onChange={e => handleParamChange('xp', e.target.value === '' ? null : parseFloat(e.target.value))}
+                  className={inputClass}
+                />
+              </div>
               <div className="col-span-2">
+                <label className={labelClass}>Name</label>
+                <input
+                  type="text"
+                  placeholder="Display name"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div className="col-span-4">
                 <label className={labelClass}>Chat Message</label>
                 <input 
                   type="text" placeholder="{username} got lucky!" 
@@ -148,7 +227,7 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
               {type === 'fish' && <FishFields params={params} onChange={handleParamChange} inputClass={inputClass} labelClass={labelClass} />}
               {type === 'timeout' && <TimeoutFields params={params} onChange={handleParamChange} inputClass={inputClass} labelClass={labelClass} />}
               {type === 'russian_roulette' && <RouletteFields params={params} onChange={handleParamChange} inputClass={inputClass} labelClass={labelClass} />}
-              {type === 'robbery' && <RobberyFields params={params} onChange={handleParamChange} labelClass={labelClass} />}
+              {type === 'robbery' && <RobberyFields params={params} onChange={handleParamChange} inputClass={inputClass} labelClass={labelClass} />}
               {type === 'nothing' && <p className="text-sm text-slate-500 italic">No extra settings.</p>}
             </div>
 

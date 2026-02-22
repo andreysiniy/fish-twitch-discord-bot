@@ -3,7 +3,10 @@ import { DraftRewardParams } from '../../../types';
 
 interface Props {
   params: DraftRewardParams;
-  onChange: (key: keyof DraftRewardParams, value: any) => void;
+  onChange: (
+    key: keyof DraftRewardParams,
+    value: DraftRewardParams[keyof DraftRewardParams],
+  ) => void;
   inputClass: string;
   labelClass: string;
 }
@@ -14,8 +17,8 @@ export const TimeoutFields: React.FC<Props> = ({ params, onChange, inputClass, l
       <label className={labelClass}>Duration (seconds)</label>
       <input 
         type="number" min="1"
-        value={params.duration} 
-        onChange={e => onChange('duration', parseInt(e.target.value))} 
+        value={params.duration ?? ''} 
+        onChange={e => onChange('duration', e.target.value === '' ? null : parseInt(e.target.value, 10))} 
         className={inputClass}
       />
     </div>

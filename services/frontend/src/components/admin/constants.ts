@@ -38,11 +38,27 @@ export const REWARD_TYPES: RewardTypeConfig[] = [
 ];
 
 export const DEFAULT_PARAMS: DraftRewardParams = {
+  xp: 0,
   min_mass: 0.1,
   max_mass: 1.0,
+  fish_fixed_mass: null,
+  fish_percentage: null,
   duration: 60,
   reason: '',
   bullets: 1,
   chambers: 6,
-  percentage: 0.1,
+  robbery_percentage: 0.1,
+  robbery_mass: null,
+  safe_message: '',
+  shot_message: '',
+  roulette_reward_type: 'add_mass',
+  roulette_reward_mass: 1,
+  roulette_reward_percentage: null,
+  roulette_reward_duration: null,
+  roulette_reward_reason: '',
+  roulette_penalty_type: 'timeout',
+  roulette_penalty_mass: null,
+  roulette_penalty_percentage: null,
+  roulette_penalty_duration: 20,
+  roulette_penalty_reason: '',
 };
