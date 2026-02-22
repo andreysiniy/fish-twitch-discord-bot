@@ -78,6 +78,17 @@ services:
       - game_engine
     networks:
       - fisher_net
+  
+  frontend:
+    build: ./services/frontend
+    container_name: fisher_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - game_engine
+    networks:
+      - fisher_net
 
 networks:
   fisher_net:
