@@ -10,6 +10,7 @@ interface LocationSettingsModalProps {
   initialLocation: Location | null;
   onClose: () => void;
   onSave: (location: LocationDraft) => void;
+  onDelete?: (locationId: string) => void;
 }
 
 const toInputValue = (value?: number) => (value === undefined ? '' : String(value));
@@ -27,6 +28,7 @@ export const LocationSettingsModal: React.FC<LocationSettingsModalProps> = ({
   initialLocation,
   onClose,
   onSave,
+  onDelete,
 }) => {
   const [locationId, setLocationId] = useState('');
   const [locationName, setLocationName] = useState('');
@@ -102,6 +104,22 @@ export const LocationSettingsModal: React.FC<LocationSettingsModalProps> = ({
         total_mass_stat: parseOptionalNumber(requiredMassStat),
       },
     });
+  };
+
+  const handleDelete = () => {
+    if (mode !== 'edit' || !initialLocation || !onDelete) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete location "${initialLocation.name}" (${initialLocation.id})? This action cannot be undone.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    onDelete(initialLocation.id);
   };
 
   return (
@@ -212,26 +230,41 @@ export const LocationSettingsModal: React.FC<LocationSettingsModalProps> = ({
         </div>
 
         <div
-          className="p-4 border-t flex justify-end gap-3 rounded-b-xl transition-colors
+          className="p-4 border-t flex items-center justify-between gap-3 rounded-b-xl transition-colors
           bg-slate-50 border-slate-200
           dark:bg-slate-900 dark:border-slate-800"
         >
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 font-medium transition-colors rounded-lg
-              text-slate-600 hover:bg-slate-200 
-              dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800"
-          >
-            Cancel
-          </button>
-          <button
-            form="locationSettingsForm"
-            type="submit"
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
-          >
-            Save Location Settings
-          </button>
+          <div>
+            {mode === 'edit' && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="px-4 py-2 font-bold rounded-lg transition-colors
+                  text-white bg-red-600 hover:bg-red-500
+                  dark:bg-red-800 dark:hover:bg-red-700 dark:text-red-100"
+              >
+                Delete Location
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 font-medium transition-colors rounded-lg
+                text-slate-600 hover:bg-slate-200 
+                dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              form="locationSettingsForm"
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
+            >
+              Save Location Settings
+            </button>
+          </div>
         </div>
       </div>
     </div>

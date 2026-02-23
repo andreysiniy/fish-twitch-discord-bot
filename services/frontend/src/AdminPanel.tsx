@@ -133,6 +133,24 @@ const AdminPanel = () => {
     setIsLocationSettingsOpen(false);
   };
 
+  const handleDeleteLocation = (locationId: string) => {
+    if (locations.length <= 1) {
+      window.alert('At least one location must remain.');
+      return;
+    }
+
+    const nextLocations = locations.filter(loc => loc.id !== locationId);
+    if (nextLocations.length === locations.length) {
+      return;
+    }
+
+    setLocations(nextLocations);
+    if (selectedLocationId === locationId) {
+      setSelectedLocationId(nextLocations[0].id);
+    }
+    setIsLocationSettingsOpen(false);
+  };
+
   return (
     <div className="relative min-h-screen font-sans">
       <div
@@ -272,6 +290,7 @@ const AdminPanel = () => {
             initialLocation={locationSettingsMode === 'edit' ? currentLocation : null}
             onClose={() => setIsLocationSettingsOpen(false)}
             onSave={handleSaveLocationSettings}
+            onDelete={handleDeleteLocation}
           />
         </div>
       </div>
