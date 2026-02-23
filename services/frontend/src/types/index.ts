@@ -58,6 +58,12 @@ export type Reward = FishReward | RouletteReward | TimeoutReward | RobberyReward
 export interface Location {
   id: string;
   name: string;
+  items_drop_rate: number;
+  requirements: {
+    level?: number;
+    total_fish_stat?: number;
+    total_mass_stat?: number;
+  };
   rewards: Reward[];
 }
 

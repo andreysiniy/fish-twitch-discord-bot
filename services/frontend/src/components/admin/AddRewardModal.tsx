@@ -135,7 +135,7 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
           bg-white border-slate-200 
           dark:bg-slate-900 dark:border-slate-800"
         >
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Add New Event</h2>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Add New Reward</h2>
           <button 
             onClick={onClose}
             className="text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-white transition-colors"
@@ -253,7 +253,7 @@ export const AddRewardModal: React.FC<AddRewardModalProps> = ({ isOpen, onClose,
             type="submit" 
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
           >
-            Save Event
+            Save Reward
           </button>
         </div>
       </div>

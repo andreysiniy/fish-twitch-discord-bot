@@ -127,7 +127,7 @@ export const LootTable: React.FC<LootTableProps> = ({ rewards, onDelete }) => {
         dark:border-slate-800 dark:text-slate-600"
       >
         <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
-        No events configured for this location.
+        No rewards configured for this location.
       </div>
     );
   }
@@ -143,7 +143,7 @@ export const LootTable: React.FC<LootTableProps> = ({ rewards, onDelete }) => {
             bg-slate-50/50 border-slate-200/50 text-slate-500 
             dark:bg-slate-950/30 dark:border-slate-800/50 dark:text-slate-400"
           >
-            <th className="p-4 font-semibold">Event Type</th>
+            <th className="p-4 font-semibold">Reward Type</th>
             <th className="p-4 font-semibold">Config</th>
             <th className="p-4 font-semibold text-right">Weight</th>
             <th className="p-4 font-semibold text-right">Chance</th>
