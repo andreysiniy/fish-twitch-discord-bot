@@ -3,15 +3,13 @@ from typing import List, Optional, Dict, Any
 from domain.schemas.common import Rarity
 
 class ItemStats(BaseModel):
-    """Характеристики предмета"""
-    luck_bonus: float = 0.0      # +0.1 к удаче
-    points_bonus: int = 0        # +10 к очкам
-    xp_bonus_pct: float = 0.0    # +5% к опыту
-    durability: int = 100        # Прочность
-    can_break: bool = False      # Может ли сломаться
+    luck_bonus: float = 0.0
+    points_bonus: int = 0
+    xp_bonus_pct: float = 0.0
+    durability: int = 100
+    can_break: bool = False
 
 class BaseItemDTO(BaseModel):
-    """Общие поля для предмета (и в базе, и в инвентаре)"""
     item_id: str
     name: str
     description: str | None = None
@@ -21,14 +19,12 @@ class BaseItemDTO(BaseModel):
     stats: Dict[str, Any] = Field(default_factory=dict)
 
 class DropItemDTO(BaseItemDTO):
-    """Предмет как часть таблицы дропа (настройки)"""
     weight: int = 100
     xp_gain: int = 0
     quantity: Optional[int] = None
     message: str | None = None
     
 class InventoryItemDTO(BaseItemDTO):
-    """Предмет в инвентаре игрока"""
     quantity: int = 1
     slot_id: int 
     current_durability: int | None = None
@@ -36,7 +32,6 @@ class InventoryItemDTO(BaseItemDTO):
 
 
 class InventoryDTO(BaseModel):
-    """Структура инвентаря игрока"""
     items: List[InventoryItemDTO] = Field(default_factory=list)
     equipped_rod_slot: Optional[int] = None
     max_slots: int = 20
@@ -56,7 +51,6 @@ class EquipResponseDTO(BaseModel):
     equipped_item_name: str | None = None
 
 class PlayerStateDTO(BaseModel):
-    """Полное состояние игрока (Профиль)"""
     twitch_id: str
     username: str
     level: int
