@@ -5,6 +5,8 @@ import AdminPanel from './AdminPanel';
 import { useTheme } from './hooks/useTheme';
 import { ChannelContextBadge } from './components/navbar/ChannelContextBadge';
 import { UserProfileMenu } from './components/navbar/UserProfileMenu';
+import { DEFAULT_GAME_PARAMS, GlobalSettingsModal } from './components/admin/GlobalSettingsModal';
+import { GameParamsConfig } from './types';
 
 type ViewMode = 'player' | 'editor';
 type SettingsSection = 'global' | 'locations' | 'events' | 'items' | null;
@@ -24,6 +26,8 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('player');
   const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>(null);
+  const [isGlobalModalOpen, setIsGlobalModalOpen] = useState(false);
+  const [globalParams, setGlobalParams] = useState<GameParamsConfig>(DEFAULT_GAME_PARAMS);
   const { theme, toggleTheme } = useTheme();
 
   const handleOpenProfile = () => {
@@ -42,6 +46,14 @@ const App: React.FC = () => {
   const openEditorSection = (section: Exclude<SettingsSection, null>) => {
     setViewMode('editor');
     setActiveSettingsSection(section);
+  };
+
+  const handleOpenGlobalConfig = () => {
+    setIsGlobalModalOpen(true);
+  };
+
+  const handleSaveGlobalConfig = (values: GameParamsConfig) => {
+    setGlobalParams(values);
   };
 
   return (
@@ -79,7 +91,7 @@ const App: React.FC = () => {
             onOpenProfile={handleOpenProfile}
             onToggleAuth={handleToggleAuth}
             onToggleViewMode={handleToggleViewMode}
-            onOpenGlobalConfig={() => openEditorSection('global')}
+            onOpenGlobalConfig={handleOpenGlobalConfig}
             onOpenLocationsSettings={() => openEditorSection('locations')}
             onOpenEventsSettings={() => openEditorSection('events')}
             onOpenItemsSettings={() => openEditorSection('items')}
@@ -99,6 +111,12 @@ const App: React.FC = () => {
         )}
         {viewMode === 'player' ? <ProfilePage /> : <AdminPanel />}
       </div>
+      <GlobalSettingsModal
+        isOpen={isGlobalModalOpen}
+        initialValues={globalParams}
+        onClose={() => setIsGlobalModalOpen(false)}
+        onSave={handleSaveGlobalConfig}
+      />
     </div>
   );
 };

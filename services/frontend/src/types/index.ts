@@ -92,3 +92,19 @@ export interface DraftRewardParams {
   roulette_penalty_duration: number | null;
   roulette_penalty_reason: string;
 }
+
+export interface GameParamsConfig {
+  xp_base: number;
+  xp_exponent: number;
+  sell_max_bonus: number;
+  sell_mid_level: number;
+  sell_rate: number;
+  buy_rate: number;
+  rob_min_chance: number;
+  rob_max_chance: number;
+  rob_resist_divisor: number;
+  rob_loss_divisor: number;
+  rob_base_chance: number;
+  fishing_cooldown: number;
+  subs_fishing_cooldown: number;
+}
