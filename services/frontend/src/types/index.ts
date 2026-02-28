@@ -108,3 +108,19 @@ export interface GameParamsConfig {
   fishing_cooldown: number;
   subs_fishing_cooldown: number;
 }
+
+export interface EventModifiers {
+  luck_mult?: number;
+  xp_mult?: number;
+  cd_reduction?: number;
+  bonus_mass?: number;
+  [key: string]: number | undefined;
+}
+
+export interface FishingEvent {
+  id: number;
+  event_title: string;
+  is_active: boolean;
+  modifiers: EventModifiers;
+  override_loot_pool?: string | null;
+}

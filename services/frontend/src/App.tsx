@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import ProfilePage from './ProfilePage';
 import AdminPanel from './AdminPanel';
+import EventsSettingsPage from './EventsSettingsPage';
 import { useTheme } from './hooks/useTheme';
 import { ChannelContextBadge } from './components/navbar/ChannelContextBadge';
 import { UserProfileMenu } from './components/navbar/UserProfileMenu';
@@ -56,6 +57,8 @@ const App: React.FC = () => {
     setGlobalParams(values);
   };
 
+  const editorContent = activeSettingsSection === 'events' ? <EventsSettingsPage /> : <AdminPanel />;
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
       <nav
@@ -100,7 +103,10 @@ const App: React.FC = () => {
       </nav>
 
       <div className="pt-14">
-        {viewMode === 'editor' && activeSettingsSection && (
+        {viewMode === 'editor' &&
+          activeSettingsSection &&
+          activeSettingsSection !== 'events' &&
+          activeSettingsSection !== 'locations' && (
           <div
             className="px-4 md:px-8 py-2 border-b text-sm
             bg-indigo-50 border-indigo-100 text-indigo-700
@@ -109,7 +115,7 @@ const App: React.FC = () => {
             Opened settings section: <span className="font-semibold">{activeSettingsSection}</span>
           </div>
         )}
-        {viewMode === 'player' ? <ProfilePage /> : <AdminPanel />}
+        {viewMode === 'player' ? <ProfilePage /> : editorContent}
       </div>
       <GlobalSettingsModal
         isOpen={isGlobalModalOpen}
