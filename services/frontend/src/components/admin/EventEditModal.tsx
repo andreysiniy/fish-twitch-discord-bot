@@ -24,6 +24,39 @@ const DEFAULT_DRAFT: EventDraft = {
   override_loot_pool: '',
 };
 
+const formatPercent = (value: number): string => {
+  const absValue = Math.abs(value);
+  const fixed = absValue % 1 === 0 ? absValue.toFixed(0) : absValue.toFixed(1);
+  return `${fixed}%`;
+};
+
+const formatMultiplierBuff = (multiplier: number, metric: string): string => {
+  const delta = (multiplier - 1) * 100;
+  if (delta === 0) {
+    return `No ${metric} bonus`;
+  }
+  const sign = delta > 0 ? '+' : '-';
+  return `${sign}${formatPercent(delta)} ${metric}`;
+};
+
+const formatCooldownEffect = (reduction: number): string => {
+  if (reduction === 0) {
+    return 'No cooldown change';
+  }
+  if (reduction > 0) {
+    return `-${formatPercent(reduction * 100)} cooldown (faster)`;
+  }
+  return `+${formatPercent(reduction * 100)} cooldown (slower)`;
+};
+
+const formatMassEffect = (bonusMass: number): string => {
+  if (bonusMass === 0) {
+    return 'No mass bonus';
+  }
+  const sign = bonusMass > 0 ? '+' : '-';
+  return `${sign}${formatPercent(bonusMass * 100)} bonus mass`;
+};
+
 export const EventEditModal: React.FC<EventEditModalProps> = ({
   isOpen,
   mode,
@@ -159,7 +192,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelClass}>luck_mult</label>
+                  <label className={labelClass}>Luck Multiplier</label>
                   <input
                     type="number"
                     step="0.01"
@@ -167,9 +200,12 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                     onChange={e => handleModifierChange('luck_mult', e.target.value)}
                     className={inputClass}
                   />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    1.00 = base | {formatMultiplierBuff(draft.modifiers.luck_mult ?? 1, 'luck')}
+                  </p>
                 </div>
                 <div>
-                  <label className={labelClass}>xp_mult</label>
+                  <label className={labelClass}>XP Multiplier</label>
                   <input
                     type="number"
                     step="0.01"
@@ -177,9 +213,12 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                     onChange={e => handleModifierChange('xp_mult', e.target.value)}
                     className={inputClass}
                   />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    1.00 = base | {formatMultiplierBuff(draft.modifiers.xp_mult ?? 1, 'XP')}
+                  </p>
                 </div>
                 <div>
-                  <label className={labelClass}>cd_reduction</label>
+                  <label className={labelClass}>Cooldown Reduction</label>
                   <input
                     type="number"
                     step="0.01"
@@ -187,9 +226,12 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                     onChange={e => handleModifierChange('cd_reduction', e.target.value)}
                     className={inputClass}
                   />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    0.20 = 20% faster | {formatCooldownEffect(draft.modifiers.cd_reduction ?? 0)}
+                  </p>
                 </div>
                 <div>
-                  <label className={labelClass}>bonus_mass</label>
+                  <label className={labelClass}>Bonus Mass</label>
                   <input
                     type="number"
                     step="0.01"
@@ -197,6 +239,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                     onChange={e => handleModifierChange('bonus_mass', e.target.value)}
                     className={inputClass}
                   />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    0.15 = +15% mass | {formatMassEffect(draft.modifiers.bonus_mass ?? 0)}
+                  </p>
                 </div>
               </div>
             </div>
