@@ -62,11 +62,37 @@ const ActiveToggle: React.FC<{ checked: boolean; onChange: (next: boolean) => vo
   </button>
 );
 
-const formatModifierValue = (value?: number) => {
-  if (value === undefined) {
-    return '-';
+const formatPercent = (value: number): string => {
+  const absValue = Math.abs(value);
+  const fixed = absValue % 1 === 0 ? absValue.toFixed(0) : absValue.toFixed(1);
+  return `${fixed}%`;
+};
+
+const formatMultiplierBuff = (multiplier: number): string => {
+  const delta = (multiplier - 1) * 100;
+  if (delta === 0) {
+    return '0%';
   }
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  const sign = delta > 0 ? '+' : '-';
+  return `${sign}${formatPercent(delta)}`;
+};
+
+const formatCooldownEffect = (reduction: number): string => {
+  if (reduction === 0) {
+    return '0%';
+  }
+  if (reduction > 0) {
+    return `-${formatPercent(reduction * 100)}`;
+  }
+  return `+${formatPercent(reduction * 100)}`;
+};
+
+const formatMassEffect = (bonusMass: number): string => {
+  if (bonusMass === 0) {
+    return '0%';
+  }
+  const sign = bonusMass > 0 ? '+' : '-';
+  return `${sign}${formatPercent(bonusMass * 100)}`;
 };
 
 const EventsSettingsPage: React.FC = () => {
@@ -274,10 +300,10 @@ const EventsSettingsPage: React.FC = () => {
                         </td>
                         <td className="p-4 text-xs font-mono">
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-600 dark:text-slate-400">
-                            <span>luck: {formatModifierValue(event.modifiers.luck_mult)}</span>
-                            <span>xp: {formatModifierValue(event.modifiers.xp_mult)}</span>
-                            <span>cd: {formatModifierValue(event.modifiers.cd_reduction)}</span>
-                            <span>mass: {formatModifierValue(event.modifiers.bonus_mass)}</span>
+                            <span>Luck: {formatMultiplierBuff(event.modifiers.luck_mult ?? 1)}</span>
+                            <span>XP: {formatMultiplierBuff(event.modifiers.xp_mult ?? 1)}</span>
+                            <span>Cooldown: {formatCooldownEffect(event.modifiers.cd_reduction ?? 0)}</span>
+                            <span>Mass: {formatMassEffect(event.modifiers.bonus_mass ?? 0)}</span>
                           </div>
                         </td>
                         <td className="p-4 text-center">
