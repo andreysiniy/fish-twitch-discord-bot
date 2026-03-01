@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { CalendarDays, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { CalendarDays, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { EventEditModal } from './components/admin/EventEditModal';
+import { EventLaunchModal } from './components/admin/EventLaunchModal';
 import { FishingEvent } from './types';
 
 const MOCK_EVENTS: FishingEvent[] = [
@@ -73,11 +74,39 @@ const EventsSettingsPage: React.FC = () => {
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [selectedEvent, setSelectedEvent] = useState<FishingEvent | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false);
+  const [launchTargetEvent, setLaunchTargetEvent] = useState<FishingEvent | null>(null);
+  const timerRef = useRef<number | null>(null);
 
-  const activeCount = useMemo(() => events.filter(event => event.is_active).length, [events]);
+  const activeCount = events.filter(event => event.is_active).length;
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const clearTimedLaunch = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const activateSingleEvent = (id: number) => {
+    setEvents(prev => prev.map(event => ({ ...event, is_active: event.id === id })));
+  };
 
   const handleToggleActive = (id: number, next: boolean) => {
-    setEvents(prev => prev.map(event => (event.id === id ? { ...event, is_active: next } : event)));
+    if (next) {
+      clearTimedLaunch();
+      activateSingleEvent(id);
+      return;
+    }
+
+    setEvents(prev => prev.map(event => (event.id === id ? { ...event, is_active: false } : event)));
   };
 
   const handleDelete = (id: number) => {
@@ -89,6 +118,11 @@ const EventsSettingsPage: React.FC = () => {
     if (!confirmed) {
       return;
     }
+    if (launchTargetEvent?.id === id) {
+      setLaunchTargetEvent(null);
+      setIsLaunchModalOpen(false);
+    }
+    clearTimedLaunch();
     setEvents(prev => prev.filter(item => item.id !== id));
   };
 
@@ -106,7 +140,16 @@ const EventsSettingsPage: React.FC = () => {
 
   const handleSaveEvent = (draft: Omit<FishingEvent, 'id'>) => {
     if (modalMode === 'create') {
-      setEvents(prev => [...prev, { ...draft, id: Date.now() }]);
+      setEvents(prev => {
+        const next = { ...draft, id: Date.now() };
+        if (draft.is_active) {
+          return prev.map(event => ({ ...event, is_active: false })).concat(next);
+        }
+        return [...prev, next];
+      });
+      if (draft.is_active) {
+        clearTimedLaunch();
+      }
       setIsModalOpen(false);
       return;
     }
@@ -115,8 +158,47 @@ const EventsSettingsPage: React.FC = () => {
       return;
     }
 
-    setEvents(prev => prev.map(event => (event.id === selectedEvent.id ? { ...event, ...draft } : event)));
+    setEvents(prev => {
+      if (draft.is_active) {
+        return prev.map(event =>
+          event.id === selectedEvent.id
+            ? { ...event, ...draft, is_active: true }
+            : { ...event, is_active: false },
+        );
+      }
+      return prev.map(event => (event.id === selectedEvent.id ? { ...event, ...draft } : event));
+    });
+    if (draft.is_active) {
+      clearTimedLaunch();
+    }
     setIsModalOpen(false);
+  };
+
+  const handleOpenLaunch = (event: FishingEvent) => {
+    setLaunchTargetEvent(event);
+    setIsLaunchModalOpen(true);
+  };
+
+  const handleLaunchTimedEvent = (durationSeconds: number) => {
+    if (!launchTargetEvent) {
+      return;
+    }
+
+    clearTimedLaunch();
+    activateSingleEvent(launchTargetEvent.id);
+
+    const launchedEventId = launchTargetEvent.id;
+    timerRef.current = window.setTimeout(() => {
+      setEvents(prev =>
+        prev.map(event =>
+          event.id === launchedEventId ? { ...event, is_active: false } : event,
+        ),
+      );
+      timerRef.current = null;
+    }, durationSeconds * 1000);
+
+    setIsLaunchModalOpen(false);
+    setLaunchTargetEvent(null);
   };
 
   const handleSaveConfig = () => {
@@ -219,6 +301,13 @@ const EventsSettingsPage: React.FC = () => {
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
+                              onClick={() => handleOpenLaunch(event)}
+                              className="p-2 rounded-lg transition-all text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 dark:text-slate-500 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10"
+                              title="Launch Timed Event"
+                            >
+                              <Play className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => handleDelete(event.id)}
                               className="p-2 rounded-lg transition-all text-slate-400 hover:text-red-700 hover:bg-red-50 dark:text-slate-500 dark:hover:text-red-400 dark:hover:bg-red-500/10"
                               title="Delete Event"
@@ -243,6 +332,15 @@ const EventsSettingsPage: React.FC = () => {
         initialEvent={selectedEvent}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveEvent}
+      />
+      <EventLaunchModal
+        isOpen={isLaunchModalOpen}
+        eventTitle={launchTargetEvent?.event_title || ''}
+        onClose={() => {
+          setIsLaunchModalOpen(false);
+          setLaunchTargetEvent(null);
+        }}
+        onLaunch={handleLaunchTimedEvent}
       />
     </div>
   );
