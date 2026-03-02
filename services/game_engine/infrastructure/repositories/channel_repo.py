@@ -137,19 +137,23 @@ class ChannelRepository:
         if requirements is not None:
             pool.requirements = requirements
 
+        channel = self.db.query(Channel).filter(Channel.id == channel_id).first()
+        if not channel:
+            raise ValueError("Channel not found")
+
         self.db.query(LocationItem).filter(LocationItem.reward_pool_id == pool.id).delete()
         for item_dto in items:
             item_id = item_dto.item_id.strip()
             if not item_id:
                 continue
 
-            definition = self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
+            definition = self.get_item_definition(channel.twitch_id, item_id)
             if not definition:
-                raise ValueError(f"ItemDefinition '{item_id}' not found")
+                raise ValueError(f"ItemDefinition '{item_id}' not found for channel {channel.twitch_id}")
 
             db_item = LocationItem(
                 reward_pool_id=pool.id,
-                item_id=item_id,
+                item_id=definition.id,
                 weight=item_dto.weight,
                 xp_gain=item_dto.xp_gain,
                 quantity=item_dto.quantity,
@@ -168,27 +172,57 @@ class ChannelRepository:
             RewardPool.location_id == location_id
         ).first()
 
+    @staticmethod
+    def _make_scoped_item_definition_id(channel_twitch_id: str, item_id: str) -> str:
+        return f"{channel_twitch_id}::{item_id}"
+
     def upsert_item_definition(
         self,
+        channel_twitch_id: str,
         item_id: str,
-        name: str,
+        title: str,
         description: str | None = None,
-        item_type: str = "fish",
+        item_type: str = "equipment",
+        slot: str | None = None,
         rarity: str = "common",
+        durability: int | None = None,
+        stack_size: int = 1,
         image_url: str | None = None,
         base_stats: dict | None = None,
         is_sellable: bool = True,
         is_tradeable: bool = True
     ) -> ItemDefinition:
-        definition = self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
+        normalized_channel_twitch_id = str(channel_twitch_id or "").strip()
+        if not normalized_channel_twitch_id:
+            raise ValueError("channel_twitch_id is required")
+
+        normalized_item_id = str(item_id or "").strip()
+        if not normalized_item_id:
+            raise ValueError("item_id is required")
+
+        normalized_title = str(title or "").strip()
+        if not normalized_title:
+            raise ValueError("title is required")
+
+        definition = self.get_item_definition(normalized_channel_twitch_id, normalized_item_id)
         if not definition:
-            definition = ItemDefinition(id=item_id)
+            definition = ItemDefinition(
+                id=self._make_scoped_item_definition_id(normalized_channel_twitch_id, normalized_item_id),
+                channel_twitch_id=normalized_channel_twitch_id,
+                item_id=normalized_item_id,
+            )
             self.db.add(definition)
 
-        definition.name = name
+        normalized_slot = str(slot).strip() if slot is not None else ""
+        definition.channel_twitch_id = normalized_channel_twitch_id
+        definition.item_id = normalized_item_id
+        definition.title = normalized_title
         definition.description = description
         definition.type = item_type
+        definition.slot = normalized_slot or None
         definition.rarity = rarity
+        definition.durability = int(durability) if durability is not None else None
+        definition.stack_size = max(int(stack_size or 1), 1)
         definition.image_url = image_url
         definition.base_stats = base_stats or {}
         definition.is_sellable = is_sellable
@@ -197,13 +231,21 @@ class ChannelRepository:
         self.db.refresh(definition)
         return definition
 
-    def get_item_definition(self, item_id: str) -> ItemDefinition | None:
-        return self.db.query(ItemDefinition).filter(ItemDefinition.id == item_id).first()
-
-    def list_item_definitions(self, skip: int = 0, limit: int = 200) -> list[ItemDefinition]:
+    def get_item_definition(self, channel_twitch_id: str, item_id: str) -> ItemDefinition | None:
         return (
             self.db.query(ItemDefinition)
-            .order_by(ItemDefinition.id.asc())
+            .filter(
+                ItemDefinition.channel_twitch_id == channel_twitch_id,
+                ItemDefinition.item_id == item_id,
+            )
+            .first()
+        )
+
+    def list_item_definitions(self, channel_twitch_id: str, skip: int = 0, limit: int = 200) -> list[ItemDefinition]:
+        return (
+            self.db.query(ItemDefinition)
+            .filter(ItemDefinition.channel_twitch_id == channel_twitch_id)
+            .order_by(ItemDefinition.item_id.asc())
             .offset(skip)
             .limit(limit)
             .all()

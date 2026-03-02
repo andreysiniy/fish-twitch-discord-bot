@@ -22,9 +22,14 @@ class InventoryService:
             return EquipResponseDTO(success=False, message=f"Slot {data.slot_id} is empty! Check your inventory (!fishbag).")
 
         definition = target_item.definition
-        if not definition or definition.type != "rod":
-            item_name = definition.name if definition else target_item.item_id
-            return EquipResponseDTO(success=False, message=f"{item_name} is not a rod!")
+        item_title = self._display_title(definition, target_item.item_id)
+
+        item_type = str(getattr(definition, "type", "") or "").strip().lower()
+        item_slot = str(getattr(definition, "slot", "") or "").strip().lower()
+        is_rod = item_type == "rod" or item_slot == "rod"
+
+        if not definition or not is_rod:
+            return EquipResponseDTO(success=False, message=f"{item_title} is not a rod!")
 
         inventory["equipped_rod_slot"] = target_item.slot_id
         user.inventory = inventory
@@ -33,8 +38,8 @@ class InventoryService:
 
         return EquipResponseDTO(
             success=True,
-            message=f"Equipped [{target_item.slot_id}] {definition.name}.",
-            equipped_item_name=definition.name
+            message=f"Equipped [{target_item.slot_id}] {item_title}.",
+            equipped_item_name=item_title,
         )
 
     def get_inventory_msg(self, user_id: str, channel_id: str) -> InventoryResponseDTO:
@@ -50,32 +55,45 @@ class InventoryService:
 
         message = f"Inventory: {len(items)} items."
         if equipped_rod:
-            message += f" Equipped rod: [{equipped_rod_slot}] {equipped_rod.get('name')}."
+            message += f" Equipped rod: [{equipped_rod_slot}] {equipped_rod.get('title')}."
 
         for item in items:
-            message += f"\n[{item.get('slot_id')}] {item.get('name')} x{item.get('quantity', 1)}"
+            message += f"\n[{item.get('slot_id')}] {item.get('title')} x{item.get('quantity', 1)}"
 
         return InventoryResponseDTO(
             success=True,
             message=message,
             items=items,
             equipped_rod_slot=equipped_rod_slot,
-            max_slots=inventory_data.get("max_slots", 20)
+            max_slots=inventory_data.get("max_slots", 20),
         )
+
+    def _display_title(self, definition, fallback_item_id: str) -> str:
+        if definition and getattr(definition, "title", None):
+            return str(definition.title)
+        if definition and getattr(definition, "item_id", None):
+            return str(definition.item_id)
+        return fallback_item_id
 
     def _to_inventory_dto(self, item) -> dict:
         definition = item.definition
         meta = item.meta or {}
+        logical_item_id = definition.item_id if definition else item.item_id
+        title = self._display_title(definition, logical_item_id)
+        stats = definition.base_stats if definition else {}
         return {
-            "item_id": item.item_id,
-            "name": definition.name if definition else item.item_id,
+            "item_id": logical_item_id,
+            "title": title,
             "description": definition.description if definition else None,
             "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "fish",
+            "type": definition.type if definition else "equipment",
+            "slot": definition.slot if definition else None,
+            "durability": definition.durability if definition else None,
+            "stack_size": definition.stack_size if definition else 1,
             "image_url": definition.image_url if definition else None,
-            "stats": definition.base_stats if definition else {},
+            "base_stats": stats,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
-            "obtained_at": meta.get("obtained_at")
+            "obtained_at": meta.get("obtained_at"),
         }

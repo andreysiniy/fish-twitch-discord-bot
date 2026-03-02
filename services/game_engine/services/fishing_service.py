@@ -93,6 +93,11 @@ class FishingService:
             result.mass_gained = applied_mass_delta
             
         if result.item_drop:
+            if not result.item_drop.get("title"):
+                result.item_drop["title"] = result.item_drop.get("item_id", "Unknown Item")
+            if result.item_drop.get("quantity") is None:
+                result.item_drop["quantity"] = 1
+
             self.user_repo.update_inventory(user, result.item_drop)
             location_item_id = result.item_drop.get("db_id")
             if location_item_id:

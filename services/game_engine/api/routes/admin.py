@@ -94,8 +94,8 @@ def update_rewards(
     service: AdminService = Depends(get_admin_service)
 ):
     try:
-        pool = service.update_channel_rewards(current_user_id, twitch_id, location_id, data)
-        return pool
+        service.update_channel_rewards(current_user_id, twitch_id, location_id, data)
+        return service.get_channel_rewards(current_user_id, twitch_id, location_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -309,7 +309,9 @@ def upsert_item_definition(
     service: AdminService = Depends(get_admin_service)
 ):
     try:
-        return service.upsert_item_definition(data)
+        return service.upsert_item_definition(requester_twitch_id=current_user_id, data=data)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -321,7 +323,12 @@ def list_item_definitions(
     current_user_id: str = Depends(get_current_user_id),
     service: AdminService = Depends(get_admin_service)
 ):
-    return service.list_item_definitions(skip=skip, limit=limit)
+    try:
+        return service.list_item_definitions(requester_twitch_id=current_user_id, skip=skip, limit=limit)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/items/grant", response_model=GrantItemResponseDTO)
@@ -333,14 +340,18 @@ def grant_item_to_player(
     try:
         item = service.grant_item_to_player(current_user_id, data)
         definition = item.definition
+        logical_item_id = definition.item_id if definition else item.item_id
         response_item = {
-            "item_id": item.item_id,
-            "name": definition.name if definition else item.item_id,
+            "item_id": logical_item_id,
+            "title": definition.title if definition else logical_item_id,
             "description": definition.description if definition else None,
             "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "fish",
+            "type": definition.type if definition else "equipment",
+            "slot": definition.slot if definition else None,
+            "durability": definition.durability if definition else None,
+            "stack_size": definition.stack_size if definition else 1,
             "image_url": definition.image_url if definition else None,
-            "stats": definition.base_stats if definition else {},
+            "base_stats": definition.base_stats if definition else {},
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
@@ -348,7 +359,7 @@ def grant_item_to_player(
         }
         return {
             "success": True,
-            "message": f"Granted {response_item['name']} x{response_item['quantity']} to user {data.user_twitch_id}.",
+            "message": f"Granted {response_item['title']} x{response_item['quantity']} to user {data.user_twitch_id}.",
             "item": response_item
         }
     except PermissionError as e:

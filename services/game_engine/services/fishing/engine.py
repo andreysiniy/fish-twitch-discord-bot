@@ -90,12 +90,19 @@ class FishingEngine:
         if item_pool and random.random() < items_drop_rate:
             item_catch = rng.roll_loot(item_pool, luck_modifier=luck)
             if item_catch:
-                item_stats = item_catch.get("stats", {})
+                item_stats = item_catch.get("base_stats", {}) or {}
+                base_durability = item_catch.get("durability")
+                if base_durability is None:
+                    base_durability = item_stats.get("durability")
+
+                if not item_catch.get("title"):
+                    item_catch["title"] = item_catch.get("item_id", "Unknown Item")
+
                 item_catch.update(
                     {
-                        "type": item_catch.get("type", "fish"),
+                        "type": item_catch.get("type", "equipment"),
                         "quantity": 1,
-                        "current_durability": item_stats.get("durability", 100),
+                        "current_durability": int(base_durability) if base_durability is not None else None,
                         "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     }
                 )

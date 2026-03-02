@@ -1,12 +1,14 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, model_validator
+
 from core.game_limits import (
     MAX_COOLDOWN_SECONDS,
     MAX_EVENT_DURATION_SECONDS,
     MIN_COOLDOWN_SECONDS,
     MIN_EVENT_DURATION_SECONDS,
 )
+from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
 
 ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
 
@@ -31,7 +33,7 @@ class ChannelResponseDTO(BaseModel):
     se_channel_id: Optional[str] = None
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
 
 
 class StreamElementsIntegrationUpsertDTO(BaseModel):
@@ -51,18 +53,30 @@ class LocationItemUpdateDTO(BaseModel):
     quantity: Optional[int] = None
     message: Optional[str] = None
 
+class LocationItemResponseDTO(LocationItemUpdateDTO):
+    db_id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    rarity: str = "common"
+    type: str = "equipment"
+    slot: str | None = None
+    durability: int | None = None
+    stack_size: int = 1
+    image_url: Optional[str] = None
+    base_stats: Dict[str, Any] = Field(default_factory=dict)
+
 
 class RewardPoolUpdateDTO(BaseModel):
     items_drop_rate: Optional[float] = Field(0.1, description="Chance to drop an item")
     location_name: Optional[str] = Field(None, description="Display name for location")
     requirements: Optional[Dict[str, Any]] = Field(
         None,
-        description="Location entry requirements (level, total_fish_stat, total_mass_stat)"
+        description="Location entry requirements (level, total_fish_stat, total_mass_stat)",
     )
     rewards: List[Dict[str, Any]] = Field(..., description="Rewards data to update the pool")
     items: Optional[List[LocationItemUpdateDTO]] = Field(
         None,
-        description="Optional list of location drop items"
+        description="Optional list of location drop items",
     )
 
 class RewardPoolResponseDTO(BaseModel):
@@ -71,8 +85,8 @@ class RewardPoolResponseDTO(BaseModel):
     requirements: Dict[str, Any] = Field(default_factory=dict)
     rewards_data: List[Dict[str, Any]]
     items_drop_rate: float
-    items: List[LocationItemUpdateDTO]
-    
+    items: List[LocationItemResponseDTO]
+
     class Config:
         from_attributes = True
 
@@ -87,7 +101,7 @@ class AdminPlayerDTO(BaseModel):
     inventory: InventoryDTO
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
 
 class PlayerListResponse(BaseModel):
     total: int
@@ -140,29 +154,62 @@ class FishCooldownSetResponseDTO(BaseModel):
 
 class ItemDefinitionCreateDTO(BaseModel):
     item_id: str
-    name: str
+    title: str
     description: Optional[str] = None
-    type: str = "fish"
+    type: str = "equipment"
+    slot: str | None = None
     rarity: str = "common"
+    durability: int | None = None
+    stack_size: int = Field(1, ge=1)
     image_url: Optional[str] = None
     base_stats: Dict[str, Any] = Field(default_factory=dict)
     is_sellable: bool = True
     is_tradeable: bool = True
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+
+        normalized = dict(values)
+        raw_item_id = normalized.get("item_id") or normalized.get("id")
+        if raw_item_id is not None:
+            normalized["item_id"] = str(raw_item_id)
+
+        raw_title = normalized.get("title")
+        if raw_title is not None:
+            normalized["title"] = str(raw_title)
+
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_required(self):
+        self.item_id = self.item_id.strip()
+        if not self.item_id:
+            raise ValueError("item_id is required")
+
+        self.title = self.title.strip()
+        if not self.title:
+            raise ValueError("title is required")
+
+        return self
+
 
 class ItemDefinitionResponseDTO(BaseModel):
-    id: str
-    name: str
+    item_id: str
+    channel_twitch_id: str
+    title: str
     description: Optional[str] = None
     type: str
+    slot: str | None = None
     rarity: str
+    durability: int | None = None
+    stack_size: int = 1
     image_url: Optional[str] = None
     base_stats: Dict[str, Any] = Field(default_factory=dict)
     is_sellable: bool
     is_tradeable: bool
-
-    class Config:
-        from_attributes = True
 
 
 class GrantItemRequestDTO(BaseModel):
@@ -223,7 +270,7 @@ class FishingEventToggleRequestDTO(BaseModel):
     duration_seconds: Optional[int] = Field(
         None,
         ge=MIN_EVENT_DURATION_SECONDS,
-        le=MAX_EVENT_DURATION_SECONDS
+        le=MAX_EVENT_DURATION_SECONDS,
     )
 
 

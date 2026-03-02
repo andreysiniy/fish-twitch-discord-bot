@@ -359,7 +359,7 @@ class FishingPresenter:
         return actions
 
     def _present_item_drop(self, user: UserProgress, item: Dict, config: Dict) -> List[GameAction]:
-        item_name = item.get("name", "Unknown Item")
+        item_name = item.get("title", "Unknown Item")
         quantity = item.get("quantity", 1)
         
         msg = resolve_message(

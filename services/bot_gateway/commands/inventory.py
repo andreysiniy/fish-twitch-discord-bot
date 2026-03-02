@@ -49,7 +49,7 @@ class InventoryCog(commands.Cog):
         lines = []
         for item in items[:8]:
             slot_id = item.get("slot_id", "?")
-            name = item.get("name", "Unknown")
+            name = item.get("title", "Unknown")
             qty = item.get("quantity", 1)
             lines.append(f"[{slot_id}] {name} x{qty}")
 

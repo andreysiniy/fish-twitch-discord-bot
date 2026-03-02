@@ -11,12 +11,16 @@ class ItemStats(BaseModel):
 
 class BaseItemDTO(BaseModel):
     item_id: str
-    name: str
+    title: str
     description: str | None = None
     rarity: Rarity = Rarity.COMMON
     type: str = "fish"
+    slot: str | None = None
+    durability: int | None = None
+    stack_size: int = 1
     image_url: str | None = None
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    base_stats: Dict[str, Any] = Field(default_factory=dict)
+
 
 class DropItemDTO(BaseItemDTO):
     weight: int = 100

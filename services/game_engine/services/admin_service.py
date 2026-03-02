@@ -253,24 +253,47 @@ class AdminService:
             "se_channel_id": se_channel_id
         }
 
-    def upsert_item_definition(self, data: ItemDefinitionCreateDTO):
+    def upsert_item_definition(
+        self,
+        requester_twitch_id: str,
+        data: ItemDefinitionCreateDTO,
+        channel_twitch_id: str | None = None
+    ):
+        target_channel_twitch_id = (channel_twitch_id or requester_twitch_id).strip()
+        channel = self.check_access(target_channel_twitch_id, requester_twitch_id)
+
         item_id = data.item_id.strip()
         if not item_id:
             raise ValueError("item_id is required")
-        return self.repo.upsert_item_definition(
+
+        definition = self.repo.upsert_item_definition(
+            channel_twitch_id=channel.twitch_id,
             item_id=item_id,
-            name=data.name,
+            title=data.title,
             description=data.description,
             item_type=data.type,
+            slot=data.slot,
             rarity=data.rarity,
+            durability=data.durability,
+            stack_size=data.stack_size,
             image_url=data.image_url,
             base_stats=data.base_stats,
             is_sellable=data.is_sellable,
             is_tradeable=data.is_tradeable
         )
+        return self._serialize_item_definition(definition)
 
-    def list_item_definitions(self, skip: int = 0, limit: int = 200):
-        return self.repo.list_item_definitions(skip=skip, limit=limit)
+    def list_item_definitions(
+        self,
+        requester_twitch_id: str,
+        skip: int = 0,
+        limit: int = 200,
+        channel_twitch_id: str | None = None
+    ):
+        target_channel_twitch_id = (channel_twitch_id or requester_twitch_id).strip()
+        channel = self.check_access(target_channel_twitch_id, requester_twitch_id)
+        definitions = self.repo.list_item_definitions(channel.twitch_id, skip=skip, limit=limit)
+        return [self._serialize_item_definition(definition) for definition in definitions]
 
     def grant_item_to_player(self, requester_twitch_id: str, data: GrantItemRequestDTO):
         self.check_access(data.channel_twitch_id, requester_twitch_id)
@@ -304,18 +327,41 @@ class AdminService:
 
     def _serialize_inventory_item(self, item):
         definition = item.definition
+        logical_item_id = definition.item_id if definition else item.item_id
+        title = definition.title if definition else logical_item_id
+        stats = definition.base_stats if definition else {}
         return {
-            "item_id": item.item_id,
-            "name": definition.name if definition else item.item_id,
+            "item_id": logical_item_id,
+            "title": title,
             "description": definition.description if definition else None,
             "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "fish",
+            "type": definition.type if definition else "equipment",
+            "slot": definition.slot if definition else None,
+            "durability": definition.durability if definition else None,
+            "stack_size": definition.stack_size if definition else 1,
             "image_url": definition.image_url if definition else None,
-            "stats": definition.base_stats if definition else {},
+            "base_stats": stats,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
             "obtained_at": (item.meta or {}).get("obtained_at")
+        }
+
+    def _serialize_item_definition(self, definition) -> dict:
+        return {
+            "item_id": definition.item_id,
+            "channel_twitch_id": definition.channel_twitch_id,
+            "title": definition.title,
+            "description": definition.description,
+            "type": definition.type,
+            "slot": definition.slot,
+            "rarity": definition.rarity,
+            "durability": definition.durability,
+            "stack_size": definition.stack_size,
+            "image_url": definition.image_url,
+            "base_stats": dict(definition.base_stats or {}),
+            "is_sellable": bool(definition.is_sellable),
+            "is_tradeable": bool(definition.is_tradeable),
         }
 
     def list_fishing_events(self, requester_twitch_id: str, channel_twitch_id: str) -> FishingEventListResponseDTO:

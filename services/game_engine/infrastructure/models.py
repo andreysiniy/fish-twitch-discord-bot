@@ -67,12 +67,20 @@ class UserProgress(Base):
 
 class ItemDefinition(Base):
     __tablename__ = "item_definitions"
+    __table_args__ = (
+        UniqueConstraint("channel_twitch_id", "item_id", name="uq_item_definitions_channel_item"),
+    )
 
     id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    channel_twitch_id = Column(String, nullable=False, index=True)
+    item_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
     description = Column(String)
-    type = Column(String, default="fish", nullable=False)
+    type = Column(String, default="equipment", nullable=False)
+    slot = Column(String, nullable=True)
     rarity = Column(String, default="common", nullable=False)
+    durability = Column(Integer, nullable=True)
+    stack_size = Column(Integer, default=1, nullable=False)
     image_url = Column(String)
     base_stats = Column(JSONB, default={})
     is_sellable = Column(Boolean, default=True, nullable=False)
