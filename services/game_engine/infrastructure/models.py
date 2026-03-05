@@ -17,6 +17,7 @@ class Channel(Base):
 
     users_progress = relationship("UserProgress", back_populates="channel")
     reward_pools = relationship("RewardPool", back_populates="channel")
+    item_definitions = relationship("ItemDefinition", back_populates="channel")
     fishing_events = relationship("FishingEvent", back_populates="channel")
     access_list = relationship(
         "ChannelAccessRole",
@@ -68,11 +69,11 @@ class UserProgress(Base):
 class ItemDefinition(Base):
     __tablename__ = "item_definitions"
     __table_args__ = (
-        UniqueConstraint("channel_twitch_id", "item_id", name="uq_item_definitions_channel_item"),
+        UniqueConstraint("channel_id", "item_id", name="uq_item_definitions_channel_item"),
     )
 
-    id = Column(String, primary_key=True, index=True)
-    channel_twitch_id = Column(String, nullable=False, index=True)
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     item_id = Column(String, nullable=False, index=True)
     title = Column(String, nullable=False)
     description = Column(String)
@@ -86,13 +87,15 @@ class ItemDefinition(Base):
     is_sellable = Column(Boolean, default=True, nullable=False)
     is_tradeable = Column(Boolean, default=True, nullable=False)
 
+    channel = relationship("Channel", back_populates="item_definitions")
+
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users_progress.id"), nullable=False, index=True)
-    item_id = Column(String, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("item_definitions.id"), nullable=False, index=True)
     slot_id = Column(Integer, nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     current_durability = Column(Integer, nullable=True)
@@ -123,7 +126,7 @@ class LocationItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     reward_pool_id = Column(Integer, ForeignKey("reward_pools.id"))
-    item_id = Column(String, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("item_definitions.id"), nullable=False, index=True)
     weight = Column(Integer, default=100)
     xp_gain = Column(Integer, default=0, nullable=False)
     quantity = Column(Integer, nullable=True)

@@ -348,9 +348,13 @@ class AdminService:
         }
 
     def _serialize_item_definition(self, definition) -> dict:
+        channel_twitch_id = ""
+        if getattr(definition, "channel", None) is not None:
+            channel_twitch_id = str(definition.channel.twitch_id or "")
+
         return {
             "item_id": definition.item_id,
-            "channel_twitch_id": definition.channel_twitch_id,
+            "channel_twitch_id": channel_twitch_id,
             "title": definition.title,
             "description": definition.description,
             "type": definition.type,

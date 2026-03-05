@@ -12,10 +12,6 @@ class UserRepository:
     def get_channel(self, channel_twitch_id: str) -> Channel | None:
         return self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
 
-    @staticmethod
-    def _make_scoped_item_definition_id(channel_twitch_id: str, item_id: str) -> str:
-        return f"{channel_twitch_id}::{item_id}"
-
     def get_progress(self, user_twitch_id: str, channel_twitch_id: str) -> UserProgress | None:
         channel = self.get_channel(channel_twitch_id)
 
@@ -151,7 +147,7 @@ class UserRepository:
         definition = (
             self.db.query(ItemDefinition)
             .filter(
-                ItemDefinition.channel_twitch_id == channel.twitch_id,
+                ItemDefinition.channel_id == channel.id,
                 ItemDefinition.item_id == item_id,
             )
             .first()
@@ -159,8 +155,7 @@ class UserRepository:
         if not definition:
             normalized_slot = str(item_data.get("slot") or "").strip()
             definition = ItemDefinition(
-                id=self._make_scoped_item_definition_id(channel.twitch_id, item_id),
-                channel_twitch_id=channel.twitch_id,
+                channel_id=channel.id,
                 item_id=item_id,
                 title=title,
                 description=item_data.get("description"),
@@ -219,7 +214,7 @@ class UserRepository:
         definition = (
             self.db.query(ItemDefinition)
             .filter(
-                ItemDefinition.channel_twitch_id == channel.twitch_id,
+                ItemDefinition.channel_id == channel.id,
                 ItemDefinition.item_id == item_id,
             )
             .first()

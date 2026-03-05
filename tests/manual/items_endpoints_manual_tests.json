@@ -1,6 +1,6 @@
 {
   "suite": "item_endpoints_manual",
-  "generated_for": "channel-scoped item definitions",
+  "generated_for": "channel-bound item definitions with integer PK",
   "variables": {
     "BASE_URL": "http://localhost:8000",
     "OWNER_CHANNEL_TWITCH_ID": "464887139",
@@ -70,6 +70,42 @@
           "item_id": "rod_basic",
           "channel_twitch_id": "{{OWNER_CHANNEL_TWITCH_ID}}",
           "title": "Basic Rod"
+        }
+      }
+    },
+    {
+      "id": "02b_upsert_same_item_definition_updates_existing",
+      "request": {
+        "method": "POST",
+        "url": "{{BASE_URL}}/v1/admin/items/definitions",
+        "headers": {
+          "Authorization": "Bearer {{owner_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "item_id": "rod_basic",
+          "title": "Basic Rod v2",
+          "description": "Starter rod updated",
+          "type": "equipment",
+          "slot": "rod",
+          "rarity": "common",
+          "durability": 120,
+          "stack_size": 1,
+          "image_url": "https://example.com/items/rod_basic.png",
+          "base_stats": {
+            "luck_bonus": 0.05,
+            "xp_bonus_pct": 0.03
+          },
+          "is_sellable": true,
+          "is_tradeable": true
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json_contains": {
+          "item_id": "rod_basic",
+          "channel_twitch_id": "{{OWNER_CHANNEL_TWITCH_ID}}",
+          "title": "Basic Rod v2"
         }
       }
     },
@@ -226,7 +262,7 @@
           "success": true,
           "item": {
             "item_id": "rod_basic",
-            "title": "Basic Rod"
+            "title": "Basic Rod v2"
           }
         }
       }
