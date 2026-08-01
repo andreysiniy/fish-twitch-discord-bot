@@ -1,25 +1,30 @@
 import logging
+import uuid
 
 import uvicorn
+from api.routes import (
+    actions,
+    admin,
+    auth,
+    discord_admin,
+    discord_integrations,
+    economy,
+    fishing,
+    inventory,
+)
+from core.api_errors import ApiProblem
+from core.config import settings
+from core.logging_config import configure_logging, reset_request_id, set_request_id
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
-
-import infrastructure.models
-from api.routes import actions, admin, auth, economy, fishing, inventory
-from core.config import settings
 from infrastructure.database import SessionLocal
 from infrastructure.migration_status import get_schema_revisions
 from infrastructure.redis_client import RedisClient
-from services.eventing.event_job_runner import FishingEventJobRunner
-from services.eventing.se_job_runner import SEJobRunner
+from sqlalchemy import text
 
-
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+configure_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -44,23 +49,24 @@ app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 app.include_router(economy.router, prefix="/v1", tags=["Economy"])
 app.include_router(actions.router, prefix="/v1/actions", tags=["External Actions"])
-
-event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
-se_job_runner = SEJobRunner()
-
-
-@app.on_event("startup")
-async def start_background_workers() -> None:
-    if settings.RUN_BACKGROUND_WORKERS:
-        await event_job_runner.start()
-        await se_job_runner.start()
+app.include_router(
+    discord_integrations.router,
+    prefix="/v1",
+    tags=["Discord Integration"],
+)
+app.include_router(discord_admin.router, prefix="/v1/admin", tags=["Discord Admin"])
 
 
-@app.on_event("shutdown")
-async def stop_background_workers() -> None:
-    if settings.RUN_BACKGROUND_WORKERS:
-        await event_job_runner.stop()
-        await se_job_runner.stop()
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = set_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_request_id(token)
 
 
 @app.exception_handler(Exception)
@@ -72,6 +78,30 @@ async def unhandled_exception_handler(request: Request, error: Exception) -> JSO
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal server error"},
+    )
+
+
+@app.exception_handler(ApiProblem)
+async def api_problem_handler(request: Request, error: ApiProblem) -> JSONResponse:
+    return JSONResponse(status_code=error.status_code, content={"detail": error.detail()})
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(
+    request: Request,
+    error: RequestValidationError,
+) -> JSONResponse:
+    fields = {".".join(str(part) for part in item["loc"]): item["msg"] for item in error.errors()}
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "fields": fields,
+                "request_id": request.headers.get("X-Request-ID"),
+            }
+        },
     )
 
 

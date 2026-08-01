@@ -1,7 +1,5 @@
 import logging
 
-from twitchio.ext import commands
-
 from action_handler import ActionHandler
 from api_client import EngineApiClient
 from commands.admin import AdminCog
@@ -10,7 +8,8 @@ from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
 from config import BotConfig
-
+from logging_config import configure_logging
+from twitchio.ext import commands
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ class BotGateway(commands.Bot):
             initial_channels=cfg.initial_channels,
             client_secret=cfg.twitch_client_secret or None,
             client_id=cfg.twitch_client_id or None,
-            bot_id=cfg.bot_nick or None
+            bot_id=cfg.bot_nick or None,
         )
         self.cfg = cfg
         self.api_client = EngineApiClient(cfg.engine_url)
@@ -48,10 +47,7 @@ class BotGateway(commands.Bot):
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     cfg = BotConfig.from_env()
     bot = BotGateway(cfg)
     bot.run()

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # --- INFRASTRUCTURE ---
   
@@ -47,10 +45,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY}
       BOT_API_KEY: ${BOT_API_KEY}
+      DISCORD_BOT_API_KEY: ${DISCORD_BOT_API_KEY}
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       TWITCH_CLIENT_ID: ${API_TWITCH_CLIENT_ID}
       TWITCH_CLIENT_SECRET: ${API_TWITCH_CLIENT_SECRET}
+      TWITCH_DISCORD_REDIRECT_URI: ${TWITCH_DISCORD_REDIRECT_URI:-http://localhost:8000/v1/auth/twitch/discord/callback}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       RUN_BACKGROUND_WORKERS: "false"
@@ -59,6 +59,11 @@ services:
       - redis
     networks:
       - fisher_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   game_worker:
     build: ./services/game_engine
@@ -72,10 +77,35 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       BOT_API_KEY: ${BOT_API_KEY}
+      DISCORD_BOT_API_KEY: ${DISCORD_BOT_API_KEY}
       TWITCH_CLIENT_ID: ${API_TWITCH_CLIENT_ID}
       TWITCH_CLIENT_SECRET: ${API_TWITCH_CLIENT_SECRET}
     depends_on:
       - game_engine
+    networks:
+      - fisher_net
+
+  discord_gateway:
+    build: ./services/discord_gateway
+    container_name: fisher_discord
+    restart: always
+    environment:
+      PYTHONUNBUFFERED: 1
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID}
+      DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      DISCORD_BOT_API_KEY: ${DISCORD_BOT_API_KEY}
+      ENGINE_URL: http://game_engine:8000
+      REDIS_URL: redis://redis:6379/0
+      COMMAND_SYNC_MODE: ${COMMAND_SYNC_MODE:-global}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+    expose:
+      - "8081"
+    depends_on:
+      game_engine:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - fisher_net
 

@@ -203,7 +203,7 @@ def list_fishing_events(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/channels/{channel_twitch_id}/events", response_model=FishingEventResponseDTO)
+@router.post("/legacy/channels/{channel_twitch_id}/events", response_model=FishingEventResponseDTO)
 def create_fishing_event(
     channel_twitch_id: str,
     data: FishingEventCreateRequestDTO,
@@ -221,7 +221,7 @@ def create_fishing_event(
         raise HTTPException(status_code=status, detail=detail)
 
 
-@router.put("/channels/{channel_twitch_id}/events/{event_id}", response_model=FishingEventResponseDTO)
+@router.put("/legacy/channels/{channel_twitch_id}/events/{event_id}", response_model=FishingEventResponseDTO)
 def update_fishing_event(
     channel_twitch_id: str,
     event_id: int,
@@ -240,7 +240,7 @@ def update_fishing_event(
         raise HTTPException(status_code=status, detail=detail)
 
 
-@router.delete("/channels/{channel_twitch_id}/events/{event_id}")
+@router.delete("/legacy/channels/{channel_twitch_id}/events/{event_id}")
 def delete_fishing_event(
     channel_twitch_id: str,
     event_id: int,

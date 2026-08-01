@@ -1,7 +1,8 @@
 import httpx
+from anyio import to_thread
 from core.config import settings
 from infrastructure.repositories.channel_repo import ChannelRepository
-from domain.schemas.admin import ChannelCreateDTO
+
 
 class AuthService:
     def __init__(self, channel_repo: ChannelRepository):
@@ -15,31 +16,34 @@ class AuthService:
                 "client_secret": settings.TWITCH_CLIENT_SECRET,
                 "code": code,
                 "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri
+                "redirect_uri": redirect_uri,
             }
             resp = await client.post(token_url, params=params)
             if resp.status_code != 200:
                 raise ValueError("Failed to retrieve Twitch token")
-            
+
             token_data = resp.json()
             access_token = str(token_data["access_token"])
 
             user_url = "https://api.twitch.tv/helix/users"
             headers = {
                 "Client-ID": settings.TWITCH_CLIENT_ID,
-                "Authorization": f"Bearer {access_token}"
+                "Authorization": f"Bearer {access_token}",
             }
             user_resp = await client.get(user_url, headers=headers)
             if user_resp.status_code != 200:
                 raise ValueError("Failed to retrieve user info")
-            
+
             twitch_user = user_resp.json()["data"][0]
-          
-            channel = self.channel_repo.get_by_twitch_id(twitch_user["id"])
+
+            channel = await to_thread.run_sync(
+                self.channel_repo.get_by_twitch_id,
+                twitch_user["id"],
+            )
             is_streamer = channel is not None
 
             return {
                 "twitch_id": twitch_user["id"],
                 "username": twitch_user["login"],
-                "is_streamer": is_streamer
+                "is_streamer": is_streamer,
             }

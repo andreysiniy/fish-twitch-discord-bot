@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -14,12 +14,12 @@ class GameConfig(StrictModel):
     xp_exponent: Decimal = Field(Decimal("1.5"), ge=1, le=5)
     sell_max_bonus: Decimal = Field(Decimal("2.0"), ge=0, le=100)
     sell_mid_level: int = Field(50, ge=0, le=1_000_000)
-    sell_rate: Decimal = Field(Decimal("100"), ge=1, le=100_000)
-    buy_rate: Decimal = Field(Decimal("120"), ge=1, le=100_000)
+    sell_rate: Decimal = Field(Decimal(100), ge=1, le=100_000)
+    buy_rate: Decimal = Field(Decimal(120), ge=1, le=100_000)
     rob_min_chance: Decimal = Field(Decimal("0.05"), ge=0, le=1)
     rob_max_chance: Decimal = Field(Decimal("0.95"), ge=0, le=1)
-    rob_resist_divisor: Decimal = Field(Decimal("100"), ge=1, le=1_000_000)
-    rob_loss_divisor: Decimal = Field(Decimal("50"), ge=1, le=1_000_000)
+    rob_resist_divisor: Decimal = Field(Decimal(100), ge=1, le=1_000_000)
+    rob_loss_divisor: Decimal = Field(Decimal(50), ge=1, le=1_000_000)
     rob_base_chance: Decimal = Field(Decimal("0.8"), ge=0, le=1)
     fishing_cooldown: int = Field(600, ge=0, le=86_400)
     subs_fishing_cooldown: int = Field(300, ge=0, le=86_400)
@@ -107,7 +107,7 @@ class TimeoutOutcome(StrictModel):
 
 
 RouletteOutcome = Annotated[
-    Union[AddMassOutcome, AddPercentageMassOutcome, TimeoutOutcome],
+    AddMassOutcome | AddPercentageMassOutcome | TimeoutOutcome,
     Field(discriminator="type"),
 ]
 
@@ -133,20 +133,23 @@ class NothingReward(RewardBase):
 
 
 RewardDefinition = Annotated[
-    Union[
-        FishReward,
-        TimeoutReward,
-        PointsReward,
-        RobberyReward,
-        RussianRouletteReward,
-        NothingReward,
-    ],
+    FishReward
+    | TimeoutReward
+    | PointsReward
+    | RobberyReward
+    | RussianRouletteReward
+    | NothingReward,
     Field(discriminator="type"),
 ]
 
 
 class EventModifiers(StrictModel):
-    luck_mult: Decimal = Field(Decimal("1"), ge=0, le=100)
-    xp_mult: Decimal = Field(Decimal("1"), ge=0, le=100)
-    cd_reduction: Decimal = Field(Decimal("0"), ge=0, le=Decimal("0.95"))
-    bonus_mass: Decimal = Field(Decimal("0"), ge=0, le=100)
+    luck_mult: Decimal = Field(Decimal(1), ge=0, le=100)
+    xp_mult: Decimal = Field(Decimal(1), ge=0, le=100)
+    cd_reduction: Decimal = Field(Decimal(0), ge=0, le=Decimal("0.95"))
+    bonus_mass: Decimal = Field(
+        Decimal(0),
+        ge=0,
+        le=100,
+        description="Relative mass bonus where 0.15 adds 15 percent",
+    )

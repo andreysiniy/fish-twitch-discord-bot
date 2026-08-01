@@ -21,12 +21,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ENCRYPTION_KEY: str | None = None
     BOT_API_KEY: str
+    DISCORD_BOT_API_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
     TWITCH_CLIENT_ID: str
     TWITCH_CLIENT_SECRET: str
     TWITCH_OAUTH_REDIRECT_URIS: str = "http://localhost:5173/auth/callback"
+    TWITCH_DISCORD_REDIRECT_URI: str = "http://localhost:8000/v1/auth/twitch/discord/callback"
 
     CORS_ORIGINS: str = "http://localhost:5173"
     RUN_BACKGROUND_WORKERS: bool = False
@@ -53,7 +55,13 @@ class Settings(BaseSettings):
             if value.strip()
         }
 
-    @field_validator("SECRET_KEY", "BOT_API_KEY", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET")
+    @field_validator(
+        "SECRET_KEY",
+        "BOT_API_KEY",
+        "DISCORD_BOT_API_KEY",
+        "TWITCH_CLIENT_ID",
+        "TWITCH_CLIENT_SECRET",
+    )
     @classmethod
     def reject_empty_secrets(cls, value: str) -> str:
         normalized = value.strip()
