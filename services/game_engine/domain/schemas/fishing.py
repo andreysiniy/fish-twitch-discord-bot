@@ -96,9 +96,11 @@ class FishingResult(BaseModel):
     xp_gained: int
     mass_gained: float
     is_level_up: bool
+    old_level: int
     new_level: int
     luck_used: float
     durability_loss: int = 1
+    broken_item_name: Optional[str] = None
     robbery_result: Optional[RobberyResultDTO] = None
     roulette_result: Optional[RussianRouletteResultDTO] = None
 

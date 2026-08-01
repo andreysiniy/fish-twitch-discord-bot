@@ -9,6 +9,7 @@ from core.game_limits import (
     MIN_EVENT_DURATION_SECONDS,
 )
 from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
+from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
 
 ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
 
@@ -67,13 +68,18 @@ class LocationItemResponseDTO(LocationItemUpdateDTO):
 
 
 class RewardPoolUpdateDTO(BaseModel):
-    items_drop_rate: Optional[float] = Field(0.1, description="Chance to drop an item")
+    items_drop_rate: Optional[float] = Field(0.1, ge=0, le=1, description="Chance to drop an item")
     location_name: Optional[str] = Field(None, description="Display name for location")
-    requirements: Optional[Dict[str, Any]] = Field(
+    requirements: Optional[LocationRequirements] = Field(
         None,
         description="Location entry requirements (level, total_fish_stat, total_mass_stat)",
     )
-    rewards: List[Dict[str, Any]] = Field(..., description="Rewards data to update the pool")
+    rewards: List[RewardDefinition] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Rewards data to update the pool",
+    )
     items: Optional[List[LocationItemUpdateDTO]] = Field(
         None,
         description="Optional list of location drop items",
@@ -246,7 +252,7 @@ class FishingEventListRequestDTO(BaseModel):
 class FishingEventCreateRequestDTO(BaseModel):
     actor_twitch_id: Optional[str] = None
     event_title: str = Field(..., min_length=1, max_length=120)
-    modifiers: Dict[str, Any] = Field(default_factory=dict)
+    modifiers: EventModifiers = Field(default_factory=EventModifiers)
     override_loot_pool: Optional[str] = None
     is_active: bool = False
 
@@ -254,7 +260,7 @@ class FishingEventCreateRequestDTO(BaseModel):
 class FishingEventUpdateRequestDTO(BaseModel):
     actor_twitch_id: Optional[str] = None
     event_title: Optional[str] = Field(None, min_length=1, max_length=120)
-    modifiers: Optional[Dict[str, Any]] = None
+    modifiers: Optional[EventModifiers] = None
     override_loot_pool: Optional[str] = None
     clear_override_loot_pool: bool = False
     is_active: Optional[bool] = None

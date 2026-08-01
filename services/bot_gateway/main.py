@@ -22,32 +22,13 @@ class BotGateway(commands.Bot):
         )
         self.cfg = cfg
         self.api_client = EngineApiClient(cfg.engine_url)
-        self.action_handler = ActionHandler()
+        self.action_handler = ActionHandler(self)
 
         self.add_cog(FishingCog(self))
         self.add_cog(EconomyCog(self))
         self.add_cog(InventoryCog(self))
         self.add_cog(TravelCog(self))
         self.add_cog(AdminCog(self))
-
-    def resolve_channel_id(self, ctx: commands.Context) -> str:
-        channel = getattr(ctx, "channel", None)
-        if channel is None:
-            return ""
-
-        for attr in ("id", "channel_id", "broadcaster_id"):
-            value = getattr(channel, attr, None)
-            if value is not None and str(value).strip():
-                return str(value)
-
-        broadcaster = getattr(ctx, "broadcaster", None)
-        if broadcaster is not None:
-            value = getattr(broadcaster, "id", None)
-            if value is not None and str(value).strip():
-                return str(value)
-
-        # Fallback for unexpected context shapes.
-        return str(getattr(channel, "name", "")).strip()
 
     async def event_ready(self):
         print(f"Logged in as | {self.nick}")
@@ -57,6 +38,7 @@ class BotGateway(commands.Bot):
         print(f"[bot-error] {error}")
 
     async def close(self):
+        await self.action_handler.close()
         await self.api_client.close()
         await super().close()
 

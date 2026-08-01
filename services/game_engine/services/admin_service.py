@@ -94,10 +94,10 @@ class AdminService:
         return self.repo.update_rewards(
             channel.id,
             location_id,
-            data.rewards,
+            [reward.model_dump(mode="json") for reward in data.rewards],
             data.items or [],
             data.items_drop_rate,
-            data.requirements,
+            data.requirements.model_dump(mode="json", exclude_none=True) if data.requirements else {},
             data.location_name
         )
 
@@ -411,7 +411,7 @@ class AdminService:
         event = self.repo.create_fishing_event(
             channel_id=channel.id,
             event_title=event_title,
-            modifiers=data.modifiers or {},
+            modifiers=data.modifiers.model_dump(mode="json"),
             override_loot_pool=data.override_loot_pool,
             is_active=bool(data.is_active)
         )
@@ -431,7 +431,7 @@ class AdminService:
             "channel_id": channel.id,
             "event_id": event_id,
             "event_title": data.event_title.strip() if data.event_title is not None else None,
-            "modifiers": data.modifiers,
+            "modifiers": data.modifiers.model_dump(mode="json") if data.modifiers else None,
             "is_active": data.is_active,
         }
         if data.event_title is not None and not update_kwargs["event_title"]:

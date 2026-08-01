@@ -2,26 +2,11 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from infrastructure.models import RewardPool, Channel, LocationItem
-from infrastructure.repositories.base import BaseRepository
 
 
-class ConfigRepository(BaseRepository[RewardPool]):
+class ConfigRepository:
     def __init__(self, db: Session):
-        super().__init__(db, RewardPool)
-
-    def get_pool(self, channel_twitch_id: str, location_id: str) -> list[dict]:
-        pool = (
-            self.db.query(RewardPool)
-            .join(Channel)
-            .filter(Channel.twitch_id == channel_twitch_id)
-            .filter(RewardPool.location_id == location_id)
-            .first()
-        )
-
-        if pool:
-            return pool.rewards_data
-
-        return [{"type": "nothing", "weight": 100, "message": "No fish here..."}]
+        self.db = db
 
     def get_locations(self, channel_twitch_id: str) -> list[RewardPool]:
         return (
@@ -48,11 +33,11 @@ class ConfigRepository(BaseRepository[RewardPool]):
         )
 
         if not pool_obj:
-            return [{"type": "nothing", "weight": 100, "base_message": "No fish here..."}], [], 0.0
+            return [{"type": "nothing", "weight": 100, "message": "No fish here..."}], [], 0.0
 
         rewards = list(pool_obj.rewards_data)
         if not rewards:
-            rewards = [{"type": "nothing", "weight": 100, "base_message": "No fish here..."}]
+            rewards = [{"type": "nothing", "weight": 100, "message": "No fish here..."}]
 
         db_items = self.db.query(LocationItem).filter(
             LocationItem.reward_pool_id == pool_obj.id,
@@ -75,30 +60,6 @@ class ConfigRepository(BaseRepository[RewardPool]):
 
         db_item.quantity = max(int(db_item.quantity) - amount, 0)
         self.db.flush()
-
-    def get_dual_pool_by_id(self, channel_twitch_id: str, reward_pool_id: int):
-        pool_obj = (
-            self.db.query(RewardPool)
-            .join(Channel)
-            .filter(Channel.twitch_id == channel_twitch_id)
-            .filter(RewardPool.id == reward_pool_id)
-            .first()
-        )
-
-        if not pool_obj:
-            return None
-
-        rewards = list(pool_obj.rewards_data or [])
-        if not rewards:
-            rewards = [{"type": "nothing", "weight": 100, "base_message": "No fish here..."}]
-
-        db_items = self.db.query(LocationItem).filter(
-            LocationItem.reward_pool_id == pool_obj.id,
-            or_(LocationItem.quantity == None, LocationItem.quantity > 0)
-        ).all()
-
-        items = [self._serialize_location_item(item) for item in db_items]
-        return rewards, items, pool_obj.items_drop_rate
 
     def _serialize_location_item(self, item: LocationItem) -> dict:
         definition = item.definition

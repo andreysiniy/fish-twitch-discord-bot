@@ -3,6 +3,7 @@ from sqlalchemy.sql.expression import func
 import random
 
 from infrastructure.models import UserProgress, Channel, ItemDefinition, InventoryItem
+from sqlalchemy.orm.attributes import flag_modified
 
 
 class UserRepository:
@@ -256,6 +257,37 @@ class UserRepository:
             .order_by(InventoryItem.slot_id.asc())
             .all()
         )
+
+    def apply_equipped_rod_durability_loss(
+        self,
+        user: UserProgress,
+        durability_loss: int,
+    ) -> str | None:
+        if durability_loss <= 0:
+            return None
+        inventory = dict(user.inventory or {})
+        equipped_slot = inventory.get("equipped_rod_slot")
+        if equipped_slot is None:
+            return None
+        item = (
+            self.db.query(InventoryItem)
+            .filter(InventoryItem.user_id == user.id, InventoryItem.slot_id == equipped_slot)
+            .first()
+        )
+        if not item or item.current_durability is None:
+            return None
+        item.current_durability = max(int(item.current_durability) - durability_loss, 0)
+        if item.current_durability > 0:
+            self.db.flush()
+            return None
+
+        item_name = item.definition.title if item.definition else str(item.item_id)
+        inventory["equipped_rod_slot"] = None
+        user.inventory = inventory
+        flag_modified(user, "inventory")
+        self.db.delete(item)
+        self.db.flush()
+        return item_name
 
     def _get_next_slot_id(self, user_id: int) -> int:
         max_slot = (

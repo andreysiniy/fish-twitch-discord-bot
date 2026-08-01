@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 import infrastructure.models
-from api.routes import admin, auth, economy, fishing, inventory
+from api.routes import actions, admin, auth, economy, fishing, inventory
 from core.config import settings
 from infrastructure.database import SessionLocal
 from infrastructure.migration_status import get_schema_revisions
@@ -43,6 +43,7 @@ app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 app.include_router(economy.router, prefix="/v1", tags=["Economy"])
+app.include_router(actions.router, prefix="/v1/actions", tags=["External Actions"])
 
 event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
 se_job_runner = SEJobRunner()

@@ -41,7 +41,7 @@ class DefaultLootStrategy(CalculationStrategy):
         return random.uniform(min_m, max_m)
 
     def _apply_luck(self, raw_mass: float, luck_modifier: float) -> float:
-        safe_luck = max(float(luck_modifier or 1.0), 1.0)
+        safe_luck = max(float(1.0 if luck_modifier is None else luck_modifier), 0.01)
         if raw_mass < 0:
             return round(raw_mass / safe_luck, 2)
         return round(raw_mass * safe_luck, 2)
@@ -56,7 +56,7 @@ class EventLootStrategy(DefaultLootStrategy):
 
     def calculate(self, source: Dict[str, Any], luck_modifier: float, user_balance: float) -> float:
         raw_mass = self._resolve_raw_mass(source, user_balance)
-        effective_luck = max(float(luck_modifier or 1.0), 1.0) * self._luck_mult
+        effective_luck = max(float(luck_modifier or 1.0), 0.01) * self._luck_mult
         mass_delta = self._apply_luck(raw_mass, max(effective_luck, 0.0))
 
         if self._bonus_mass != 0.0:
@@ -86,6 +86,11 @@ class FishingEngine:
         strategy = calculation_strategy or self._default_strategy
 
         catch = rng.roll_loot(loot_pool, luck_modifier=luck)
+        if catch.get("type") == ActionType.POINTS:
+            catch = dict(catch)
+            catch["value"] = int(catch.get("value", 0) or 0) + int(
+                player_stats.get("points_bonus", 0) or 0
+            )
         item_catch = None
         if item_pool and random.random() < items_drop_rate:
             item_catch = rng.roll_loot(item_pool, luck_modifier=luck)
@@ -115,8 +120,9 @@ class FishingEngine:
         xp_gain = strategy.adjust_xp_gain(base_xp_gain)
 
         current_xp = user.xp + xp_gain
-        is_levelup = self._check_level_up(current_xp, user.level, custom_params)
-        new_level = user.level + 1 if is_levelup else user.level
+        old_level = user.level
+        new_level = self._calculate_level(current_xp, old_level, custom_params)
+        is_levelup = new_level > old_level
 
         mass_gain = 0.0
         roulette_result = None
@@ -138,6 +144,7 @@ class FishingEngine:
             xp_gained=xp_gain,
             mass_gained=mass_gain,
             is_level_up=is_levelup,
+            old_level=old_level,
             new_level=new_level,
             luck_used=luck,
             roulette_result=roulette_result,
@@ -159,16 +166,20 @@ class FishingEngine:
                 victim_new_mass=0.0,
                 chance_used=0.0,
             )
-        min_chance = resolve_param(channel_config, GParam.ROB_MIN_CHANCE)
-        max_chance = resolve_param(channel_config, GParam.ROB_MAX_CHANCE)
-        resist_divisor = resolve_param(channel_config, GParam.ROB_RESIST_DIVISOR)
-        loss_divisor = resolve_param(channel_config, GParam.ROB_LOSS_DIVISOR)
-        base_rob_chance = resolve_param(channel_config, GParam.ROB_BASE_CHANCE)
+        custom_params = channel_config.get("custom_params", {})
+        min_chance = resolve_param(custom_params, GParam.ROB_MIN_CHANCE)
+        max_chance = resolve_param(custom_params, GParam.ROB_MAX_CHANCE)
+        resist_divisor = resolve_param(custom_params, GParam.ROB_RESIST_DIVISOR)
+        loss_divisor = resolve_param(custom_params, GParam.ROB_LOSS_DIVISOR)
+        base_rob_chance = resolve_param(custom_params, GParam.ROB_BASE_CHANCE)
 
         attacker_stats = calculate_player_stats(attacker)
         attacker_luck = 1.0 + attacker_stats.get("luck_bonus", 0.0)
 
-        victim_resistance = float(victim.level * 5)
+        victim_stats = calculate_player_stats(victim)
+        victim_resistance = float(victim.level * 5) + (
+            float(victim_stats.get("resist_bonus", 0.0) or 0.0) * 100
+        )
 
         final_chance = formulas.calculate_robbery_chance(
             base_chance=base_rob_chance,
@@ -249,15 +260,23 @@ class FishingEngine:
             reward=reward,
         )
 
-    def _check_level_up(self, current_xp: int, user_level: int, custom_params: Dict[str, Any]) -> bool:
+    def _calculate_level(
+        self,
+        current_xp: int,
+        user_level: int,
+        custom_params: Dict[str, Any],
+    ) -> int:
         xp_exponent = resolve_param(custom_params, GParam.XP_EXPONENT)
         xp_base = resolve_param(custom_params, GParam.XP_BASE)
-        return formulas.is_level_up(
-            current_xp=current_xp,
-            current_level=user_level,
+        level = user_level
+        while level < 10_000 and formulas.is_level_up(
+            current_xp,
+            level,
             base=xp_base,
             exponent=xp_exponent,
-        )
+        ):
+            level += 1
+        return level
 
     def _calculate_mass(
         self,

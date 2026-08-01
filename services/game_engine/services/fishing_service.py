@@ -103,6 +103,11 @@ class FishingService:
             if location_item_id:
                 self.config_repo.consume_location_item_stock(location_item_id, amount=1)
 
+        result.broken_item_name = self.user_repo.apply_equipped_rod_durability_loss(
+            user,
+            result.durability_loss,
+        )
+
         self.user_repo.save_progress(user)
         if cooldown_duration > 0:
             self.cooldown_repo.set_cooldown(channel_id, twitch_id, cooldown_duration)

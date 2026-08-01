@@ -16,6 +16,7 @@ from services.economy_service import EconomyService
 from services.fishing_service import FishingService
 from services.travel_service import TravelService
 from services.inventory_service import InventoryService 
+from services.external_action_service import ExternalActionService
 
 from core.security import decode_access_token
 from core.config import settings
@@ -81,6 +82,12 @@ def get_auth_service(
     channel_repo: ChannelRepository = Depends(get_channel_repo)
 ) -> AuthService:
     return AuthService(channel_repo)
+
+
+def get_external_action_service(
+    channel_repo: ChannelRepository = Depends(get_channel_repo),
+) -> ExternalActionService:
+    return ExternalActionService(channel_repo)
 
 def get_economy_service(
     user_repo: UserRepository = Depends(get_user_repo),
