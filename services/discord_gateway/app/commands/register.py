@@ -143,7 +143,8 @@ def register_commands(
             result = await api.config(interaction)
             selected = section.value if section else None
             if selected:
-                keys = _section_keys(selected)
+                schema = await api.config_schema(interaction)
+                keys = schema["sections"][selected]["fields"]
                 result = {
                     **result,
                     "effective": {k: v for k, v in result["effective"].items() if k in keys},
@@ -160,6 +161,7 @@ def register_commands(
     ) -> None:
         async def operation() -> None:
             current = await api.config(interaction)
+            schema = await api.config_schema(interaction)
             flow_id = await sessions.create(interaction.user.id, current)
 
             async def save(modal_interaction: discord.Interaction, changes: dict[str, Any]) -> None:
@@ -177,7 +179,7 @@ def register_commands(
 
             view = ModalLauncherView(
                 interaction.user.id,
-                lambda: ConfigModal(section.value, current["effective"], save),
+                lambda: ConfigModal(section.value, current["effective"], schema, save),
             )
             await interaction.followup.send(
                 "The settings form is ready.", view=view, ephemeral=True
@@ -672,21 +674,6 @@ def _json_embed(title: str, item: dict[str, Any]) -> discord.Embed:
     return discord.Embed(
         title=title, description=f"```json\n{rendered}\n```", color=discord.Color.blurple()
     )
-
-
-def _section_keys(section: str) -> set[str]:
-    return {
-        "xp": {"xp_base", "xp_exponent"},
-        "economy": {"sell_max_bonus", "sell_mid_level", "sell_rate", "buy_rate"},
-        "robbery": {
-            "rob_min_chance",
-            "rob_max_chance",
-            "rob_resist_divisor",
-            "rob_loss_divisor",
-            "rob_base_chance",
-        },
-        "cooldown": {"fishing_cooldown", "subs_fishing_cooldown"},
-    }[section]
 
 
 async def _session(

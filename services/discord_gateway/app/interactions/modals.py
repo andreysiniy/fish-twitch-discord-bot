@@ -10,26 +10,26 @@ from app.presentation.formatting import parse_decimal
 
 
 class ConfigModal(discord.ui.Modal):
-    def __init__(self, section: str, current: dict[str, Any], on_save):
+    def __init__(
+        self,
+        section: str,
+        current: dict[str, Any],
+        schema: dict[str, Any],
+        on_save,
+    ):
         super().__init__(title=f"Settings: {section}")
         self.section = section
         self.current = current
         self.on_save = on_save
         self.inputs: dict[str, discord.ui.TextInput] = {}
-        fields_by_section = {
-            "xp": ["xp_base", "xp_exponent"],
-            "economy": ["sell_max_bonus", "sell_mid_level", "sell_rate", "buy_rate"],
-            "robbery": [
-                "rob_min_chance",
-                "rob_max_chance",
-                "rob_resist_divisor",
-                "rob_loss_divisor",
-                "rob_base_chance",
-            ],
-            "cooldown": ["fishing_cooldown", "subs_fishing_cooldown"],
-        }
-        for field in fields_by_section[section]:
-            item = discord.ui.TextInput(label=field, default=str(current[field]), max_length=32)
+        self.field_schemas = schema["sections"][section]["fields"]
+        for field, field_schema in self.field_schemas.items():
+            item = discord.ui.TextInput(
+                label=field,
+                default=str(current[field]),
+                placeholder=_schema_constraint(field_schema),
+                max_length=32,
+            )
             self.inputs[field] = item
             self.add_item(item)
 
@@ -40,13 +40,7 @@ class ConfigModal(discord.ui.Modal):
                 value = item.value.strip()
                 changes[key] = (
                     int(value)
-                    if key
-                    in {
-                        "xp_base",
-                        "sell_mid_level",
-                        "fishing_cooldown",
-                        "subs_fishing_cooldown",
-                    }
+                    if self.field_schemas[key].get("type") == "integer"
                     else parse_decimal(value)
                 )
         except ValueError as error:
@@ -171,7 +165,12 @@ class RewardModal(discord.ui.Modal):
 
 class EventModal(discord.ui.Modal):
     title_input = discord.ui.TextInput(label="Name", max_length=120)
-    override = discord.ui.TextInput(label="Override location ID", required=False, max_length=32)
+    options = discord.ui.TextInput(
+        label="Options key=value;...",
+        required=False,
+        max_length=100,
+        placeholder="location=lake;bonus_mass=0.15",
+    )
     luck_mult = discord.ui.TextInput(label="Luck multiplier", default="1")
     xp_mult = discord.ui.TextInput(label="XP multiplier", default="1")
     cooldown_reduction = discord.ui.TextInput(label="Cooldown reduction 0..0.95", default="0")
@@ -183,21 +182,26 @@ class EventModal(discord.ui.Modal):
         self.expected_version = defaults.get("version")
         modifiers = defaults.get("modifiers") or {}
         self.title_input.default = str(defaults.get("event_title") or "")
-        self.override.default = str(defaults.get("override_loot_pool") or "")
+        option_values = []
+        if defaults.get("override_loot_pool"):
+            option_values.append(f"location={defaults['override_loot_pool']}")
+        option_values.append(f"bonus_mass={modifiers.get('bonus_mass', '0')}")
+        self.options.default = ";".join(option_values)
         self.luck_mult.default = str(modifiers.get("luck_mult", "1"))
         self.xp_mult.default = str(modifiers.get("xp_mult", "1"))
         self.cooldown_reduction.default = str(modifiers.get("cd_reduction", "0"))
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
+            options = _parse_options(self.options.value)
             payload = {
                 "event_title": self.title_input.value,
-                "override_loot_pool": self.override.value.strip() or None,
+                "override_loot_pool": options.get("location") or None,
                 "modifiers": {
                     "luck_mult": parse_decimal(self.luck_mult.value),
                     "xp_mult": parse_decimal(self.xp_mult.value),
                     "cd_reduction": parse_decimal(self.cooldown_reduction.value),
-                    "bonus_mass": "0",
+                    "bonus_mass": parse_decimal(options.get("bonus_mass", "0")),
                 },
             }
             if self.expected_version is not None:
@@ -248,3 +252,29 @@ def _format_outcome(outcome: dict[str, Any]) -> str:
     if outcome_type == "add_percentage_mass":
         return f"{outcome_type}:{outcome['percentage']}"
     return f"timeout:{outcome['duration']},{outcome.get('reason', '')}"
+
+
+def _schema_constraint(field_schema: dict[str, Any]) -> str | None:
+    candidates = [field_schema, *field_schema.get("anyOf", [])]
+    numeric = next(
+        (candidate for candidate in candidates if "minimum" in candidate or "maximum" in candidate),
+        None,
+    )
+    if not numeric:
+        return None
+    return f"Range: {numeric.get('minimum', '-inf')} to {numeric.get('maximum', 'inf')}"
+
+
+def _parse_options(value: str) -> dict[str, str]:
+    options = {}
+    for chunk in value.split(";"):
+        if not chunk.strip():
+            continue
+        key, separator, raw_value = chunk.partition("=")
+        if not separator or not key.strip() or not raw_value.strip():
+            raise ValueError("Use key=value;key=value for event options")
+        options[key.strip().lower()] = raw_value.strip()
+    unknown = set(options) - {"location", "bonus_mass"}
+    if unknown:
+        raise ValueError(f"Unknown event option: {min(unknown)}")
+    return options
