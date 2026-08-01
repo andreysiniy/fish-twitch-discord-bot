@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class FisherDiscordBot(discord.Client):
     def __init__(self, settings: DiscordSettings):
         intents = discord.Intents.none()
+        intents.guilds = True
         intents.message_content = False
         super().__init__(
             intents=intents,

@@ -105,8 +105,13 @@ class EngineClient:
         idempotency_key: str | None,
     ) -> dict[str, str]:
         guild_id = str(interaction.guild_id) if interaction.guild_id else ""
-        permissions = getattr(interaction.user, "guild_permissions", None)
-        can_manage = bool(permissions and permissions.manage_guild)
+        permissions = getattr(interaction, "permissions", None)
+        if permissions is None:
+            permissions = getattr(interaction.user, "guild_permissions", None)
+        can_manage = bool(
+            permissions
+            and (permissions.manage_guild or permissions.administrator)
+        )
         headers = {
             "X-Service-Name": "discord_gateway",
             "X-Service-API-Key": self.settings.DISCORD_BOT_API_KEY,

@@ -1,6 +1,8 @@
 import json
+from types import SimpleNamespace
 
 import pytest
+from app.api.client import EngineClient
 from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
@@ -117,3 +119,29 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "unlink",
     }
     assert gateway_settings.DEV_GUILD_ID is None
+    assert bot.intents.guilds is True
+    assert bot.intents.message_content is False
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        SimpleNamespace(manage_guild=True, administrator=False),
+        SimpleNamespace(manage_guild=False, administrator=True),
+    ],
+)
+def test_engine_headers_use_authoritative_interaction_permissions(permissions) -> None:
+    interaction = SimpleNamespace(
+        guild_id=996458228911198218,
+        channel_id=996458228911198219,
+        permissions=permissions,
+        user=SimpleNamespace(
+            id=474223161790169104,
+            guild_permissions=SimpleNamespace(manage_guild=False, administrator=False),
+        ),
+    )
+    client = EngineClient(DiscordSettings(_env_file=None))
+
+    headers = client._headers(interaction, "request-id", None)
+
+    assert headers["X-Discord-Manage-Guild"] == "true"
