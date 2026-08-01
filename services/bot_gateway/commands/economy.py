@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 
 from api_client import EngineApiError
@@ -23,7 +25,7 @@ class EconomyCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Economy error: {error}")
         except Exception as error:
-            print(f"[fishsell] unexpected error: {error}")
+            logger.exception("Fish sell command failed")
             await ctx.send("Could not sell fish.")
 
     @commands.command(name="fishbuy")
@@ -41,5 +43,6 @@ class EconomyCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Economy error: {error}")
         except Exception as error:
-            print(f"[fishbuy] unexpected error: {error}")
+            logger.exception("Fish buy command failed")
             await ctx.send("Could not buy fish.")
+logger = logging.getLogger(__name__)

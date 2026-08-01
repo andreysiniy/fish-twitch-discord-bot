@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 
 from action_handler import ActionHandler
@@ -8,6 +10,9 @@ from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
 from config import BotConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class BotGateway(commands.Bot):
@@ -31,11 +36,10 @@ class BotGateway(commands.Bot):
         self.add_cog(AdminCog(self))
 
     async def event_ready(self):
-        print(f"Logged in as | {self.nick}")
-        print(f"Engine URL    | {self.cfg.engine_url}")
+        logger.info("Twitch bot ready nick=%s engine_url=%s", self.nick, self.cfg.engine_url)
 
     async def event_error(self, error: Exception, data=None):
-        print(f"[bot-error] {error}")
+        logger.exception("Unhandled Twitch bot error", exc_info=error)
 
     async def close(self):
         await self.action_handler.close()
@@ -44,6 +48,10 @@ class BotGateway(commands.Bot):
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     cfg = BotConfig.from_env()
     bot = BotGateway(cfg)
     bot.run()

@@ -22,6 +22,15 @@ class SEApiClient:
         payload = response.json()
         return int(payload.get("points", 0) or 0)
 
+    def get_balance_sync(self, se_channel_id: str, plain_token: str, username: str) -> int:
+        url = f"{self.BASE_URL}/{se_channel_id}/{username}"
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, headers=self._build_headers(plain_token))
+        if response.status_code == 404:
+            return 0
+        self._raise_for_points_error(response)
+        return int(response.json().get("points", 0) or 0)
+
     async def add_points(self, se_channel_id: str, plain_token: str, username: str, amount: int) -> None:
         url = f"{self.BASE_URL}/{se_channel_id}/{username}/{int(amount)}"
         headers = self._build_headers(plain_token)
@@ -29,6 +38,24 @@ class SEApiClient:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.put(url, headers=headers)
 
+        if response.status_code in {401, 403}:
+            raise PermissionError("Invalid Token")
+        if response.status_code >= 400:
+            raise ValueError("SE API Error")
+
+    def add_points_sync(
+        self,
+        se_channel_id: str,
+        plain_token: str,
+        username: str,
+        amount: int,
+    ) -> None:
+        url = f"{self.BASE_URL}/{se_channel_id}/{username}/{int(amount)}"
+        with httpx.Client(timeout=10.0) as client:
+            response = client.put(url, headers=self._build_headers(plain_token))
+        self._raise_for_points_error(response)
+
+    def _raise_for_points_error(self, response: httpx.Response) -> None:
         if response.status_code in {401, 403}:
             raise PermissionError("Invalid Token")
         if response.status_code >= 400:

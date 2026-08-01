@@ -38,7 +38,7 @@ def fishsell(
 
 
 @router.post("/fishbuy", response_model=FishResponse)
-async def fishbuy(
+def fishbuy(
     request: FishRequest,
     service: EconomyService = Depends(get_economy_service),
     auth_id: str = Depends(verify_security),
@@ -46,7 +46,7 @@ async def fishbuy(
 ):
     real_user_id = _resolve_real_user_id(auth_id, request.user_id)
     try:
-        return await service.buy_fish(
+        return service.buy_fish(
             twitch_id=real_user_id,
             channel_id=request.channel_id,
             amount_str=request.user_input,

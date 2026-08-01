@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 from twitchio import User
 from typing import Literal
@@ -7,6 +9,7 @@ from heplers.context_tool import get_channel_id
 from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
+logger = logging.getLogger(__name__)
 
 
 class AdminCog(commands.Cog):
@@ -36,7 +39,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmods] unexpected error: {error}")
+            logger.exception("Moderator list command failed")
             await ctx.send("Could not load moderators")
 
     @commands.command(name="fishmodadd")
@@ -76,7 +79,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmodadd] unexpected error: {error}")
+            logger.exception("Moderator add command failed")
             await ctx.send("Could not update moderator.")
 
     @commands.command(name="fishmoddel")
@@ -100,7 +103,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmoddel] unexpected error: {error}")
+            logger.exception("Moderator remove command failed")
             await ctx.send("Could not remove moderator")
 
     @commands.command(name="fishcd")
@@ -142,7 +145,7 @@ class AdminCog(commands.Cog):
             except EngineApiError as error:
                 await ctx.send(str(error))
             except Exception as error:
-                print(f"[fishcd:set] unexpected error: {error}")
+                logger.exception("Cooldown update command failed")
                 await ctx.send("Could not update cooldown")
             return
 
@@ -164,7 +167,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(str(error))
         except Exception as error:
-            print(f"[fishcd] unexpected error: {error}")
+            logger.exception("Cooldown status command failed")
             await ctx.send("Could not retrieve cooldown")
 
     @commands.command(name="fishevent")
@@ -187,7 +190,7 @@ class AdminCog(commands.Cog):
             except EngineApiError as error:
                 await ctx.send(str(error))
             except Exception as error:
-                print(f"[fishevent:list] unexpected error: {error}")
+                logger.exception("Fishing event list command failed")
                 await ctx.send("Could not load events")
             return
 
@@ -241,7 +244,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(str(error))
         except Exception as error:
-            print(f"[fishevent:toggle] unexpected error: {error}")
+            logger.exception("Fishing event toggle command failed")
             await ctx.send("Could not toggle event")
 
     def _resolve_is_subscriber(self, ctx: commands.Context) -> bool:

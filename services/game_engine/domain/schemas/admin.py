@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.game_limits import (
     MAX_COOLDOWN_SECONDS,
@@ -26,6 +26,7 @@ class ChannelUpdateDTO(BaseModel):
     se_channel_id: Optional[str] = None
 
 class ChannelResponseDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     twitch_id: str
     name: str
@@ -33,8 +34,6 @@ class ChannelResponseDTO(BaseModel):
     config: Dict[str, Any]
     se_channel_id: Optional[str] = None
 
-    class Config:
-        from_attributes = True
 
 
 class StreamElementsIntegrationUpsertDTO(BaseModel):
@@ -86,6 +85,7 @@ class RewardPoolUpdateDTO(BaseModel):
     )
 
 class RewardPoolResponseDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     location_id: str
     location_name: str
     requirements: Dict[str, Any] = Field(default_factory=dict)
@@ -93,12 +93,11 @@ class RewardPoolResponseDTO(BaseModel):
     items_drop_rate: float
     items: List[LocationItemResponseDTO]
 
-    class Config:
-        from_attributes = True
 
 # --- Player Admin ---
 
 class AdminPlayerDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     user_twitch_id: str
     username: str
     level: int
@@ -106,8 +105,6 @@ class AdminPlayerDTO(BaseModel):
     current_location_id: str
     inventory: InventoryDTO
 
-    class Config:
-        from_attributes = True
 
 class PlayerListResponse(BaseModel):
     total: int
@@ -121,12 +118,11 @@ class ChannelAccessUpsertDTO(BaseModel):
 
 
 class ChannelAccessResponseDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     user_twitch_id: str
     user_twitch_name: str
     role: str
 
-    class Config:
-        from_attributes = True
 
 
 class ChannelAccessListRequestDTO(BaseModel):
@@ -235,14 +231,13 @@ class GrantItemResponseDTO(BaseModel):
 
 
 class FishingEventResponseDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     event_title: str
     is_active: bool
     modifiers: Dict[str, Any] = Field(default_factory=dict)
     override_loot_pool: Optional[str] = None
 
-    class Config:
-        from_attributes = True
 
 
 class FishingEventListRequestDTO(BaseModel):

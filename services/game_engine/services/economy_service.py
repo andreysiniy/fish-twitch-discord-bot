@@ -95,7 +95,7 @@ class EconomyService:
         self.db.flush()
         return response
 
-    async def buy_fish(
+    def buy_fish(
         self,
         twitch_id: str,
         channel_id: str,
@@ -132,7 +132,7 @@ class EconomyService:
 
         target_username = (user.username or "").strip() or twitch_id
         se_channel_id = str(channel.se_channel_id).strip()
-        balance = await self.se_client.get_balance(se_channel_id, plain_token, target_username)
+        balance = self.se_client.get_balance_sync(se_channel_id, plain_token, target_username)
         if balance < cost:
             return self._response(
                 channel_config,
@@ -155,7 +155,7 @@ class EconomyService:
         self.db.commit()
 
         try:
-            await self.se_client.add_points(se_channel_id, plain_token, target_username, -cost)
+            self.se_client.add_points_sync(se_channel_id, plain_token, target_username, -cost)
             operation.external_applied = True
             operation.state = "external_applied"
             self.db.commit()
@@ -178,10 +178,10 @@ class EconomyService:
         except Exception:
             self.db.rollback()
             if operation.external_applied:
-                await self._compensate_buy(operation, channel, plain_token, cost)
+                self._compensate_buy(operation, channel, plain_token, cost)
             raise
 
-    async def _compensate_buy(
+    def _compensate_buy(
         self,
         operation: EconomyOperation,
         channel,
@@ -189,7 +189,7 @@ class EconomyService:
         cost: int,
     ) -> None:
         try:
-            await self.se_client.add_points(
+            self.se_client.add_points_sync(
                 str(channel.se_channel_id),
                 plain_token,
                 operation.twitch_username,
