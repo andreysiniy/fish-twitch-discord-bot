@@ -1,6 +1,95 @@
+from decimal import Decimal
 from typing import Any
 
 from app.presentation.formatting import parse_decimal, parse_duration
+
+REWARD_TYPES = {"fish", "timeout", "robbery", "russian_roulette", "nothing"}
+OUTCOME_TYPES = {"add_mass", "add_percentage_mass", "timeout"}
+
+
+def build_reward_base_payload(
+    reward_type: str,
+    name: str,
+    weight: str,
+    xp: str,
+    message: str,
+) -> dict[str, Any]:
+    if reward_type not in REWARD_TYPES:
+        raise ValueError("Unknown reward type")
+    parsed_weight = _bounded_int(weight, "Weight", 1, 1_000_000)
+    parsed_xp = _bounded_int(xp or "0", "XP", 0, 1_000_000)
+    payload: dict[str, Any] = {
+        "type": reward_type,
+        "weight": parsed_weight,
+        "xp": parsed_xp,
+        "message": message.strip(),
+    }
+    if name.strip():
+        payload["name"] = name.strip()
+    return payload
+
+
+def complete_reward_payload(
+    base_payload: dict[str, Any],
+    parameters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = dict(base_payload)
+    values = parameters or {}
+    reward_type = payload["type"]
+
+    if reward_type == "fish":
+        fixed_mass = _optional_decimal(values.get("fixed_mass"), "Fixed mass", 0, 1_000_000)
+        min_mass = _optional_decimal(values.get("min_mass"), "Minimum mass", 0, 1_000_000)
+        max_mass = _optional_decimal(values.get("max_mass"), "Maximum mass", 0, 1_000_000)
+        percentage = _optional_decimal(values.get("percentage"), "Percentage", 0, 1)
+        has_range = min_mass is not None or max_mass is not None
+        if sum((fixed_mass is not None, has_range, percentage is not None)) != 1:
+            raise ValueError("Choose exactly one fish mass mode: fixed, range, or percentage")
+        if has_range:
+            if min_mass is None or max_mass is None:
+                raise ValueError("Both minimum and maximum mass are required for a range")
+            if Decimal(min_mass) > Decimal(max_mass):
+                raise ValueError("Minimum mass must not exceed maximum mass")
+            payload.update({"min_mass": min_mass, "max_mass": max_mass})
+        elif fixed_mass is not None:
+            payload["fixed_mass"] = fixed_mass
+        else:
+            payload["percentage"] = percentage
+    elif reward_type == "timeout":
+        payload["duration"] = parse_duration(str(values.get("duration") or ""))
+        payload["reason"] = str(values.get("reason") or "").strip()
+    elif reward_type == "robbery":
+        mass = _optional_decimal(values.get("mass"), "Fixed mass", 0, 1_000_000)
+        percentage = _optional_decimal(values.get("percentage"), "Percentage", 0, 1)
+        if (mass is None) == (percentage is None):
+            raise ValueError("Choose exactly one robbery amount: fixed mass or percentage")
+        if mass is not None:
+            payload["mass"] = mass
+        else:
+            payload["percentage"] = percentage
+        payload["range"] = _bounded_int(
+            str(values.get("range") or "3"), "Victim search range", 1, 100
+        )
+    elif reward_type == "russian_roulette":
+        bullets = _bounded_int(str(values.get("bullets") or "1"), "Bullets", 1, 6)
+        chambers = _bounded_int(str(values.get("chambers") or "6"), "Chambers", 1, 100)
+        if bullets > chambers:
+            raise ValueError("Bullets must not exceed chambers")
+        payload.update(
+            {
+                "bullets": bullets,
+                "chambers": chambers,
+                "safe_message": str(values.get("safe_message") or "").strip(),
+                "shot_message": str(values.get("shot_message") or "").strip(),
+            }
+        )
+        if values.get("reward") is not None:
+            payload["reward"] = values["reward"]
+        if values.get("penalty") is not None:
+            payload["penalty"] = values["penalty"]
+    elif reward_type != "nothing":
+        raise ValueError("Unknown reward type")
+    return payload
 
 
 def build_reward_payload(
@@ -9,82 +98,67 @@ def build_reward_payload(
     weight: str,
     xp: str,
     message: str,
-    parameters: str,
+    parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "type": reward_type,
-        "weight": int(weight),
-        "xp": int(xp or 0),
-        "message": message,
-    }
-    if name.strip():
-        payload["name"] = name.strip()
-    values = _parse_parameters(parameters)
-    if reward_type == "fish":
-        if "fixed" in values:
-            payload["fixed_mass"] = parse_decimal(values["fixed"])
-        elif "percentage" in values:
-            payload["percentage"] = parse_decimal(values["percentage"])
-        elif "range" in values:
-            parts = [part.strip() for part in values["range"].split(",")]
-            if len(parts) != 2:
-                raise ValueError("Use range=0.1,5 for a mass range")
-            payload["min_mass"] = parse_decimal(parts[0])
-            payload["max_mass"] = parse_decimal(parts[1])
-        else:
-            raise ValueError("For fish, use fixed=1, range=0.1,5, or percentage=0.1")
-    elif reward_type == "timeout":
-        payload["duration"] = parse_duration(values.get("duration", ""))
-        payload["reason"] = values.get("reason", "")
-    elif reward_type == "robbery":
-        if "percentage" in values:
-            payload["percentage"] = parse_decimal(values["percentage"])
-        elif "mass" in values:
-            payload["mass"] = parse_decimal(values["mass"])
-        else:
-            raise ValueError("For robbery, use percentage=0.1 or mass=1")
-        if "range" in values:
-            payload["range"] = int(values["range"])
-    elif reward_type == "russian_roulette":
-        payload["bullets"] = int(values.get("bullets", "1"))
-        payload["chambers"] = int(values.get("chambers", "6"))
-        payload["safe_message"] = values.get("safe", "")
-        payload["shot_message"] = values.get("shot", "")
-        if values.get("reward"):
-            payload["reward"] = _parse_outcome(values["reward"])
-        if values.get("penalty"):
-            payload["penalty"] = _parse_outcome(values["penalty"])
-    elif reward_type != "nothing":
-        raise ValueError("Unknown reward type")
-    return payload
+    base = build_reward_base_payload(reward_type, name, weight, xp, message)
+    return complete_reward_payload(base, parameters)
 
 
-def _parse_parameters(value: str) -> dict[str, str]:
-    result = {}
-    for chunk in value.split(";"):
-        if not chunk.strip():
-            continue
-        key, separator, raw_value = chunk.partition("=")
-        if not separator or not key.strip() or not raw_value.strip():
-            raise ValueError("Use key=value;key=value for parameters")
-        result[key.strip().lower()] = raw_value.strip()
-    return result
-
-
-def _parse_outcome(value: str) -> dict[str, Any]:
-    outcome_type, separator, raw_value = value.partition(":")
-    if not separator:
-        raise ValueError("Use outcome_type:value for roulette outcomes")
-    outcome_type = outcome_type.strip().lower()
-    parts = [part.strip() for part in raw_value.split(",")]
-    if outcome_type == "add_mass":
-        return {"type": outcome_type, "mass": parse_decimal(parts[0])}
-    if outcome_type == "add_percentage_mass":
-        return {"type": outcome_type, "percentage": parse_decimal(parts[0])}
-    if outcome_type == "timeout":
+def build_roulette_outcome(
+    outcome_type: str,
+    mass: str,
+    percentage: str,
+    duration: str,
+    reason: str,
+) -> dict[str, Any] | None:
+    normalized_type = outcome_type.strip().lower()
+    if normalized_type in {"", "none"}:
+        return None
+    if normalized_type not in OUTCOME_TYPES:
+        raise ValueError("Effect type must be add_mass, add_percentage_mass, timeout, or none")
+    if normalized_type == "add_mass":
+        return {"type": normalized_type, "mass": _required_decimal(mass, "Mass", 0, 1_000_000)}
+    if normalized_type == "add_percentage_mass":
         return {
-            "type": outcome_type,
-            "duration": parse_duration(parts[0]),
-            "reason": ",".join(parts[1:]),
+            "type": normalized_type,
+            "percentage": _required_decimal(percentage, "Percentage", 0, 1),
         }
-    raise ValueError("Roulette outcomes support add_mass, add_percentage_mass, or timeout")
+    return {
+        "type": normalized_type,
+        "duration": parse_duration(duration),
+        "reason": reason.strip(),
+    }
+
+
+def _bounded_int(value: str, label: str, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value.strip())
+    except ValueError as error:
+        raise ValueError(f"{label} must be an integer") from error
+    if not minimum <= parsed <= maximum:
+        raise ValueError(f"{label} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def _required_decimal(
+    value: str,
+    label: str,
+    minimum: int | Decimal,
+    maximum: int | Decimal,
+) -> str:
+    parsed = parse_decimal(value)
+    decimal = Decimal(parsed)
+    if not Decimal(str(minimum)) <= decimal <= Decimal(str(maximum)):
+        raise ValueError(f"{label} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def _optional_decimal(
+    value: Any,
+    label: str,
+    minimum: int | Decimal,
+    maximum: int | Decimal,
+) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return _required_decimal(str(value), label, minimum, maximum)

@@ -1,10 +1,16 @@
 import json
+from decimal import Decimal
 from typing import Any
 
 import discord
 
 from app.interactions.confirms import ConfirmView
-from app.interactions.reward_payloads import build_reward_payload
+from app.interactions.launchers import ModalLauncherView
+from app.interactions.reward_payloads import (
+    build_reward_base_payload,
+    build_roulette_outcome,
+    complete_reward_payload,
+)
 from app.presentation.embeds import diff_embed
 from app.presentation.formatting import parse_decimal
 
@@ -59,21 +65,44 @@ class ConfigModal(discord.ui.Modal):
 
 
 class LocationModal(discord.ui.Modal):
-    location_id = discord.ui.TextInput(label="ID", placeholder="river", max_length=32)
-    location_name = discord.ui.TextInput(label="Name", max_length=80)
-    items_drop_rate = discord.ui.TextInput(label="Item drop chance 0..1", default="0.1")
-    level = discord.ui.TextInput(label="Minimum level", default="0", required=False)
-
     def __init__(self, on_save, defaults: dict[str, Any] | None = None):
         defaults = defaults or {}
         super().__init__(title="Edit location" if defaults else "New location")
         self.on_save = on_save
         self.expected_version = defaults.get("version")
-        self.location_id.default = str(defaults.get("location_id") or "")
+        self.location_id = discord.ui.TextInput(
+            label="ID",
+            default=str(defaults.get("location_id") or ""),
+            placeholder="Lowercase ID, for example: river",
+            max_length=32,
+        )
         self.location_id.disabled = bool(defaults)
-        self.location_name.default = str(defaults.get("location_name") or "")
-        self.items_drop_rate.default = str(defaults.get("items_drop_rate", "0.1"))
-        self.level.default = str((defaults.get("requirements") or {}).get("level") or "")
+        self.location_name = discord.ui.TextInput(
+            label="Name",
+            default=str(defaults.get("location_name") or ""),
+            placeholder="Display name, for example: River",
+            max_length=80,
+        )
+        self.items_drop_rate = discord.ui.TextInput(
+            label="Item drop chance",
+            default=str(defaults.get("items_drop_rate", "0.1")),
+            placeholder="Decimal from 0 to 1, for example: 0.1",
+            max_length=32,
+        )
+        self.level = discord.ui.TextInput(
+            label="Minimum level",
+            default=str((defaults.get("requirements") or {}).get("level") or ""),
+            placeholder="Optional integer from 0 to 1000000",
+            required=False,
+            max_length=16,
+        )
+        for item in (
+            self.location_id,
+            self.location_name,
+            self.items_drop_rate,
+            self.level,
+        ):
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
@@ -95,163 +124,515 @@ class LocationModal(discord.ui.Modal):
         async def confirm(confirm_interaction: discord.Interaction) -> None:
             await self.on_save(confirm_interaction, payload)
 
-        rendered = json.dumps(payload, ensure_ascii=True, indent=2)
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Location preview",
-                description=f"```json\n{rendered[:3800]}\n```",
-                color=discord.Color.orange(),
-            ),
-            view=ConfirmView(interaction.user.id, confirm),
-            ephemeral=True,
-        )
+        await _show_preview(interaction, "Location preview", payload, confirm)
 
 
 class RewardModal(discord.ui.Modal):
-    name = discord.ui.TextInput(label="Name", required=False, max_length=80)
-    weight = discord.ui.TextInput(label="Weight", default="100")
-    xp = discord.ui.TextInput(label="XP", default="0")
-    message = discord.ui.TextInput(label="Message", required=False, max_length=300)
-    parameters = discord.ui.TextInput(
-        label="Parameters key=value;...",
-        required=False,
-        max_length=300,
-        placeholder="fish: range=0.1,5 | timeout: duration=10m;reason=...",
-    )
-
     def __init__(self, reward_type: str, on_save, defaults: dict[str, Any] | None = None):
-        super().__init__(title=f"Reward: {reward_type}")
+        defaults = defaults or {}
+        super().__init__(title=f"Reward: {reward_type.replace('_', ' ')}")
         self.reward_type = reward_type
         self.on_save = on_save
-        defaults = defaults or {}
-        self.name.default = str(defaults.get("name") or "")
-        self.weight.default = str(defaults.get("weight", 100))
-        self.xp.default = str(defaults.get("xp", 0))
-        self.message.default = str(defaults.get("message") or "")
-        self.parameters.default = _reward_parameters(defaults)
-        if reward_type == "russian_roulette":
-            self.parameters.placeholder = (
-                "bullets=1;chambers=6;reward=add_mass:2;penalty=timeout:1m"
-            )
+        self.defaults = defaults
+        self.name = discord.ui.TextInput(
+            label="Name",
+            default=str(defaults.get("name") or ""),
+            placeholder="Optional display name",
+            required=False,
+            max_length=80,
+        )
+        self.weight = discord.ui.TextInput(
+            label="Weight",
+            default=str(defaults.get("weight", 100)),
+            placeholder="Integer from 1 to 1000000",
+            max_length=16,
+        )
+        self.xp = discord.ui.TextInput(
+            label="XP",
+            default=str(defaults.get("xp", 0)),
+            placeholder="Experience reward from 0 to 1000000",
+            max_length=16,
+        )
+        self.message = discord.ui.TextInput(
+            label="Message",
+            default=str(defaults.get("message") or ""),
+            placeholder="Optional chat message for this reward",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=300,
+        )
+        for item in (self.name, self.weight, self.xp, self.message):
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
-            payload = build_reward_payload(
+            payload = build_reward_base_payload(
                 self.reward_type,
                 self.name.value,
                 self.weight.value,
                 self.xp.value,
                 self.message.value,
-                self.parameters.value,
             )
         except (TypeError, ValueError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        if self.reward_type == "nothing":
+            await _show_reward_preview(interaction, payload, self.on_save)
+            return
+
+        factories = {
+            "fish": lambda: FishRewardModal(payload, self.on_save, self.defaults),
+            "timeout": lambda: TimeoutRewardModal(payload, self.on_save, self.defaults),
+            "robbery": lambda: RobberyRewardModal(payload, self.on_save, self.defaults),
+            "russian_roulette": lambda: RouletteSettingsModal(payload, self.on_save, self.defaults),
+        }
+        view = ModalLauncherView(
+            interaction.user.id,
+            factories[self.reward_type],
+            label="Open type settings",
+        )
+        await interaction.response.send_message(
+            "Common reward settings saved. Continue with the type-specific fields.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class FishRewardModal(discord.ui.Modal):
+    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Fish reward settings")
+        self.base_payload = base_payload
+        self.on_save = on_save
+        self.fixed_mass = _optional_input(
+            "Fixed mass",
+            defaults.get("fixed_mass"),
+            "Use only this field for a fixed mass",
+        )
+        self.min_mass = _optional_input(
+            "Minimum mass",
+            defaults.get("min_mass"),
+            "Fill with maximum mass for range mode",
+        )
+        self.max_mass = _optional_input(
+            "Maximum mass",
+            defaults.get("max_mass"),
+            "Fill with minimum mass for range mode",
+        )
+        self.percentage = _optional_input(
+            "Percentage",
+            defaults.get("percentage"),
+            "Decimal from 0 to 1, for example: 0.15",
+        )
+        for item in (self.fixed_mass, self.min_mass, self.max_mass, self.percentage):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _complete_reward(
+            interaction,
+            self.base_payload,
+            {
+                "fixed_mass": self.fixed_mass.value,
+                "min_mass": self.min_mass.value,
+                "max_mass": self.max_mass.value,
+                "percentage": self.percentage.value,
+            },
+            self.on_save,
+        )
+
+
+class TimeoutRewardModal(discord.ui.Modal):
+    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Timeout reward settings")
+        self.base_payload = base_payload
+        self.on_save = on_save
+        self.duration = discord.ui.TextInput(
+            label="Duration",
+            default=str(defaults.get("duration") or ""),
+            placeholder="Seconds or duration, for example: 10m, 2h, 1d",
+            max_length=16,
+        )
+        self.reason = _optional_input(
+            "Reason",
+            defaults.get("reason"),
+            "Optional Twitch timeout reason",
+            max_length=200,
+        )
+        self.add_item(self.duration)
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _complete_reward(
+            interaction,
+            self.base_payload,
+            {"duration": self.duration.value, "reason": self.reason.value},
+            self.on_save,
+        )
+
+
+class RobberyRewardModal(discord.ui.Modal):
+    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Robbery reward settings")
+        self.base_payload = base_payload
+        self.on_save = on_save
+        self.mass = _optional_input(
+            "Fixed mass",
+            defaults.get("mass"),
+            "Use this field or percentage, not both",
+        )
+        self.percentage = _optional_input(
+            "Percentage",
+            defaults.get("percentage"),
+            "Decimal from 0 to 1; leave mass empty",
+        )
+        self.search_range = discord.ui.TextInput(
+            label="Victim search range",
+            default=str(defaults.get("range", 3)),
+            placeholder="Number of nearby users from 1 to 100",
+            max_length=3,
+        )
+        for item in (self.mass, self.percentage, self.search_range):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _complete_reward(
+            interaction,
+            self.base_payload,
+            {
+                "mass": self.mass.value,
+                "percentage": self.percentage.value,
+                "range": self.search_range.value,
+            },
+            self.on_save,
+        )
+
+
+class RouletteSettingsModal(discord.ui.Modal):
+    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Russian roulette settings")
+        self.base_payload = base_payload
+        self.on_save = on_save
+        self.defaults = defaults
+        self.bullets = discord.ui.TextInput(
+            label="Bullets",
+            default=str(defaults.get("bullets", 1)),
+            placeholder="Integer from 1 to 6",
+            max_length=1,
+        )
+        self.chambers = discord.ui.TextInput(
+            label="Chambers",
+            default=str(defaults.get("chambers", 6)),
+            placeholder="Integer from 1 to 100; at least bullets",
+            max_length=3,
+        )
+        self.safe_message = _optional_input(
+            "Safe message",
+            defaults.get("safe_message"),
+            "Optional message when the chamber is safe",
+            max_length=300,
+            paragraph=True,
+        )
+        self.shot_message = _optional_input(
+            "Shot message",
+            defaults.get("shot_message"),
+            "Optional message when the user is shot",
+            max_length=300,
+            paragraph=True,
+        )
+        for item in (self.bullets, self.chambers, self.safe_message, self.shot_message):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = complete_reward_payload(
+                self.base_payload,
+                {
+                    "bullets": self.bullets.value,
+                    "chambers": self.chambers.value,
+                    "safe_message": self.safe_message.value,
+                    "shot_message": self.shot_message.value,
+                },
+            )
+        except (TypeError, ValueError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        view = ModalLauncherView(
+            interaction.user.id,
+            lambda: RouletteOutcomeModal(
+                "reward", payload, self.on_save, self.defaults.get("reward") or {}, self.defaults
+            ),
+            label="Set success effect",
+        )
+        await interaction.response.send_message(
+            "Roulette settings saved. Configure the optional success effect.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class RouletteOutcomeModal(discord.ui.Modal):
+    def __init__(
+        self,
+        outcome_name: str,
+        payload: dict[str, Any],
+        on_save,
+        outcome_defaults: dict[str, Any],
+        reward_defaults: dict[str, Any],
+    ):
+        super().__init__(title=f"Roulette {outcome_name} effect")
+        self.outcome_name = outcome_name
+        self.payload = payload
+        self.on_save = on_save
+        self.reward_defaults = reward_defaults
+        self.effect_type = discord.ui.TextInput(
+            label="Effect type",
+            default=str(outcome_defaults.get("type") or "none"),
+            placeholder="none, add_mass, add_percentage_mass, or timeout",
+            max_length=24,
+        )
+        self.mass = _optional_input(
+            "Mass",
+            outcome_defaults.get("mass"),
+            "Used only for add_mass",
+        )
+        self.percentage = _optional_input(
+            "Percentage",
+            outcome_defaults.get("percentage"),
+            "Decimal from 0 to 1 for add_percentage_mass",
+        )
+        self.duration = _optional_input(
+            "Timeout duration",
+            outcome_defaults.get("duration"),
+            "Seconds or duration such as 10m; used for timeout",
+            max_length=16,
+        )
+        self.reason = _optional_input(
+            "Timeout reason",
+            outcome_defaults.get("reason"),
+            "Optional reason used only for timeout",
+            max_length=200,
+        )
+        for item in (self.effect_type, self.mass, self.percentage, self.duration, self.reason):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            outcome = build_roulette_outcome(
+                self.effect_type.value,
+                self.mass.value,
+                self.percentage.value,
+                self.duration.value,
+                self.reason.value,
+            )
+        except (TypeError, ValueError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        payload = dict(self.payload)
+        if outcome is None:
+            payload.pop(self.outcome_name, None)
+        else:
+            payload[self.outcome_name] = outcome
+
+        if self.outcome_name == "reward":
+            penalty_defaults = self.reward_defaults.get("penalty") or {}
+            view = ModalLauncherView(
+                interaction.user.id,
+                lambda: RouletteOutcomeModal(
+                    "penalty", payload, self.on_save, penalty_defaults, self.reward_defaults
+                ),
+                label="Set failure effect",
+            )
+            await interaction.response.send_message(
+                "Success effect saved. Configure the optional failure effect.",
+                view=view,
+                ephemeral=True,
+            )
+            return
+        await _show_reward_preview(interaction, payload, self.on_save)
+
+
+class EventModal(discord.ui.Modal):
+    def __init__(self, on_save, defaults: dict[str, Any] | None = None):
+        defaults = defaults or {}
+        modifiers = defaults.get("modifiers") or {}
+        super().__init__(title="Edit event" if defaults else "New event")
+        self.on_save = on_save
+        self.defaults = defaults
+        self.title_input = discord.ui.TextInput(
+            label="Name",
+            default=str(defaults.get("event_title") or ""),
+            placeholder="Event display name",
+            max_length=120,
+        )
+        self.override_location = _optional_input(
+            "Override location",
+            defaults.get("override_loot_pool"),
+            "Optional location ID, for example: lake",
+            max_length=32,
+        )
+        self.luck_mult = discord.ui.TextInput(
+            label="Luck multiplier",
+            default=str(modifiers.get("luck_mult", "1")),
+            placeholder="Decimal from 0 to 100; 1 means unchanged",
+            max_length=32,
+        )
+        self.xp_mult = discord.ui.TextInput(
+            label="XP multiplier",
+            default=str(modifiers.get("xp_mult", "1")),
+            placeholder="Decimal from 0 to 100; 1 means unchanged",
+            max_length=32,
+        )
+        self.cooldown_reduction = discord.ui.TextInput(
+            label="Cooldown reduction",
+            default=str(modifiers.get("cd_reduction", "0")),
+            placeholder="Decimal from 0 to 0.95; 0.2 removes 20%",
+            max_length=32,
+        )
+        for item in (
+            self.title_input,
+            self.override_location,
+            self.luck_mult,
+            self.xp_mult,
+            self.cooldown_reduction,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = {
+                "event_title": self.title_input.value.strip(),
+                "override_loot_pool": self.override_location.value.strip() or None,
+                "modifiers": {
+                    "luck_mult": _bounded_decimal(self.luck_mult.value, "Luck multiplier", 0, 100),
+                    "xp_mult": _bounded_decimal(self.xp_mult.value, "XP multiplier", 0, 100),
+                    "cd_reduction": _bounded_decimal(
+                        self.cooldown_reduction.value, "Cooldown reduction", 0, 0.95
+                    ),
+                },
+            }
+            if self.defaults.get("version") is not None:
+                payload["expected_version"] = self.defaults["version"]
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        view = ModalLauncherView(
+            interaction.user.id,
+            lambda: EventBonusModal(payload, self.on_save, self.defaults),
+            label="Set mass bonus",
+        )
+        await interaction.response.send_message(
+            "Event settings saved. Continue with the mass bonus field.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class EventBonusModal(discord.ui.Modal):
+    def __init__(self, payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Event mass bonus")
+        self.payload = payload
+        self.on_save = on_save
+        modifiers = defaults.get("modifiers") or {}
+        self.bonus_mass = discord.ui.TextInput(
+            label="Bonus mass",
+            default=str(modifiers.get("bonus_mass", "0")),
+            placeholder="Relative bonus from 0 to 100; 0.15 adds 15%",
+            max_length=32,
+        )
+        self.add_item(self.bonus_mass)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = {
+                **self.payload,
+                "modifiers": {
+                    **self.payload["modifiers"],
+                    "bonus_mass": _bounded_decimal(self.bonus_mass.value, "Bonus mass", 0, 100),
+                },
+            }
+        except ValueError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
         async def confirm(confirm_interaction: discord.Interaction) -> None:
             await self.on_save(confirm_interaction, payload)
 
-        rendered = json.dumps(payload, ensure_ascii=True, indent=2)
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Reward preview",
-                description=f"```json\n{rendered[:3800]}\n```",
-                color=discord.Color.orange(),
-            ),
-            view=ConfirmView(interaction.user.id, confirm),
-            ephemeral=True,
-        )
+        await _show_preview(interaction, "Event preview", payload, confirm)
 
 
-class EventModal(discord.ui.Modal):
-    title_input = discord.ui.TextInput(label="Name", max_length=120)
-    options = discord.ui.TextInput(
-        label="Options key=value;...",
-        required=False,
-        max_length=100,
-        placeholder="location=lake;bonus_mass=0.15",
+async def _complete_reward(
+    interaction: discord.Interaction,
+    base_payload: dict[str, Any],
+    parameters: dict[str, Any],
+    on_save,
+) -> None:
+    try:
+        payload = complete_reward_payload(base_payload, parameters)
+    except (TypeError, ValueError) as error:
+        await interaction.response.send_message(str(error), ephemeral=True)
+        return
+    await _show_reward_preview(interaction, payload, on_save)
+
+
+async def _show_reward_preview(
+    interaction: discord.Interaction,
+    payload: dict[str, Any],
+    on_save,
+) -> None:
+    async def confirm(confirm_interaction: discord.Interaction) -> None:
+        await on_save(confirm_interaction, payload)
+
+    await _show_preview(interaction, "Reward preview", payload, confirm)
+
+
+async def _show_preview(
+    interaction: discord.Interaction,
+    title: str,
+    payload: dict[str, Any],
+    on_confirm,
+) -> None:
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title=title,
+            description=f"```json\n{rendered[:3800]}\n```",
+            color=discord.Color.orange(),
+        ),
+        view=ConfirmView(interaction.user.id, on_confirm),
+        ephemeral=True,
     )
-    luck_mult = discord.ui.TextInput(label="Luck multiplier", default="1")
-    xp_mult = discord.ui.TextInput(label="XP multiplier", default="1")
-    cooldown_reduction = discord.ui.TextInput(label="Cooldown reduction 0..0.95", default="0")
-
-    def __init__(self, on_save, defaults: dict[str, Any] | None = None):
-        defaults = defaults or {}
-        super().__init__(title="Edit event" if defaults else "New event")
-        self.on_save = on_save
-        self.expected_version = defaults.get("version")
-        modifiers = defaults.get("modifiers") or {}
-        self.title_input.default = str(defaults.get("event_title") or "")
-        option_values = []
-        if defaults.get("override_loot_pool"):
-            option_values.append(f"location={defaults['override_loot_pool']}")
-        option_values.append(f"bonus_mass={modifiers.get('bonus_mass', '0')}")
-        self.options.default = ";".join(option_values)
-        self.luck_mult.default = str(modifiers.get("luck_mult", "1"))
-        self.xp_mult.default = str(modifiers.get("xp_mult", "1"))
-        self.cooldown_reduction.default = str(modifiers.get("cd_reduction", "0"))
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            options = _parse_options(self.options.value)
-            payload = {
-                "event_title": self.title_input.value,
-                "override_loot_pool": options.get("location") or None,
-                "modifiers": {
-                    "luck_mult": parse_decimal(self.luck_mult.value),
-                    "xp_mult": parse_decimal(self.xp_mult.value),
-                    "cd_reduction": parse_decimal(self.cooldown_reduction.value),
-                    "bonus_mass": parse_decimal(options.get("bonus_mass", "0")),
-                },
-            }
-            if self.expected_version is not None:
-                payload["expected_version"] = self.expected_version
-        except ValueError as error:
-            await interaction.response.send_message(str(error), ephemeral=True)
-            return
-        await self.on_save(interaction, payload)
 
 
-def _reward_parameters(reward: dict[str, Any]) -> str:
-    reward_type = reward.get("type")
-    values: list[str] = []
-    if reward_type == "fish":
-        if reward.get("fixed_mass") is not None:
-            values.append(f"fixed={reward['fixed_mass']}")
-        elif reward.get("percentage") is not None:
-            values.append(f"percentage={reward['percentage']}")
-        elif reward.get("min_mass") is not None:
-            values.append(f"range={reward['min_mass']},{reward['max_mass']}")
-    elif reward_type == "timeout":
-        values.extend(
-            [f"duration={reward.get('duration', '')}", f"reason={reward.get('reason', '')}"]
-        )
-    elif reward_type == "robbery":
-        key = "percentage" if reward.get("percentage") is not None else "mass"
-        values.extend([f"{key}={reward.get(key, '')}", f"range={reward.get('range', 3)}"])
-    elif reward_type == "russian_roulette":
-        values.extend(
-            [
-                f"bullets={reward.get('bullets', 1)}",
-                f"chambers={reward.get('chambers', 6)}",
-                f"safe={reward.get('safe_message', '')}",
-                f"shot={reward.get('shot_message', '')}",
-            ]
-        )
-        if reward.get("reward"):
-            values.append(f"reward={_format_outcome(reward['reward'])}")
-        if reward.get("penalty"):
-            values.append(f"penalty={_format_outcome(reward['penalty'])}")
-    return ";".join(values)
+def _optional_input(
+    label: str,
+    default: Any,
+    placeholder: str,
+    *,
+    max_length: int = 32,
+    paragraph: bool = False,
+) -> discord.ui.TextInput:
+    return discord.ui.TextInput(
+        label=label,
+        default="" if default is None else str(default),
+        placeholder=placeholder,
+        style=discord.TextStyle.paragraph if paragraph else discord.TextStyle.short,
+        required=False,
+        max_length=max_length,
+    )
 
 
-def _format_outcome(outcome: dict[str, Any]) -> str:
-    outcome_type = outcome["type"]
-    if outcome_type == "add_mass":
-        return f"{outcome_type}:{outcome['mass']}"
-    if outcome_type == "add_percentage_mass":
-        return f"{outcome_type}:{outcome['percentage']}"
-    return f"timeout:{outcome['duration']},{outcome.get('reason', '')}"
+def _bounded_decimal(
+    value: str,
+    label: str,
+    minimum: int | Decimal,
+    maximum: int | Decimal,
+) -> str:
+    parsed = parse_decimal(value)
+    numeric = Decimal(parsed)
+    if not Decimal(str(minimum)) <= numeric <= Decimal(str(maximum)):
+        raise ValueError(f"{label} must be between {minimum} and {maximum}")
+    return parsed
 
 
 def _schema_constraint(field_schema: dict[str, Any]) -> str | None:
@@ -263,18 +644,3 @@ def _schema_constraint(field_schema: dict[str, Any]) -> str | None:
     if not numeric:
         return None
     return f"Range: {numeric.get('minimum', '-inf')} to {numeric.get('maximum', 'inf')}"
-
-
-def _parse_options(value: str) -> dict[str, str]:
-    options = {}
-    for chunk in value.split(";"):
-        if not chunk.strip():
-            continue
-        key, separator, raw_value = chunk.partition("=")
-        if not separator or not key.strip() or not raw_value.strip():
-            raise ValueError("Use key=value;key=value for event options")
-        options[key.strip().lower()] = raw_value.strip()
-    unknown = set(options) - {"location", "bonus_mass"}
-    if unknown:
-        raise ValueError(f"Unknown event option: {min(unknown)}")
-    return options
