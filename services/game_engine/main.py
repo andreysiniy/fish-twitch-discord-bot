@@ -14,6 +14,7 @@ from api.routes import (
 from core.api_errors import ApiProblem
 from core.config import settings
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from infrastructure.database import SessionLocal
@@ -91,6 +92,25 @@ async def unhandled_exception_handler(request: Request, error: Exception) -> JSO
 @app.exception_handler(ApiProblem)
 async def api_problem_handler(request: Request, error: ApiProblem) -> JSONResponse:
     return JSONResponse(status_code=error.status_code, content={"detail": error.detail()})
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(
+    request: Request,
+    error: RequestValidationError,
+) -> JSONResponse:
+    fields = {".".join(str(part) for part in item["loc"]): item["msg"] for item in error.errors()}
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "fields": fields,
+                "request_id": request.headers.get("X-Request-ID"),
+            }
+        },
+    )
 
 
 @app.get("/health/live")

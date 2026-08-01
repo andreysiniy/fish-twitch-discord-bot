@@ -24,6 +24,7 @@ from domain.schemas.discord_admin import (
 )
 from infrastructure.models import (
     AdminAuditLog,
+    Channel,
     DiscordAccountLink,
     DiscordGuildBinding,
     FishingEvent,
@@ -145,7 +146,11 @@ class DiscordAdminService:
             link.last_verified_at = now
             link.revoked_at = None
         self.db.flush()
-        return {"status": "linked", "twitch_login": link.twitch_login, "twitch_user_id": twitch_user_id}
+        return {
+            "status": "linked",
+            "twitch_login": link.twitch_login,
+            "twitch_user_id": twitch_user_id,
+        }
 
     def status(self, context: DiscordServiceContext) -> dict[str, Any]:
         link = self._get_link(context, required=False)
@@ -158,9 +163,7 @@ class DiscordAdminService:
             )
         return {
             "linked": bool(link),
-            "twitch": (
-                {"id": link.twitch_user_id, "login": link.twitch_login} if link else None
-            ),
+            "twitch": ({"id": link.twitch_user_id, "login": link.twitch_login} if link else None),
             "binding": self._serialize_binding(binding) if binding else None,
         }
 
@@ -168,7 +171,15 @@ class DiscordAdminService:
         def mutation() -> dict[str, Any]:
             link = self._get_link(context)
             before = {"twitch_user_id": link.twitch_user_id, "twitch_login": link.twitch_login}
-            self._audit(context, link.twitch_user_id, "discord.link.unlink", "discord_link", link.id, before, {})
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "discord.link.unlink",
+                "discord_link",
+                link.id,
+                before,
+                {},
+            )
             self.db.delete(link)
             self.db.flush()
             return {"status": "unlinked"}
@@ -223,9 +234,13 @@ class DiscordAdminService:
                 .first()
             )
             if channel_binding:
-                raise ApiProblem(409, "PERMISSION_DENIED", "Twitch channel is bound to another guild")
+                raise ApiProblem(
+                    409, "PERMISSION_DENIED", "Twitch channel is bound to another guild"
+                )
             if existing and existing.channel_id != channel.id and not data.replace:
-                raise ApiProblem(409, "PERMISSION_DENIED", "Guild is already bound; confirmation required")
+                raise ApiProblem(
+                    409, "PERMISSION_DENIED", "Guild is already bound; confirmation required"
+                )
             before = self._serialize_binding(existing) if existing else {}
             if not existing:
                 existing = DiscordGuildBinding(
@@ -240,7 +255,15 @@ class DiscordAdminService:
             existing.management_channel_id = context.management_channel_id
             self.db.flush()
             after = self._serialize_binding(existing)
-            self._audit(context, link.twitch_user_id, "discord.guild.bind", "guild_binding", existing.id, before, after)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "discord.guild.bind",
+                "guild_binding",
+                existing.id,
+                before,
+                after,
+            )
             return after
 
         return self.idempotency.execute(
@@ -262,7 +285,15 @@ class DiscordAdminService:
             before = self._serialize_binding(binding)
             self.db.delete(binding)
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "discord.guild.unbind", "guild_binding", binding.id, before, {})
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "discord.guild.unbind",
+                "guild_binding",
+                binding.id,
+                before,
+                {},
+            )
             return {"status": "unbound", "channel_twitch_id": channel.twitch_id}
 
         return self.idempotency.execute(
@@ -297,7 +328,9 @@ class DiscordAdminService:
         payload = data.model_dump(mode="json", exclude_none=True)
 
         def mutation() -> dict[str, Any]:
-            channel, link = self._authorize(context, ChannelPermission.CONFIG_WRITE, channel_twitch_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.CONFIG_WRITE, channel_twitch_id, for_update=True
+            )
             self._check_version(channel.config_version, data.expected_version, context)
             config = dict(channel.config or {})
             before = dict(config.get("custom_params", {}))
@@ -305,14 +338,26 @@ class DiscordAdminService:
             merged = {**before, **changes}
             effective = GameConfig.model_validate(merged).model_dump(mode="json")
             if not changes or all(before.get(key) == value for key, value in changes.items()):
-                return {"version": channel.config_version, "changed_fields": [], "effective": effective}
+                return {
+                    "version": channel.config_version,
+                    "changed_fields": [],
+                    "effective": effective,
+                }
             config["custom_params"] = merged
             channel.config = config
             channel.config_version += 1
             channel.config_updated_at = datetime.now(timezone.utc)
             flag_modified(channel, "config")
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "config.patch", "channel_config", str(channel.id), before, merged)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "config.patch",
+                "channel_config",
+                str(channel.id),
+                before,
+                merged,
+            )
             return {
                 "version": channel.config_version,
                 "changed_fields": sorted(changes),
@@ -338,11 +383,17 @@ class DiscordAdminService:
             raise ApiProblem(422, "VALIDATION_ERROR", "Unknown config section")
 
         def mutation() -> dict[str, Any]:
-            channel, link = self._authorize(context, ChannelPermission.CONFIG_WRITE, channel_twitch_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.CONFIG_WRITE, channel_twitch_id, for_update=True
+            )
             self._check_version(channel.config_version, data.expected_version, context)
             config = dict(channel.config or {})
             before = dict(config.get("custom_params", {}))
-            after = {key: value for key, value in before.items() if key not in CONFIG_SECTIONS[data.section]}
+            after = {
+                key: value
+                for key, value in before.items()
+                if key not in CONFIG_SECTIONS[data.section]
+            }
             if after == before:
                 return self.get_config(context, channel_twitch_id)
             config["custom_params"] = after
@@ -351,7 +402,15 @@ class DiscordAdminService:
             channel.config_updated_at = datetime.now(timezone.utc)
             flag_modified(channel, "config")
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "config.reset", "channel_config", str(channel.id), before, after)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "config.reset",
+                "channel_config",
+                str(channel.id),
+                before,
+                after,
+            )
             return self.get_config(context, channel_twitch_id)
 
         return self.idempotency.execute(
@@ -363,7 +422,9 @@ class DiscordAdminService:
             mutation,
         )
 
-    def list_locations(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
+    def list_locations(
+        self, context: DiscordServiceContext, channel_twitch_id: str
+    ) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
         pools = (
             self.db.query(RewardPool)
@@ -390,7 +451,9 @@ class DiscordAdminService:
         data: LocationCreateRequest,
     ) -> dict[str, Any]:
         def mutation() -> dict[str, Any]:
-            channel, link = self._authorize(context, ChannelPermission.LOCATIONS_WRITE, channel_twitch_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.LOCATIONS_WRITE, channel_twitch_id, for_update=True
+            )
             if self.db.query(RewardPool).filter(RewardPool.channel_id == channel.id).count() >= 50:
                 raise ApiProblem(422, "VALIDATION_ERROR", "Location limit reached")
             if self._find_pool(channel.id, data.location_id):
@@ -406,7 +469,9 @@ class DiscordAdminService:
             self.db.add(pool)
             self.db.flush()
             after = self._serialize_location(pool)
-            self._audit(context, link.twitch_user_id, "location.create", "location", str(pool.id), {}, after)
+            self._audit(
+                context, link.twitch_user_id, "location.create", "location", str(pool.id), {}, after
+            )
             return after
 
         return self.idempotency.execute(
@@ -431,6 +496,7 @@ class DiscordAdminService:
                 channel_twitch_id,
                 location_id,
                 ChannelPermission.LOCATIONS_WRITE,
+                for_update=True,
             )
             self._check_version(pool.version, data.expected_version, context)
             before = self._serialize_location(pool)
@@ -443,7 +509,15 @@ class DiscordAdminService:
             pool.version += 1
             self.db.flush()
             after = self._serialize_location(pool)
-            self._audit(context, link.twitch_user_id, "location.patch", "location", str(pool.id), before, after)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "location.patch",
+                "location",
+                str(pool.id),
+                before,
+                after,
+            )
             return after
 
         return self.idempotency.execute(
@@ -470,6 +544,7 @@ class DiscordAdminService:
                 channel_twitch_id,
                 location_id,
                 ChannelPermission.LOCATIONS_WRITE,
+                for_update=True,
             )
             in_event = (
                 self.db.query(FishingEvent)
@@ -493,7 +568,15 @@ class DiscordAdminService:
             before = self._serialize_location(pool, include_rewards=True)
             self.db.delete(pool)
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "location.delete", "location", str(pool.id), before, {})
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "location.delete",
+                "location",
+                str(pool.id),
+                before,
+                {},
+            )
             return {"status": "deleted", "location_id": location_id}
 
         return self.idempotency.execute(
@@ -520,10 +603,16 @@ class DiscordAdminService:
     def create_reward(self, context, channel_twitch_id, location_id, data: RewardCreateRequest):
         return self._mutate_reward(context, channel_twitch_id, location_id, data, "create")
 
-    def patch_reward(self, context, channel_twitch_id, location_id, reward_id, data: RewardPatchRequest):
-        return self._mutate_reward(context, channel_twitch_id, location_id, data, "patch", reward_id)
+    def patch_reward(
+        self, context, channel_twitch_id, location_id, reward_id, data: RewardPatchRequest
+    ):
+        return self._mutate_reward(
+            context, channel_twitch_id, location_id, data, "patch", reward_id
+        )
 
-    def delete_reward(self, context, channel_twitch_id, location_id, reward_id, expected_version: int):
+    def delete_reward(
+        self, context, channel_twitch_id, location_id, reward_id, expected_version: int
+    ):
         data = {"expected_version": expected_version, "reward_id": reward_id}
 
         def mutation() -> dict[str, Any]:
@@ -532,6 +621,7 @@ class DiscordAdminService:
                 channel_twitch_id,
                 location_id,
                 ChannelPermission.REWARDS_WRITE,
+                for_update=True,
             )
             self._check_version(pool.version, expected_version, context)
             rewards = self._normalized_rewards(pool)
@@ -542,7 +632,9 @@ class DiscordAdminService:
             pool.version += 1
             flag_modified(pool, "rewards_data")
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "reward.delete", "reward", reward_id, target, {})
+            self._audit(
+                context, link.twitch_user_id, "reward.delete", "reward", reward_id, target, {}
+            )
             return {"status": "deleted", "reward_id": reward_id, "version": pool.version}
 
         return self.idempotency.execute(
@@ -568,7 +660,9 @@ class DiscordAdminService:
 
     def create_event(self, context, channel_twitch_id, data: DiscordEventCreateRequest):
         def mutation():
-            channel, link = self._authorize(context, ChannelPermission.EVENTS_WRITE, channel_twitch_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.EVENTS_WRITE, channel_twitch_id, for_update=True
+            )
             self._validate_event_location(channel.id, data.override_loot_pool)
             event = FishingEvent(
                 channel_id=channel.id,
@@ -580,7 +674,9 @@ class DiscordAdminService:
             self.db.add(event)
             self.db.flush()
             after = self._serialize_event(event)
-            self._audit(context, link.twitch_user_id, "event.create", "event", str(event.id), {}, after)
+            self._audit(
+                context, link.twitch_user_id, "event.create", "event", str(event.id), {}, after
+            )
             return after
 
         return self.idempotency.execute(
@@ -594,8 +690,10 @@ class DiscordAdminService:
 
     def patch_event(self, context, channel_twitch_id, event_id, data: DiscordEventPatchRequest):
         def mutation():
-            channel, link = self._authorize(context, ChannelPermission.EVENTS_WRITE, channel_twitch_id)
-            event = self.channel_repo.get_fishing_event(channel.id, event_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.EVENTS_WRITE, channel_twitch_id, for_update=True
+            )
+            event = self._find_event(channel.id, event_id, for_update=True)
             if not event:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
             self._check_version(event.version, data.expected_version, context)
@@ -605,13 +703,15 @@ class DiscordAdminService:
             if data.modifiers is not None:
                 event.modifiers = data.modifiers.model_dump(mode="json")
                 flag_modified(event, "modifiers")
-            if data.override_loot_pool is not None:
+            if "override_loot_pool" in data.model_fields_set:
                 self._validate_event_location(channel.id, data.override_loot_pool)
                 event.override_loot_pool = data.override_loot_pool
             event.version += 1
             self.db.flush()
             after = self._serialize_event(event)
-            self._audit(context, link.twitch_user_id, "event.patch", "event", str(event.id), before, after)
+            self._audit(
+                context, link.twitch_user_id, "event.patch", "event", str(event.id), before, after
+            )
             return after
 
         return self.idempotency.execute(
@@ -625,13 +725,21 @@ class DiscordAdminService:
 
     def start_event(self, context, channel_twitch_id, event_id, data: DiscordEventStartRequest):
         def mutation():
-            channel, link = self._authorize(context, ChannelPermission.EVENTS_TOGGLE, channel_twitch_id)
-            event = self.channel_repo.get_fishing_event(channel.id, event_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.EVENTS_TOGGLE, channel_twitch_id, for_update=True
+            )
+            events = (
+                self.db.query(FishingEvent)
+                .filter(FishingEvent.channel_id == channel.id)
+                .with_for_update()
+                .all()
+            )
+            event = next((candidate for candidate in events if candidate.id == event_id), None)
             if not event:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
             self._check_version(event.version, data.expected_version, context)
             before = self._serialize_event(event)
-            for candidate in self.channel_repo.list_fishing_events(channel.id):
+            for candidate in events:
                 candidate.is_active = candidate.id == event.id
                 if candidate.id == event.id:
                     candidate.version += 1
@@ -647,8 +755,13 @@ class DiscordAdminService:
                     link.twitch_user_id,
                 )
             after = self._serialize_event(event)
-            self._audit(context, link.twitch_user_id, "event.start", "event", str(event.id), before, after)
-            return {"event": after, "scheduled_disable_at": scheduled.get("execute_at") if scheduled else None}
+            self._audit(
+                context, link.twitch_user_id, "event.start", "event", str(event.id), before, after
+            )
+            return {
+                "event": after,
+                "scheduled_disable_at": scheduled.get("execute_at") if scheduled else None,
+            }
 
         return self.idempotency.execute(
             context.actor_scope,
@@ -661,8 +774,15 @@ class DiscordAdminService:
 
     def stop_event(self, context, channel_twitch_id):
         def mutation():
-            channel, link = self._authorize(context, ChannelPermission.EVENTS_TOGGLE, channel_twitch_id)
-            event = self.channel_repo.get_active_fishing_event(channel.id)
+            channel, link = self._authorize(
+                context, ChannelPermission.EVENTS_TOGGLE, channel_twitch_id, for_update=True
+            )
+            event = (
+                self.db.query(FishingEvent)
+                .filter(FishingEvent.channel_id == channel.id, FishingEvent.is_active.is_(True))
+                .with_for_update()
+                .first()
+            )
             if not event:
                 return {"status": "no_active_event"}
             before = self._serialize_event(event)
@@ -671,7 +791,9 @@ class DiscordAdminService:
             self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
             self.db.flush()
             after = self._serialize_event(event)
-            self._audit(context, link.twitch_user_id, "event.stop", "event", str(event.id), before, after)
+            self._audit(
+                context, link.twitch_user_id, "event.stop", "event", str(event.id), before, after
+            )
             return {"status": "stopped", "event": after}
 
         return self.idempotency.execute(
@@ -685,8 +807,10 @@ class DiscordAdminService:
 
     def delete_event(self, context, channel_twitch_id, event_id, expected_version):
         def mutation():
-            channel, link = self._authorize(context, ChannelPermission.EVENTS_WRITE, channel_twitch_id)
-            event = self.channel_repo.get_fishing_event(channel.id, event_id)
+            channel, link = self._authorize(
+                context, ChannelPermission.EVENTS_WRITE, channel_twitch_id, for_update=True
+            )
+            event = self._find_event(channel.id, event_id, for_update=True)
             if not event:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
             self._check_version(event.version, expected_version, context)
@@ -695,7 +819,9 @@ class DiscordAdminService:
                 self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
             self.db.delete(event)
             self.db.flush()
-            self._audit(context, link.twitch_user_id, "event.delete", "event", str(event.id), before, {})
+            self._audit(
+                context, link.twitch_user_id, "event.delete", "event", str(event.id), before, {}
+            )
             return {"status": "deleted", "event_id": event_id}
 
         return self.idempotency.execute(
@@ -716,6 +842,7 @@ class DiscordAdminService:
                 channel_twitch_id,
                 location_id,
                 ChannelPermission.REWARDS_WRITE,
+                for_update=True,
             )
             self._check_version(pool.version, data.expected_version, context)
             rewards = self._normalized_rewards(pool)
@@ -761,7 +888,7 @@ class DiscordAdminService:
             mutation,
         )
 
-    def _authorize(self, context, permission, channel_twitch_id=None):
+    def _authorize(self, context, permission, channel_twitch_id=None, *, for_update=False):
         link = self._get_link(context)
         binding = self._get_binding(context)
         channel = binding.channel
@@ -773,7 +900,13 @@ class DiscordAdminService:
             access = self.channel_repo.get_access_record(channel.id, link.twitch_user_id)
             role = access.role if access else None
         if not role or permission not in ROLE_PERMISSIONS.get(role, set()):
-            raise ApiProblem(403, "PERMISSION_DENIED", "Permission denied", request_id=context.request_id)
+            raise ApiProblem(
+                403, "PERMISSION_DENIED", "Permission denied", request_id=context.request_id
+            )
+        if for_update:
+            channel = (
+                self.db.query(Channel).filter(Channel.id == channel.id).with_for_update().one()
+            )
         return channel, link
 
     def _get_link(self, context, required=True):
@@ -791,7 +924,9 @@ class DiscordAdminService:
 
     def _get_binding(self, context):
         if not context.discord_guild_id:
-            raise ApiProblem(403, "GUILD_BINDING_REQUIRED", "This command is only available in a guild")
+            raise ApiProblem(
+                403, "GUILD_BINDING_REQUIRED", "This command is only available in a guild"
+            )
         binding = (
             self.db.query(DiscordGuildBinding)
             .filter(DiscordGuildBinding.discord_guild_id == context.discord_guild_id)
@@ -801,19 +936,42 @@ class DiscordAdminService:
             raise ApiProblem(403, "GUILD_BINDING_REQUIRED", "Run /fish setup first")
         return binding
 
-    def _resolve_pool(self, context, channel_twitch_id, location_id, permission=ChannelPermission.CONFIG_READ):
-        channel, link = self._authorize(context, permission, channel_twitch_id)
-        pool = self._find_pool(channel.id, location_id)
+    def _resolve_pool(
+        self,
+        context,
+        channel_twitch_id,
+        location_id,
+        permission=ChannelPermission.CONFIG_READ,
+        *,
+        for_update=False,
+    ):
+        channel, link = self._authorize(
+            context,
+            permission,
+            channel_twitch_id,
+            for_update=for_update,
+        )
+        pool = self._find_pool(channel.id, location_id, for_update=for_update)
         if not pool:
             raise ApiProblem(404, "LOCATION_NOT_FOUND", "Location not found")
         return pool, channel, link
 
-    def _find_pool(self, channel_id, location_id):
-        return (
-            self.db.query(RewardPool)
-            .filter(RewardPool.channel_id == channel_id, RewardPool.location_id == location_id)
-            .first()
+    def _find_pool(self, channel_id, location_id, *, for_update=False):
+        query = self.db.query(RewardPool).filter(
+            RewardPool.channel_id == channel_id, RewardPool.location_id == location_id
         )
+        if for_update:
+            query = query.with_for_update()
+        return query.first()
+
+    def _find_event(self, channel_id, event_id, *, for_update=False):
+        query = self.db.query(FishingEvent).filter(
+            FishingEvent.channel_id == channel_id,
+            FishingEvent.id == event_id,
+        )
+        if for_update:
+            query = query.with_for_update()
+        return query.first()
 
     def _normalized_rewards(self, pool):
         normalized = []
