@@ -35,9 +35,7 @@ services:
     build: ./services/game_engine
     container_name: fisher_engine
     restart: always
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./services/game_engine:/app 
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     environment:
@@ -53,9 +51,31 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       TWITCH_CLIENT_ID: ${API_TWITCH_CLIENT_ID}
       TWITCH_CLIENT_SECRET: ${API_TWITCH_CLIENT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      RUN_BACKGROUND_WORKERS: "false"
     depends_on:
       - postgres
       - redis
+    networks:
+      - fisher_net
+
+  game_worker:
+    build: ./services/game_engine
+    container_name: fisher_worker
+    restart: always
+    command: python worker_main.py
+    environment:
+      PYTHONUNBUFFERED: 1
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      BOT_API_KEY: ${BOT_API_KEY}
+      TWITCH_CLIENT_ID: ${API_TWITCH_CLIENT_ID}
+      TWITCH_CLIENT_SECRET: ${API_TWITCH_CLIENT_SECRET}
+    depends_on:
+      - game_engine
     networks:
       - fisher_net
 
