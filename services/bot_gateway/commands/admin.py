@@ -113,22 +113,20 @@ class AdminCog(commands.Cog):
         arg4: str | None = None
     ) -> None:
         channel_id = await get_channel_id(ctx)
-        print(f"[fishcd] command invoked by {ctx.author.name} with arg1={arg1} arg2={arg2} arg3={arg3} arg4={arg4}")
-        if isinstance(arg2, str) and arg2.strip().lower() == "set":
-            print(f"[fishcd:set] command invoked by {ctx.author.name} with arg1={arg1} arg2={arg2} arg3={arg3} arg4={arg4}")
-            if arg3 is None:
+        if isinstance(arg1, str) and arg1.strip().lower() == "set":
+            if arg2 is None:
                 await ctx.send("Usage: !fishcd set <seconds> [sub]")
                 return
 
             try:
-                seconds_value = int(arg3)
+                seconds_value = int(arg2)
                 if seconds_value < 0:
                     raise ValueError
             except ValueError:
                 await ctx.send("Seconds must be a non-negative integer")
                 return
 
-            normalized_scope = (arg4 or "").strip().lower()
+            normalized_scope = (arg3 or "").strip().lower()
             if normalized_scope not in {"", "sub"}:
                 await ctx.send("Scope must be empty (global) or sub")
                 return

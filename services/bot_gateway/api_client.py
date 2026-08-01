@@ -163,7 +163,6 @@ class EngineApiClient:
             json=json,
             headers=self._get_headers()
         ) as response:
-            print(f"Request: {method} {url} - Status: {response.status}, headers: {response.headers}")
             data, text = await self._read_payload(response)
             if response.status >= 400:
                 detail = data.get("detail") if isinstance(data, dict) else text

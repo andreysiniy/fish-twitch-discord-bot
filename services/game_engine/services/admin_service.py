@@ -44,8 +44,9 @@ class AdminService:
             raise ValueError(f"Channel {data.name} already exists")
         return self.repo.create(data)
 
-    def get_channels(self) -> List:
-        return self.repo.get_all()
+    def get_channels(self, requester_twitch_id: str) -> List:
+        channel = self.repo.get_by_twitch_id(requester_twitch_id)
+        return [channel] if channel else []
 
     def check_access(
         self,

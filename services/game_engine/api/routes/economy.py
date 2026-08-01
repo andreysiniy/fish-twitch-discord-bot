@@ -29,8 +29,8 @@ def fishsell(
             channel_id=request.channel_id,
             amount_str=request.user_input,
         )
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/fishbuy", response_model=FishResponse)
@@ -46,5 +46,5 @@ async def fishbuy(
             channel_id=request.channel_id,
             amount_str=request.user_input,
         )
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

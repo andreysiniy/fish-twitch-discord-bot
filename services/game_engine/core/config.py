@@ -1,29 +1,65 @@
-import os
-from pydantic_settings import BaseSettings
+from functools import cached_property
+
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    DB_USER: str
-    DB_PASSWORD: str
-    DB_NAME: str
-    DB_HOST: str = "postgres" 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=True)
+
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = "password"
+    DB_NAME: str = "fisher_db"
+    DB_HOST: str = "postgres"
     DB_PORT: str = "5432"
+    DATABASE_URL_OVERRIDE: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DATABASE_URL", "DATABASE_URL_OVERRIDE"),
+    )
     REDIS_URL: str = "redis://redis:6379/0"
 
-    SECRET_KEY: str # (openssl rand -hex 32)
+    SECRET_KEY: str
     ENCRYPTION_KEY: str | None = None
     BOT_API_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
-    # from dev.twitch.tv
     TWITCH_CLIENT_ID: str
-    TWITCH_CLIENT_SECRET: str    
+    TWITCH_CLIENT_SECRET: str
+    TWITCH_OAUTH_REDIRECT_URIS: str = "http://localhost:5173/auth/callback"
+
+    CORS_ORIGINS: str = "http://localhost:5173"
+    RUN_BACKGROUND_WORKERS: bool = False
+    LOG_LEVEL: str = "INFO"
 
     @property
     def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        if self.DATABASE_URL_OVERRIDE:
+            return self.DATABASE_URL_OVERRIDE
+        return (
+            f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
 
-    class Config:
-        env_file = ".env" 
+    @cached_property
+    def cors_origins(self) -> list[str]:
+        return [value.strip() for value in self.CORS_ORIGINS.split(",") if value.strip()]
+
+    @cached_property
+    def twitch_oauth_redirect_uris(self) -> set[str]:
+        return {
+            value.strip()
+            for value in self.TWITCH_OAUTH_REDIRECT_URIS.split(",")
+            if value.strip()
+        }
+
+    @field_validator("SECRET_KEY", "BOT_API_KEY", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET")
+    @classmethod
+    def reject_empty_secrets(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
+
 
 settings = Settings()

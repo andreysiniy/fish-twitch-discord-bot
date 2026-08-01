@@ -107,9 +107,7 @@ class FishingService:
         if cooldown_duration > 0:
             self.cooldown_repo.set_cooldown(channel_id, twitch_id, cooldown_duration)
 
-        response = self.presenter.build_response(user, result)
-        
-        return response
+        return self.presenter.build_response(user, result)
 
     def _resolve_cooldown_duration(self, custom_params: dict, is_mod: bool, is_sub: bool) -> int:
         if is_mod:
