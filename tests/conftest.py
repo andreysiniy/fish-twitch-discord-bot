@@ -2,7 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 GAME_ENGINE = ROOT / "services" / "game_engine"
 BOT_GATEWAY = ROOT / "services" / "bot_gateway"
@@ -14,6 +13,8 @@ sys.path.insert(2, str(DISCORD_GATEWAY))
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough")
 os.environ.setdefault("BOT_API_KEY", "test-bot-api-key")
 os.environ.setdefault("DISCORD_BOT_API_KEY", "test-discord-api-key")
+os.environ.setdefault("DISCORD_BOT_TOKEN", "test-discord-bot-token")
+os.environ.setdefault("DISCORD_APPLICATION_ID", "123456789")
 os.environ.setdefault("TWITCH_CLIENT_ID", "test-client-id")
 os.environ.setdefault("TWITCH_CLIENT_SECRET", "test-client-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite://")

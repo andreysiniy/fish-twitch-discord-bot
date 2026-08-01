@@ -3,6 +3,8 @@ import json
 import pytest
 from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
+from app.bot import FisherDiscordBot
+from app.config import DiscordSettings
 from app.interactions.reward_payloads import build_reward_payload
 from app.interactions.sessions import WizardSessionStore
 from app.presentation.formatting import diff_lines, parse_decimal, parse_duration
@@ -93,3 +95,25 @@ async def test_wizard_sessions_are_scoped_and_refresh_ttl() -> None:
     assert await store.get(123, flow_id) == {"version": 2}
     await store.delete(123, flow_id)
     assert await store.get(123, flow_id) is None
+
+
+def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
+    monkeypatch.setenv("DEV_GUILD_ID", "")
+    gateway_settings = DiscordSettings(_env_file=None)
+    bot = FisherDiscordBot(gateway_settings)
+    fish = bot.tree.get_command("fish")
+
+    assert fish is not None
+    assert {command.name for command in fish.commands} == {
+        "account",
+        "config",
+        "event",
+        "help",
+        "link",
+        "location",
+        "reward",
+        "setup",
+        "status",
+        "unlink",
+    }
+    assert gateway_settings.DEV_GUILD_ID is None
