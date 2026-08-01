@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
+from anyio import to_thread
 from api.discord_dependencies import DiscordServiceContext
 from core.api_errors import ApiProblem
 from core.config import settings
@@ -100,7 +101,10 @@ class DiscordAdminService:
         }
 
     async def complete_link(self, state: str, code: str) -> dict[str, Any]:
-        raw_payload = self.redis.getdel(f"fish:discord:oauth:{state}")
+        raw_payload = await to_thread.run_sync(
+            self.redis.getdel,
+            f"fish:discord:oauth:{state}",
+        )
         if not raw_payload:
             raise ApiProblem(400, "VALIDATION_ERROR", "OAuth state is invalid or expired")
         payload = json.loads(raw_payload)
@@ -108,6 +112,13 @@ class DiscordAdminService:
             code,
             settings.TWITCH_DISCORD_REDIRECT_URI,
         )
+        return await to_thread.run_sync(self._persist_link, payload, user_data)
+
+    def _persist_link(
+        self,
+        payload: dict[str, Any],
+        user_data: dict[str, Any],
+    ) -> dict[str, Any]:
         discord_user_id = str(payload["discord_user_id"])
         twitch_user_id = str(user_data["twitch_id"])
 

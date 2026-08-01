@@ -1,17 +1,14 @@
 import asyncio
-import logging
 import signal
 
 from core.config import settings
+from core.logging_config import configure_logging
 from services.eventing.event_job_runner import FishingEventJobRunner
 from services.eventing.se_job_runner import SEJobRunner
 
 
 async def run_workers() -> None:
-    logging.basicConfig(
-        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(settings.LOG_LEVEL)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):

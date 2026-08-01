@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 import uvicorn
 from api.routes import (
@@ -13,6 +14,7 @@ from api.routes import (
 )
 from core.api_errors import ApiProblem
 from core.config import settings
+from core.logging_config import configure_logging, reset_request_id, set_request_id
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,14 +22,9 @@ from fastapi.responses import JSONResponse
 from infrastructure.database import SessionLocal
 from infrastructure.migration_status import get_schema_revisions
 from infrastructure.redis_client import RedisClient
-from services.eventing.event_job_runner import FishingEventJobRunner
-from services.eventing.se_job_runner import SEJobRunner
 from sqlalchemy import text
 
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+configure_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -59,22 +56,17 @@ app.include_router(
 )
 app.include_router(discord_admin.router, prefix="/v1/admin", tags=["Discord Admin"])
 
-event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
-se_job_runner = SEJobRunner()
 
-
-@app.on_event("startup")
-async def start_background_workers() -> None:
-    if settings.RUN_BACKGROUND_WORKERS:
-        await event_job_runner.start()
-        await se_job_runner.start()
-
-
-@app.on_event("shutdown")
-async def stop_background_workers() -> None:
-    if settings.RUN_BACKGROUND_WORKERS:
-        await event_job_runner.stop()
-        await se_job_runner.stop()
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = set_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_request_id(token)
 
 
 @app.exception_handler(Exception)
