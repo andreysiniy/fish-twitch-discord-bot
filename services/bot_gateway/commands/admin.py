@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 from twitchio import User
 from typing import Literal
@@ -7,6 +9,7 @@ from heplers.context_tool import get_channel_id
 from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
+logger = logging.getLogger(__name__)
 
 
 class AdminCog(commands.Cog):
@@ -36,7 +39,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmods] unexpected error: {error}")
+            logger.exception("Moderator list command failed")
             await ctx.send("Could not load moderators")
 
     @commands.command(name="fishmodadd")
@@ -76,7 +79,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmodadd] unexpected error: {error}")
+            logger.exception("Moderator add command failed")
             await ctx.send("Could not update moderator.")
 
     @commands.command(name="fishmoddel")
@@ -100,7 +103,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
         except Exception as error:
-            print(f"[fishmoddel] unexpected error: {error}")
+            logger.exception("Moderator remove command failed")
             await ctx.send("Could not remove moderator")
 
     @commands.command(name="fishcd")
@@ -113,22 +116,20 @@ class AdminCog(commands.Cog):
         arg4: str | None = None
     ) -> None:
         channel_id = await get_channel_id(ctx)
-        print(f"[fishcd] command invoked by {ctx.author.name} with arg1={arg1} arg2={arg2} arg3={arg3} arg4={arg4}")
-        if isinstance(arg2, str) and arg2.strip().lower() == "set":
-            print(f"[fishcd:set] command invoked by {ctx.author.name} with arg1={arg1} arg2={arg2} arg3={arg3} arg4={arg4}")
-            if arg3 is None:
+        if isinstance(arg1, str) and arg1.strip().lower() == "set":
+            if arg2 is None:
                 await ctx.send("Usage: !fishcd set <seconds> [sub]")
                 return
 
             try:
-                seconds_value = int(arg3)
+                seconds_value = int(arg2)
                 if seconds_value < 0:
                     raise ValueError
             except ValueError:
                 await ctx.send("Seconds must be a non-negative integer")
                 return
 
-            normalized_scope = (arg4 or "").strip().lower()
+            normalized_scope = (arg3 or "").strip().lower()
             if normalized_scope not in {"", "sub"}:
                 await ctx.send("Scope must be empty (global) or sub")
                 return
@@ -144,7 +145,7 @@ class AdminCog(commands.Cog):
             except EngineApiError as error:
                 await ctx.send(str(error))
             except Exception as error:
-                print(f"[fishcd:set] unexpected error: {error}")
+                logger.exception("Cooldown update command failed")
                 await ctx.send("Could not update cooldown")
             return
 
@@ -166,7 +167,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(str(error))
         except Exception as error:
-            print(f"[fishcd] unexpected error: {error}")
+            logger.exception("Cooldown status command failed")
             await ctx.send("Could not retrieve cooldown")
 
     @commands.command(name="fishevent")
@@ -189,7 +190,7 @@ class AdminCog(commands.Cog):
             except EngineApiError as error:
                 await ctx.send(str(error))
             except Exception as error:
-                print(f"[fishevent:list] unexpected error: {error}")
+                logger.exception("Fishing event list command failed")
                 await ctx.send("Could not load events")
             return
 
@@ -243,7 +244,7 @@ class AdminCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(str(error))
         except Exception as error:
-            print(f"[fishevent:toggle] unexpected error: {error}")
+            logger.exception("Fishing event toggle command failed")
             await ctx.send("Could not toggle event")
 
     def _resolve_is_subscriber(self, ctx: commands.Context) -> bool:

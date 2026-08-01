@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 
 from action_handler import ActionHandler
@@ -8,6 +10,9 @@ from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
 from config import BotConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class BotGateway(commands.Bot):
@@ -22,7 +27,7 @@ class BotGateway(commands.Bot):
         )
         self.cfg = cfg
         self.api_client = EngineApiClient(cfg.engine_url)
-        self.action_handler = ActionHandler()
+        self.action_handler = ActionHandler(self)
 
         self.add_cog(FishingCog(self))
         self.add_cog(EconomyCog(self))
@@ -30,38 +35,23 @@ class BotGateway(commands.Bot):
         self.add_cog(TravelCog(self))
         self.add_cog(AdminCog(self))
 
-    def resolve_channel_id(self, ctx: commands.Context) -> str:
-        channel = getattr(ctx, "channel", None)
-        if channel is None:
-            return ""
-
-        for attr in ("id", "channel_id", "broadcaster_id"):
-            value = getattr(channel, attr, None)
-            if value is not None and str(value).strip():
-                return str(value)
-
-        broadcaster = getattr(ctx, "broadcaster", None)
-        if broadcaster is not None:
-            value = getattr(broadcaster, "id", None)
-            if value is not None and str(value).strip():
-                return str(value)
-
-        # Fallback for unexpected context shapes.
-        return str(getattr(channel, "name", "")).strip()
-
     async def event_ready(self):
-        print(f"Logged in as | {self.nick}")
-        print(f"Engine URL    | {self.cfg.engine_url}")
+        logger.info("Twitch bot ready nick=%s engine_url=%s", self.nick, self.cfg.engine_url)
 
     async def event_error(self, error: Exception, data=None):
-        print(f"[bot-error] {error}")
+        logger.exception("Unhandled Twitch bot error", exc_info=error)
 
     async def close(self):
+        await self.action_handler.close()
         await self.api_client.close()
         await super().close()
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     cfg = BotConfig.from_env()
     bot = BotGateway(cfg)
     bot.run()

@@ -21,23 +21,21 @@ def cast_rod(
     service: FishingService = Depends(get_fishing_service),
     auth_id: str = Depends(verify_security)
 ):
-    print(f"Auth ID: {auth_id}, Request User ID: {request.user_id}")
     real_user_id = request.user_id
     if auth_id != "BOT_SERVICE":
         if auth_id != request.user_id:
             raise HTTPException(status_code=403, detail="Forbidden")
         real_user_id = auth_id
     try:
-        result = service.process_cast(
+        return service.process_cast(
             twitch_id=real_user_id,
             username=request.username,
             channel_id=request.channel_id,
             is_mod=request.is_mod,
             is_sub=request.is_sub
         )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 @router.post("/fishtravel", response_model=FishTravelResponse)
 def fish_travel(
@@ -53,8 +51,8 @@ def fish_travel(
     try:
         request.user_id = real_user_id
         return service.process_travel(request)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/fishcd", response_model=FishCooldownResponse)
@@ -77,8 +75,8 @@ def fish_cooldown(
             is_sub=request.is_sub
         )
         return response
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/fishstats/{channel_id}/{user_id}", response_model=FishStatsResponse)
@@ -94,8 +92,8 @@ def fish_stats(
         raise HTTPException(status_code=403, detail="Forbidden")
     try:
         return service.get_profile_stats(twitch_id=user_id, channel_id=channel_id, username=username)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/fishtop/{channel_id}", response_model=FishTopResponse)
@@ -113,5 +111,5 @@ def fish_top(
         raise HTTPException(status_code=400, detail="Invalid mode. Use: current, alltime, catches, level")
     try:
         return service.get_channel_top(channel_id=channel_id, limit=max(1, min(limit, 25)), mode=normalized_mode)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

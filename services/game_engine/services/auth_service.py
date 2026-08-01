@@ -8,7 +8,7 @@ class AuthService:
         self.channel_repo = channel_repo
 
     async def authenticate_twitch_user(self, code: str, redirect_uri: str) -> dict:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             token_url = "https://id.twitch.tv/oauth2/token"
             params = {
                 "client_id": settings.TWITCH_CLIENT_ID,
@@ -22,7 +22,7 @@ class AuthService:
                 raise ValueError("Failed to retrieve Twitch token")
             
             token_data = resp.json()
-            access_token = token_data["access_token"]
+            access_token = str(token_data["access_token"])
 
             user_url = "https://api.twitch.tv/helix/users"
             headers = {

@@ -1,5 +1,7 @@
 from typing import Optional
 
+import logging
+
 from twitchio.ext import commands
 
 from api_client import EngineApiError
@@ -26,5 +28,6 @@ class TravelCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Travel error: {error}")
         except Exception as error:
-            print(f"[fishtravel] unexpected error: {error}")
+            logger.exception("Fish travel command failed")
             await ctx.send("Could not process travel action.")
+logger = logging.getLogger(__name__)

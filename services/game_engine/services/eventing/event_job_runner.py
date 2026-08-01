@@ -1,8 +1,12 @@
 import asyncio
+import logging
 
 from infrastructure.database import SessionLocal
 from infrastructure.repositories.channel_repo import ChannelRepository
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
+
+
+logger = logging.getLogger(__name__)
 
 
 class FishingEventJobRunner:
@@ -27,9 +31,9 @@ class FishingEventJobRunner:
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                self._run_once()
-            except Exception as error:
-                print(f"[FishingEventJobRunner] loop error: {error}")
+                await asyncio.to_thread(self._run_once)
+            except Exception:
+                logger.exception("Fishing event worker loop failed")
 
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.poll_interval_seconds)
@@ -42,5 +46,9 @@ class FishingEventJobRunner:
             channel_repo = ChannelRepository(db)
             lifecycle = FishingEventLifecycleService(channel_repo=channel_repo)
             lifecycle.apply_due_jobs(limit=self.batch_size)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()

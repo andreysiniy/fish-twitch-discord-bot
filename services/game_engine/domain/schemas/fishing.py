@@ -59,7 +59,7 @@ class FishTravelResponse(BaseModel):
 class LevelUpInfo(BaseModel):
     old_level: int
     new_level: int
-    rewards: List[str] = [] 
+    rewards: List[str] = Field(default_factory=list)
 
 class FishResponse(BaseModel):
     chat_message: str
@@ -70,7 +70,7 @@ class FishResponse(BaseModel):
     
     level_up: Optional[LevelUpInfo] = None
     
-    actions: List[GameAction] = []
+    actions: List[GameAction] = Field(default_factory=list)
 
 class RobberyResultDTO(BaseModel):
     is_success: bool
@@ -96,9 +96,11 @@ class FishingResult(BaseModel):
     xp_gained: int
     mass_gained: float
     is_level_up: bool
+    old_level: int
     new_level: int
     luck_used: float
     durability_loss: int = 1
+    broken_item_name: Optional[str] = None
     robbery_result: Optional[RobberyResultDTO] = None
     roulette_result: Optional[RussianRouletteResultDTO] = None
 

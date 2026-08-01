@@ -16,6 +16,7 @@ from services.economy_service import EconomyService
 from services.fishing_service import FishingService
 from services.travel_service import TravelService
 from services.inventory_service import InventoryService 
+from services.external_action_service import ExternalActionService
 
 from core.security import decode_access_token
 from core.config import settings
@@ -24,6 +25,10 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -78,6 +83,12 @@ def get_auth_service(
 ) -> AuthService:
     return AuthService(channel_repo)
 
+
+def get_external_action_service(
+    channel_repo: ChannelRepository = Depends(get_channel_repo),
+) -> ExternalActionService:
+    return ExternalActionService(channel_repo)
+
 def get_economy_service(
     user_repo: UserRepository = Depends(get_user_repo),
     channel_repo: ChannelRepository = Depends(get_channel_repo),
@@ -85,7 +96,6 @@ def get_economy_service(
     return EconomyService(
         user_repo=user_repo,
         channel_repo=channel_repo,
-        redis_client=RedisClient.get_client(),
         se_client=SEApiClient(),
     )
 

@@ -5,6 +5,7 @@ from domain.schemas.common import Rarity
 class ItemStats(BaseModel):
     luck_bonus: float = 0.0
     points_bonus: int = 0
+    resist_bonus: float = 0.0
     xp_bonus_pct: float = 0.0
     durability: int = 100
     can_break: bool = False

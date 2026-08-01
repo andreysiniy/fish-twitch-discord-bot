@@ -52,6 +52,25 @@ class EngineApiClient:
     async def equip_item(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/inventory/equip", json=payload)
 
+    async def execute_points_action(
+        self,
+        channel_id: str,
+        target_username: str,
+        amount: int,
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/actions/execute",
+            json={
+                "action_type": "points",
+                "channel_id": channel_id,
+                "target_username": target_username,
+                "amount": amount,
+            },
+            idempotency_key=idempotency_key,
+        )
+
     async def admin_list_moderators(self, channel_id: str, actor_twitch_id: str) -> Dict[str, Any]:
         return await self._request(
             "POST",
@@ -150,20 +169,23 @@ class EngineApiClient:
         method: str,
         path: str,
         *,
-        json: Optional[Dict[str, Any]] = None
+        json: Optional[Dict[str, Any]] = None,
+        idempotency_key: str | None = None,
     ) -> Dict[str, Any]:
         await self.start()
         if self._session is None:
             raise EngineApiError("HTTP session is not initialized")
 
         url = f"{self.base_url}{path}"
+        headers = self._get_headers()
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
         async with self._session.request(
             method,
             url,
             json=json,
-            headers=self._get_headers()
+            headers=headers,
         ) as response:
-            print(f"Request: {method} {url} - Status: {response.status}, headers: {response.headers}")
             data, text = await self._read_payload(response)
             if response.status >= 400:
                 detail = data.get("detail") if isinstance(data, dict) else text

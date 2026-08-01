@@ -1,9 +1,9 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from core.messages import (
     resolve_message, MsgKey, 
     format_large_number_mass, format_large_number_mass_signed, 
-    format_time, format_large_number_points, format_percent, format_percent_signed
+    format_time, format_large_number_points, format_percent_signed
 )
 from core.action_types import ActionType
 
@@ -11,7 +11,6 @@ from domain.schemas.actions import (
     GameAction,
     TimeoutAction, 
     StreamElementsPointsAction, 
-    RobberyAction, 
     AddMassAction, 
     SendBaseMessageAction, 
     LevelUpAction,
@@ -56,6 +55,15 @@ class FishingPresenter:
             lvl_actions = self._present_level_up(user, result.new_level, channel_conf)
             actions.extend(lvl_actions)
 
+        if result.broken_item_name:
+            broken_message = resolve_message(
+                channel_conf,
+                MsgKey.ROD_BROKEN,
+                item_name=result.broken_item_name,
+                username=user.username,
+            )
+            actions.append(SendBaseMessageAction(action_message=broken_message))
+
         main_chat_message = "You caught something!"
         base_msg_action = next((a for a in actions if a.type == ActionType.BASE_MESSAGE), None)
         
@@ -66,7 +74,11 @@ class FishingPresenter:
             chat_message=main_chat_message,
             xp_gained=result.xp_gained,
             item_drop=None, 
-            level_up=LevelUpInfo(old_level=user.level-1, new_level=result.new_level) if result.is_level_up else None,
+            level_up=(
+                LevelUpInfo(old_level=result.old_level, new_level=result.new_level)
+                if result.is_level_up
+                else None
+            ),
             actions=actions
         )
 
@@ -204,7 +216,7 @@ class FishingPresenter:
         
         action = StreamElementsPointsAction(
             amount=points,
-            target_user=result.loot.get("target_user", user.user_twitch_id),
+            target_user=result.loot.get("target_user", user.username),
             action_message=result.loot.get("action_message", "")
         )
         if result.loot.get("message"):

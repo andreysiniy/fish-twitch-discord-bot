@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 
 from api_client import EngineApiError
@@ -20,7 +22,7 @@ class InventoryCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Inventory error: {error}")
         except Exception as error:
-            print(f"[fishbag] unexpected error: {error}")
+            logger.exception("Fish inventory command failed")
             await ctx.send("Could not retrieve inventory.")
 
     @commands.command(name="fishequip")
@@ -37,7 +39,7 @@ class InventoryCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Equip error: {error}")
         except Exception as error:
-            print(f"[fishequip] unexpected error: {error}")
+            logger.exception("Fish equip command failed")
             await ctx.send("Could not equip item.")
 
     async def _send_inventory(self, ctx: commands.Context, response: dict) -> None:
@@ -55,3 +57,4 @@ class InventoryCog(commands.Cog):
 
         message = "Inventory: " + ", ".join(lines)
         await ctx.send(message)
+logger = logging.getLogger(__name__)

@@ -42,7 +42,7 @@ class ChannelRepository:
             )
             self.db.add(record)
 
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(record)
         return record
 
@@ -51,7 +51,7 @@ class ChannelRepository:
         if not record:
             return False
         self.db.delete(record)
-        self.db.commit()
+        self.db.flush()
         return True
 
     def list_access_records(self, channel_id: int) -> list[ChannelAccessRole]:
@@ -66,7 +66,7 @@ class ChannelRepository:
             config={"prefix": "!"} 
         )
         self.db.add(channel)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(channel)
         return channel
 
@@ -86,7 +86,7 @@ class ChannelRepository:
             normalized_channel_id = str(data.se_channel_id).strip() if data.se_channel_id is not None else ""
             channel.se_channel_id = normalized_channel_id or None
             
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(channel)
         return channel
 
@@ -125,7 +125,7 @@ class ChannelRepository:
                 location_name=location_name or self._fallback_location_name(location_id)
             )
             self.db.add(pool)
-            self.db.commit()
+            self.db.flush()
             self.db.refresh(pool)
         
         pool.rewards_data = rewards
@@ -162,7 +162,7 @@ class ChannelRepository:
             self.db.add(db_item)
 
         
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(pool)
         return pool
     
@@ -226,7 +226,7 @@ class ChannelRepository:
         definition.base_stats = base_stats or {}
         definition.is_sellable = is_sellable
         definition.is_tradeable = is_tradeable
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(definition)
         return definition
 
@@ -298,7 +298,7 @@ class ChannelRepository:
             is_active=False
         )
         self.db.add(event)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(event)
         if is_active:
             event = self.set_active_fishing_event(channel_id, event.id)
@@ -328,7 +328,7 @@ class ChannelRepository:
             event.override_loot_pool = str(override_loot_pool).strip() if override_loot_pool is not None else None
 
         self.db.add(event)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(event)
 
         if is_active is True:
@@ -342,7 +342,7 @@ class ChannelRepository:
         if not event:
             return False
         self.db.delete(event)
-        self.db.commit()
+        self.db.flush()
         return True
 
     def set_active_fishing_event(self, channel_id: int, event_id: int | None) -> FishingEvent | None:
@@ -354,7 +354,7 @@ class ChannelRepository:
             if should_be_active:
                 target = event
 
-        self.db.commit()
+        self.db.flush()
         if target:
             self.db.refresh(target)
         return target

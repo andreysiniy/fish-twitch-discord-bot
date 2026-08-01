@@ -57,8 +57,11 @@ def register_channel(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/channels", response_model=List[ChannelResponseDTO])
-def list_channels(service: AdminService = Depends(get_admin_service)):
-    return service.get_channels()
+def list_channels(
+    current_user_id: str = Depends(get_current_user_id),
+    service: AdminService = Depends(get_admin_service),
+):
+    return service.get_channels(current_user_id)
 
 
 @router.post(
@@ -139,7 +142,6 @@ def list_channel_moderators(
     service: AdminService = Depends(get_admin_service)
 ):
     current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
-    print(f"[AdminAPI] list_channel_moderators called by {current_user_id} for channel {channel_twitch_id}")
     try:
         return service.list_channel_access(current_user_id, channel_twitch_id)
     except PermissionError as e:
@@ -285,7 +287,6 @@ def set_channel_fish_cooldown(
     security_subject: str = Depends(verify_security),
     service: AdminService = Depends(get_admin_service)
 ):
-    print(f"[AdminAPI] set_channel_fish_cooldown called by {security_subject} for channel {channel_twitch_id} with seconds={data.seconds} and scope={data.scope}")
     current_user_id = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
     try:
         return service.set_fishing_cooldown(

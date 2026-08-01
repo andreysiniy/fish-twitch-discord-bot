@@ -288,11 +288,6 @@ def format_large_number_points(value) -> str:
     else:
         return f"{value:.2f}".rstrip('0').rstrip('.')
 
-def format_large_number_points_signed(value) -> str:
-    sign = "+" if value >= 0 else "-"
-    formatted_value = format_large_number_points(abs(value))
-    return f"{sign}{formatted_value}"
-
 def format_time(seconds):
     seconds = int(seconds)
 

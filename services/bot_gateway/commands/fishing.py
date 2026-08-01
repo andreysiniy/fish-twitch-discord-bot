@@ -1,3 +1,5 @@
+import logging
+
 from twitchio.ext import commands
 from twitchio import User
 
@@ -26,7 +28,7 @@ class FishingCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Engine error: {error}")
         except Exception as error:
-            print(f"[fish] unexpected error: {error}")
+            logger.exception("Fish command failed")
             await ctx.send("Could not process fishing action.")
 
     def _resolve_is_subscriber(self, ctx: commands.Context) -> bool:
@@ -56,7 +58,7 @@ class FishingCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Stats error: {error}")
         except Exception as error:
-            print(f"[fishstats] unexpected error: {error}")
+            logger.exception("Fish stats command failed")
             await ctx.send("Could not retrieve stats.")
 
     @commands.command(name="fishtop")
@@ -76,5 +78,6 @@ class FishingCog(commands.Cog):
         except EngineApiError as error:
             await ctx.send(f"Top error: {error}")
         except Exception as error:
-            print(f"[fishtop] unexpected error: {error}")
+            logger.exception("Fish top command failed")
             await ctx.send("Could not retrieve top players.")
+logger = logging.getLogger(__name__)
