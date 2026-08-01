@@ -3,7 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DiscordSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=True)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        case_sensitive=True,
+        env_ignore_empty=True,
+    )
 
     DISCORD_BOT_TOKEN: str
     DISCORD_APPLICATION_ID: int

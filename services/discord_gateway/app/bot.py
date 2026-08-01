@@ -21,7 +21,10 @@ class FisherDiscordBot(discord.Client):
     def __init__(self, settings: DiscordSettings):
         intents = discord.Intents.none()
         intents.message_content = False
-        super().__init__(intents=intents)
+        super().__init__(
+            intents=intents,
+            application_id=settings.DISCORD_APPLICATION_ID,
+        )
         self.settings = settings
         self.tree = app_commands.CommandTree(self)
         self.engine = EngineClient(settings)

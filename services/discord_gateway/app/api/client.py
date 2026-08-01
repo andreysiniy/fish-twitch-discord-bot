@@ -64,11 +64,19 @@ class EngineClient:
                     if retryable and response.status in self.RETRY_STATUSES and attempt < 2:
                         await asyncio.sleep(0.2 * (2**attempt))
                         continue
+                    self._log_request(
+                        interaction,
+                        path,
+                        response.status,
+                        started,
+                        request_id,
+                    )
                     raise self._engine_error(response.status, payload, request_id)
             except (aiohttp.ClientError, asyncio.TimeoutError) as error:
                 if retryable and attempt < 2:
                     await asyncio.sleep(0.2 * (2**attempt))
                     continue
+                self._log_request(interaction, path, 503, started, request_id)
                 raise EngineError(
                     503,
                     "ENGINE_UNAVAILABLE",
