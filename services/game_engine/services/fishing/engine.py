@@ -1,11 +1,13 @@
 import random
 import time
 from abc import ABC, abstractmethod
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
+from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
 from infrastructure.models import UserProgress
@@ -13,7 +15,12 @@ from infrastructure.models import UserProgress
 
 class CalculationStrategy(ABC):
     @abstractmethod
-    def calculate(self, source: Dict[str, Any], luck_modifier: float, user_balance: float) -> float:
+    def calculate(
+        self,
+        source: Dict[str, Any],
+        luck_modifier: float,
+        user_balance: Decimal,
+    ) -> Decimal:
         """Calculate resulting mass delta for catch/effect config."""
 
     def adjust_xp_gain(self, xp_gain: int) -> int:
@@ -21,46 +28,60 @@ class CalculationStrategy(ABC):
 
 
 class DefaultLootStrategy(CalculationStrategy):
-    def calculate(self, source: Dict[str, Any], luck_modifier: float, user_balance: float) -> float:
-        raw_mass = self._resolve_raw_mass(source, user_balance)
+    def calculate(
+        self,
+        source: Dict[str, Any],
+        luck_modifier: float,
+        user_balance: Decimal,
+    ) -> Decimal:
+        raw_mass = self._resolve_raw_mass(source, to_decimal(user_balance))
         return self._apply_luck(raw_mass, luck_modifier)
 
-    def _resolve_raw_mass(self, source: Dict[str, Any], user_balance: float) -> float:
+    def _resolve_raw_mass(self, source: Dict[str, Any], user_balance: Decimal) -> Decimal:
         if source.get("fixed_mass") is not None:
-            return float(source.get("fixed_mass") or 0)
+            return to_decimal(source.get("fixed_mass") or 0)
 
         if source.get("mass") is not None:
-            return float(source.get("mass") or 0)
+            return to_decimal(source.get("mass") or 0)
 
         if source.get("percentage") is not None:
-            percentage = float(source.get("percentage") or 0)
+            percentage = to_decimal(source.get("percentage") or 0)
             return user_balance * percentage
 
-        min_m = float(source.get("min_mass", 0.1))
-        max_m = float(source.get("max_mass", 5.0))
-        return random.uniform(min_m, max_m)
+        min_mass = to_decimal(source.get("min_mass", "0.1"))
+        max_mass = to_decimal(source.get("max_mass", "5.0"))
+        return to_decimal(random.uniform(float(min_mass), float(max_mass)))
 
-    def _apply_luck(self, raw_mass: float, luck_modifier: float) -> float:
-        safe_luck = max(float(1.0 if luck_modifier is None else luck_modifier), 0.01)
+    def _apply_luck(self, raw_mass: Decimal, luck_modifier: float) -> Decimal:
+        safe_luck = max(
+            to_decimal(1 if luck_modifier is None else luck_modifier),
+            Decimal("0.01"),
+        )
         if raw_mass < 0:
-            return round(raw_mass / safe_luck, 2)
-        return round(raw_mass * safe_luck, 2)
+            return quantize_mass(raw_mass / safe_luck)
+        return quantize_mass(raw_mass * safe_luck)
 
 
 class EventLootStrategy(DefaultLootStrategy):
     def __init__(self, modifiers: Optional[Dict[str, Any]] = None):
         modifiers = modifiers or {}
-        self._luck_mult = max(float(modifiers.get("luck_mult", 1.0) or 1.0), 0.0)
+        self._luck_mult = max(to_decimal(modifiers.get("luck_mult", 1) or 1), ZERO_MASS)
         self._xp_mult = max(float(modifiers.get("xp_mult", 1.0) or 1.0), 0.0)
-        self._bonus_mass = float(modifiers.get("bonus_mass", 0.0) or 0.0)
+        self._bonus_mass = to_decimal(modifiers.get("bonus_mass", 0) or 0)
 
-    def calculate(self, source: Dict[str, Any], luck_modifier: float, user_balance: float) -> float:
-        raw_mass = self._resolve_raw_mass(source, user_balance)
-        effective_luck = max(float(luck_modifier or 1.0), 0.01) * self._luck_mult
-        mass_delta = self._apply_luck(raw_mass, max(effective_luck, 0.0))
+    def calculate(
+        self,
+        source: Dict[str, Any],
+        luck_modifier: float,
+        user_balance: Decimal,
+    ) -> Decimal:
+        raw_mass = self._resolve_raw_mass(source, to_decimal(user_balance))
+        effective_luck = max(to_decimal(luck_modifier or 1), Decimal("0.01"))
+        effective_luck *= self._luck_mult
+        mass_delta = self._apply_luck(raw_mass, float(max(effective_luck, ZERO_MASS)))
 
-        if self._bonus_mass != 0.0:
-            mass_delta = round(mass_delta * (1.0 + self._bonus_mass), 2)
+        if self._bonus_mass != ZERO_MASS:
+            mass_delta = quantize_mass(mass_delta * (Decimal("1") + self._bonus_mass))
         return mass_delta
 
     def adjust_xp_gain(self, xp_gain: int) -> int:
@@ -107,7 +128,9 @@ class FishingEngine:
                     {
                         "type": item_catch.get("type", "equipment"),
                         "quantity": 1,
-                        "current_durability": int(base_durability) if base_durability is not None else None,
+                        "current_durability": int(base_durability)
+                        if base_durability is not None
+                        else None,
                         "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     }
                 )
@@ -124,10 +147,15 @@ class FishingEngine:
         new_level = self._calculate_level(current_xp, old_level, custom_params)
         is_levelup = new_level > old_level
 
-        mass_gain = 0.0
+        mass_gain = ZERO_MASS
         roulette_result = None
         if catch.get("type") == ActionType.FISH:
-            mass_gain = self._calculate_mass(catch, luck, user.current_mass, strategy)
+            mass_gain = self._calculate_mass(
+                catch,
+                luck,
+                quantize_mass(user.current_mass),
+                strategy,
+            )
         elif catch.get("type") == ActionType.RUSSIAN_ROULETTE:
             roulette_result = self.calculate_russian_roulette(
                 user=user,
@@ -160,10 +188,10 @@ class FishingEngine:
         if victim is None:
             return RobberyResultDTO(
                 is_success=False,
-                amount_stolen=0.0,
+                amount_stolen=ZERO_MASS,
                 victim_name="",
                 victim_twitch_id="",
-                victim_new_mass=0.0,
+                victim_new_mass=ZERO_MASS,
                 chance_used=0.0,
             )
         custom_params = channel_config.get("custom_params", {})
@@ -191,14 +219,15 @@ class FishingEngine:
         )
 
         is_success = random.random() < final_chance
-        final_amount = 0.0
+        victim_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
+        final_amount = ZERO_MASS
 
         if is_success:
-            potential_loss = 0
-            steal_percent = max(catch.get("percentage", 0), 0)
+            potential_loss = ZERO_MASS
+            steal_percent = max(to_decimal(catch.get("percentage", 0)), ZERO_MASS)
             if steal_percent > 0:
-                potential_loss = victim.current_mass * steal_percent
-            steal_value = max(catch.get("mass", 0), 0)
+                potential_loss = victim_mass * steal_percent
+            steal_value = max(to_decimal(catch.get("mass", 0)), ZERO_MASS)
             if steal_value > 0:
                 potential_loss += steal_value
 
@@ -208,14 +237,14 @@ class FishingEngine:
                 loss_divisor=loss_divisor,
             )
 
-            final_amount = round(min(final_amount, victim.current_mass), 2)
+            final_amount = quantize_mass(min(final_amount, victim_mass))
 
         return RobberyResultDTO(
             is_success=is_success,
             amount_stolen=final_amount,
             victim_name=victim.username,
             victim_twitch_id=victim.user_twitch_id,
-            victim_new_mass=victim.current_mass - final_amount,
+            victim_new_mass=quantize_mass(victim_mass - final_amount),
             chance_used=round(final_chance, 3),
         )
 
@@ -248,7 +277,12 @@ class FishingEngine:
                 }
 
         strategy = calculation_strategy or self._default_strategy
-        mass_delta = self._calculate_roulette_mass_delta(effect_conf, user.current_mass, luck_modifier, strategy)
+        mass_delta = self._calculate_roulette_mass_delta(
+            effect_conf,
+            quantize_mass(user.current_mass),
+            luck_modifier,
+            strategy,
+        )
 
         return RussianRouletteResultDTO(
             is_hit=is_hit,
@@ -282,34 +316,34 @@ class FishingEngine:
         self,
         catch: Dict[str, Any],
         luck_modifier: float,
-        user_balance: float,
+        user_balance: Decimal,
         strategy: CalculationStrategy,
-    ) -> float:
+    ) -> Decimal:
         return strategy.calculate(catch, luck_modifier, user_balance)
 
     def _calculate_roulette_mass_delta(
         self,
         effect_conf: Optional[Dict[str, Any]],
-        user_balance: float,
+        user_balance: Decimal,
         luck_modifier: float,
         strategy: CalculationStrategy,
-    ) -> float:
+    ) -> Decimal:
         if not isinstance(effect_conf, dict):
-            return 0.0
+            return ZERO_MASS
 
         effect_type = str(effect_conf.get("type", "")).lower()
-        source: Optional[Dict[str, float]] = None
+        source: Optional[Dict[str, Decimal]] = None
         if effect_type in {ActionType.ADD_MASS.value, "mass", "add_mass"}:
-            source = {"mass": float(effect_conf.get("mass", effect_conf.get("value", 0)) or 0)}
+            source = {"mass": to_decimal(effect_conf.get("mass", effect_conf.get("value", 0)) or 0)}
         elif effect_type in {
             ActionType.ADD_PERCENTAGE_MASS.value,
             "percentage_mass",
             "add_percentage_mass",
         }:
-            pct = float(effect_conf.get("percentage", effect_conf.get("value", 0)) or 0)
+            pct = to_decimal(effect_conf.get("percentage", effect_conf.get("value", 0)) or 0)
             source = {"percentage": pct}
 
         if source is None:
-            return 0.0
+            return ZERO_MASS
 
         return strategy.calculate(source, luck_modifier, user_balance)

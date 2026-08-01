@@ -1,18 +1,22 @@
-from infrastructure.repositories import UserRepository, ConfigRepository, ChannelRepository
-from infrastructure.repositories.cooldown_repo import CooldownRepository
-from infrastructure.models import UserProgress
-
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
-from core.messages import MsgKey, resolve_message, format_percent_signed, format_large_number_mass
+from core.messages import MsgKey, format_large_number_mass, format_percent_signed, resolve_message
 from domain.logic.formulas import calculate_xp_required
+from domain.logic.mass import ZERO_MASS, quantize_mass
 from domain.logic.stats_calculator import calculate_player_stats
-
+from domain.schemas.fishing import (
+    FishCooldownResponse,
+    FishStatsResponse,
+    FishTopResponse,
+    RobberyResultDTO,
+)
+from infrastructure.models import UserProgress
+from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
+from infrastructure.repositories.cooldown_repo import CooldownRepository
 from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
 
-from domain.schemas.fishing import RobberyResultDTO, FishStatsResponse, FishTopResponse, FishCooldownResponse
 
 class FishingService:
     def __init__(
@@ -20,7 +24,7 @@ class FishingService:
         user_repo: UserRepository,
         config_repo: ConfigRepository,
         cooldown_repo: CooldownRepository,
-        channel_repo: ChannelRepository
+        channel_repo: ChannelRepository,
     ):
         self.user_repo = user_repo
         self.config_repo = config_repo
@@ -36,7 +40,7 @@ class FishingService:
         username: str,
         channel_id: str,
         is_mod: bool = False,
-        is_sub: bool = False
+        is_sub: bool = False,
     ):
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
@@ -52,11 +56,9 @@ class FishingService:
             is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
             if is_active:
                 return self.presenter.build_cooldown_response(
-                    user=user,
-                    cooldown_duration=cooldown_duration,
-                    cooldown_left=seconds_left
+                    user=user, cooldown_duration=cooldown_duration, cooldown_left=seconds_left
                 )
-            
+
         location_id = user.current_location_id or "default"
         loot_pool, item_pool, rate = self.config_repo.get_dual_pool(channel_id, location_id)
 
@@ -68,12 +70,12 @@ class FishingService:
                     loot_pool, item_pool, rate = override_result
 
         result = self.engine.calculate_result(
-            user=user, 
-            loot_pool=loot_pool, 
-            item_pool=item_pool, 
+            user=user,
+            loot_pool=loot_pool,
+            item_pool=item_pool,
             items_drop_rate=rate,
             custom_params=custom_params,
-            calculation_strategy=strategy_ctx.calculation_strategy
+            calculation_strategy=strategy_ctx.calculation_strategy,
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
@@ -81,17 +83,24 @@ class FishingService:
 
         user.xp += result.xp_gained
         user.total_fish_stat += 1
-        
+
         if result.is_level_up:
             user.level = result.new_level
-            
+
         if result.mass_gained != 0:
-            previous_mass = user.current_mass
-            user.current_mass = max(previous_mass + result.mass_gained, 0.0)
-            applied_mass_delta = round(user.current_mass - previous_mass, 2)
-            user.total_mass_stat += max(applied_mass_delta, 0.0)
+            previous_mass = quantize_mass(user.current_mass)
+            requested_mass_delta = quantize_mass(result.mass_gained)
+            user.current_mass = max(
+                quantize_mass(previous_mass + requested_mass_delta),
+                ZERO_MASS,
+            )
+            applied_mass_delta = quantize_mass(user.current_mass - previous_mass)
+            previous_total_mass = quantize_mass(user.total_mass_stat)
+            user.total_mass_stat = quantize_mass(
+                previous_total_mass + max(applied_mass_delta, ZERO_MASS)
+            )
             result.mass_gained = applied_mass_delta
-            
+
         if result.item_drop:
             if not result.item_drop.get("title"):
                 result.item_drop["title"] = result.item_drop.get("item_id", "Unknown Item")
@@ -120,59 +129,66 @@ class FishingService:
 
         cooldown_key = GParam.SUBS_FISHING_COOLDOWN if is_sub else GParam.FISHING_COOLDOWN
         return max(int(resolve_param(custom_params, cooldown_key)), 0)
-    
+
     def _handle_robbery(self, loot: dict, user: UserProgress) -> RobberyResultDTO:
         lookup_range = loot.get("range", 3)
         channel_config = user.channel.config or {}
 
         victim = self.user_repo.get_rich_victim(
-            channel_id=user.channel.id,
-            attacker_id=user.id,
-            lookup_range=lookup_range
-        )        
+            channel_id=user.channel.id, attacker_id=user.id, lookup_range=lookup_range
+        )
 
         robbery_result = self.engine.calculate_mass_robbery(
-            attacker=user,
-            victim=victim,
-            channel_config=channel_config,
-            catch=loot
+            attacker=user, victim=victim, channel_config=channel_config, catch=loot
         )
 
         if robbery_result.is_success:
-            requested_stolen = max(float(robbery_result.amount_stolen or 0), 0.0)
-            victim_previous_mass = max(float(victim.current_mass or 0), 0.0)
-            applied_stolen = round(min(requested_stolen, victim_previous_mass), 2)
+            requested_stolen = max(
+                quantize_mass(robbery_result.amount_stolen),
+                ZERO_MASS,
+            )
+            victim_previous_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
+            applied_stolen = quantize_mass(min(requested_stolen, victim_previous_mass))
 
-            user.current_mass += applied_stolen
-            user.total_mass_stat += applied_stolen
+            user.current_mass = quantize_mass(quantize_mass(user.current_mass) + applied_stolen)
+            user.total_mass_stat = quantize_mass(
+                quantize_mass(user.total_mass_stat) + applied_stolen
+            )
 
-            victim.current_mass = round(max(victim_previous_mass - applied_stolen, 0.0), 2)
+            victim.current_mass = max(
+                quantize_mass(victim_previous_mass - applied_stolen),
+                ZERO_MASS,
+            )
 
             robbery_result.amount_stolen = applied_stolen
             robbery_result.victim_new_mass = victim.current_mass
             self.user_repo.save_progress(victim)
-        
+
         return robbery_result
 
-    def get_profile_stats(self, twitch_id: str, channel_id: str, username: str | None = None) -> FishStatsResponse:
+    def get_profile_stats(
+        self, twitch_id: str, channel_id: str, username: str | None = None
+    ) -> FishStatsResponse:
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
             return FishStatsResponse(
                 success=False,
-                chat_message=resolve_message({}, MsgKey.ERR_NO_PROFILE, username=username or twitch_id),
+                chat_message=resolve_message(
+                    {}, MsgKey.ERR_NO_PROFILE, username=username or twitch_id
+                ),
                 stats={
                     "level": 1,
                     "xp": 0,
                     "xp_to_next_level": 100,
-                    "current_mass": 0.0,
+                    "current_mass": ZERO_MASS,
                     "total_fish_stat": 0,
                     "rod_name": "No rod equipped",
                     "luck_bonus": 0.0,
                     "resist_bonus": 0.0,
                     "xp_bonus_pct": 0.0,
                     "rank": 0,
-                    "total_mass_stat": 0.0,
-                }
+                    "total_mass_stat": ZERO_MASS,
+                },
             )
 
         stats = calculate_player_stats(user)
@@ -200,33 +216,39 @@ class FishingService:
             current_mass=format_large_number_mass(stats["current_mass"]),
             total_fish_stat=stats["total_fish_stat"],
             rank=rank,
-            total_mass=format_large_number_mass(stats["total_mass_stat"])
+            total_mass=format_large_number_mass(stats["total_mass_stat"]),
         )
 
         return FishStatsResponse(success=True, chat_message=chat_message, stats=stats)
 
-    def get_channel_top(self, channel_id: str, limit: int = 10, mode: str = "current") -> FishTopResponse:
+    def get_channel_top(
+        self, channel_id: str, limit: int = 10, mode: str = "current"
+    ) -> FishTopResponse:
         mode = (mode or "current").lower()
         top_users = self.user_repo.get_top_users_by_channel(channel_id, limit=limit, mode=mode)
         if not top_users:
-            return FishTopResponse(success=True, chat_message="No players in leaderboard yet.", top=[], mode=mode)
+            return FishTopResponse(
+                success=True, chat_message="No players in leaderboard yet.", top=[], mode=mode
+            )
 
         top_entries = []
         top_lines = []
         for idx, player in enumerate(top_users, start=1):
-            total_mass = float(player.total_mass_stat or 0.0)
-            current_mass = float(player.current_mass or 0.0)
+            total_mass = quantize_mass(player.total_mass_stat)
+            current_mass = quantize_mass(player.current_mass)
             total_fish = int(player.total_fish_stat or 0)
-            top_entries.append({
-                "rank": idx,
-                "user_twitch_id": player.user_twitch_id,
-                "username": player.username,
-                "level": int(player.level or 1),
-                "xp": int(player.xp or 0),
-                "current_mass": current_mass,
-                "total_fish_stat": total_fish,
-                "total_mass_stat": total_mass
-            })
+            top_entries.append(
+                {
+                    "rank": idx,
+                    "user_twitch_id": player.user_twitch_id,
+                    "username": player.username,
+                    "level": int(player.level or 1),
+                    "xp": int(player.xp or 0),
+                    "current_mass": current_mass,
+                    "total_fish_stat": total_fish,
+                    "total_mass_stat": total_mass,
+                }
+            )
 
             if mode == "alltime":
                 score_fmt = format_large_number_mass(total_mass)
@@ -250,7 +272,7 @@ class FishingService:
             channel_config or {},
             MsgKey.PROFILE_TOP,
             mode=mode_label_map.get(mode, "current"),
-            top_lines=" | ".join(top_lines)
+            top_lines=" | ".join(top_lines),
         )
         return FishTopResponse(success=True, chat_message=chat_message, top=top_entries, mode=mode)
 
@@ -260,7 +282,7 @@ class FishingService:
         twitch_id: str,
         username: str,
         is_mod: bool = False,
-        is_sub: bool = False
+        is_sub: bool = False,
     ) -> FishCooldownResponse:
         channel = self.user_repo.get_channel(channel_id)
         channel_config = channel.config if channel else {}
@@ -268,12 +290,14 @@ class FishingService:
         cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
         if channel:
             strategy_ctx = self.strategy_resolver.resolve(channel.id)
-            cooldown_duration = max(int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0)
+            cooldown_duration = max(
+                int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0
+            )
         is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
         return self.presenter.build_cooldown_status_response(
             channel_config=channel_config or {},
             username=username,
             cooldown_duration=cooldown_duration,
             cooldown_left=seconds_left,
-            is_active=is_active
+            is_active=is_active,
         )

@@ -1,3 +1,8 @@
+from decimal import Decimal
+
+from domain.logic.mass import quantize_mass, to_decimal
+
+
 def calculate_xp_required(level: int, base: int = 100, exponent: float = 1.5) -> int:
     return int(base * (level**exponent))
 
@@ -29,9 +34,11 @@ def calculate_robbery_chance(
 
 
 def calculate_robbery_loss(
-    potential_loss: float,
-    victim_resistance: float,
-    loss_divisor: float = 50.0,
-) -> float:
-    loss_modifier = 1 / (1 + (victim_resistance / loss_divisor))
-    return round(potential_loss * loss_modifier, 2)
+    potential_loss: Decimal,
+    victim_resistance: float | Decimal,
+    loss_divisor: float | Decimal = Decimal("50"),
+) -> Decimal:
+    resistance = to_decimal(victim_resistance)
+    divisor = to_decimal(loss_divisor)
+    loss_modifier = Decimal("1") / (Decimal("1") + (resistance / divisor))
+    return quantize_mass(to_decimal(potential_loss) * loss_modifier)

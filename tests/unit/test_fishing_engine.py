@@ -1,8 +1,10 @@
+from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import Mock
 
-import pytest
-
+from domain.schemas.fishing import FishingResult
 from services.fishing.engine import EventLootStrategy, FishingEngine
+from services.fishing_service import FishingService
 
 
 def make_user(**overrides):
@@ -32,7 +34,21 @@ def test_large_xp_reward_can_advance_multiple_levels() -> None:
 
 def test_event_luck_multiplier_can_reduce_positive_mass() -> None:
     strategy = EventLootStrategy({"luck_mult": 0.5})
-    assert strategy.calculate({"fixed_mass": 10}, luck_modifier=1.0, user_balance=0) == 5
+    result = strategy.calculate({"fixed_mass": 10}, luck_modifier=1.0, user_balance=Decimal("0"))
+
+    assert result == Decimal("5.00")
+    assert isinstance(result, Decimal)
+
+
+def test_percentage_mass_uses_decimal_arithmetic() -> None:
+    result = FishingEngine()._default_strategy.calculate(
+        {"percentage": "0.125"},
+        luck_modifier=1.0,
+        user_balance=Decimal("10.00"),
+    )
+
+    assert result == Decimal("1.25")
+    assert isinstance(result, Decimal)
 
 
 def test_points_bonus_is_applied_to_points_reward() -> None:
@@ -83,3 +99,76 @@ def test_robbery_uses_nested_custom_parameters(monkeypatch) -> None:
     )
     assert result.is_success is False
     assert result.chance_used == 0
+
+
+def test_robbery_mass_uses_decimal_arithmetic(monkeypatch) -> None:
+    monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0.0)
+    result = FishingEngine().calculate_mass_robbery(
+        attacker=make_user(id=1, current_mass=Decimal("2.00")),
+        victim=make_user(
+            id=2,
+            username="victim",
+            user_twitch_id="2",
+            level=1,
+            current_mass=Decimal("10.00"),
+        ),
+        channel_config={
+            "custom_params": {
+                "rob_min_chance": 1,
+                "rob_max_chance": 1,
+                "rob_base_chance": 1,
+                "rob_resist_divisor": 100,
+                "rob_loss_divisor": 50,
+            }
+        },
+        catch={"percentage": "0.5"},
+    )
+
+    assert result.is_success is True
+    assert result.amount_stolen == Decimal("4.55")
+    assert result.victim_new_mass == Decimal("5.45")
+    assert isinstance(result.amount_stolen, Decimal)
+
+
+def test_fishing_service_persists_decimal_mass() -> None:
+    user = make_user(
+        id=1,
+        user_twitch_id="1",
+        channel_id=1,
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("1.10"),
+        total_mass_stat=Decimal("2.20"),
+        total_fish_stat=0,
+        current_location_id="default",
+    )
+    user_repo = Mock()
+    user_repo.get_progress.return_value = user
+    user_repo.apply_equipped_rod_durability_loss.return_value = None
+    config_repo = Mock()
+    config_repo.get_dual_pool.return_value = ([], [], 0)
+    cooldown_repo = Mock()
+    channel_repo = Mock()
+    channel_repo.get_active_fishing_event.return_value = None
+    service = FishingService(user_repo, config_repo, cooldown_repo, channel_repo)
+    service.engine.calculate_result = Mock(
+        return_value=FishingResult(
+            loot={"type": "fish"},
+            item_drop=None,
+            username=user.username,
+            xp_gained=0,
+            mass_gained=Decimal("0.205"),
+            is_level_up=False,
+            old_level=1,
+            new_level=1,
+            luck_used=1.0,
+        )
+    )
+    service.presenter.build_response = Mock(side_effect=lambda _user, result: result)
+
+    result = service.process_cast("1", user.username, "channel", is_mod=True)
+
+    assert result.mass_gained == Decimal("0.21")
+    assert user.current_mass == Decimal("1.31")
+    assert user.total_mass_stat == Decimal("2.41")
+    assert isinstance(user.current_mass, Decimal)
+    user_repo.save_progress.assert_called_once_with(user)
