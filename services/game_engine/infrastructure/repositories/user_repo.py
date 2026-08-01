@@ -28,7 +28,7 @@ class UserRepository:
         if not channel:
             channel = Channel(twitch_id=channel_twitch_id, name="Unknown_Channel")
             self.db.add(channel)
-            self.db.commit()
+            self.db.flush()
             self.db.refresh(channel)
 
         user = UserProgress(
@@ -38,7 +38,7 @@ class UserRepository:
             inventory={"equipped_rod_slot": None, "max_slots": 20},
         )
         self.db.add(user)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(user)
         return user
 
@@ -194,7 +194,7 @@ class UserRepository:
             meta=meta,
         )
         self.db.add(inv_item)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(inv_item)
         return inv_item
 
@@ -245,7 +245,7 @@ class UserRepository:
             meta=meta or {},
         )
         self.db.add(inv_item)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(inv_item)
         return inv_item
 
@@ -267,5 +267,5 @@ class UserRepository:
 
     def save_progress(self, user: UserProgress):
         self.db.add(user)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(user)

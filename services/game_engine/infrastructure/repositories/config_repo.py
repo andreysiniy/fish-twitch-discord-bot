@@ -74,7 +74,7 @@ class ConfigRepository(BaseRepository[RewardPool]):
             return
 
         db_item.quantity = max(int(db_item.quantity) - amount, 0)
-        self.db.commit()
+        self.db.flush()
 
     def get_dual_pool_by_id(self, channel_twitch_id: str, reward_pool_id: int):
         pool_obj = (

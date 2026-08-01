@@ -24,6 +24,10 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -85,7 +89,6 @@ def get_economy_service(
     return EconomyService(
         user_repo=user_repo,
         channel_repo=channel_repo,
-        redis_client=RedisClient.get_client(),
         se_client=SEApiClient(),
     )
 

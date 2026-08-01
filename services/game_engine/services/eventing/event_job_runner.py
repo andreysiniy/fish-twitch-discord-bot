@@ -42,5 +42,9 @@ class FishingEventJobRunner:
             channel_repo = ChannelRepository(db)
             lifecycle = FishingEventLifecycleService(channel_repo=channel_repo)
             lifecycle.apply_due_jobs(limit=self.batch_size)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from api.dependencies import get_economy_service, verify_security
 from domain.schemas.fishing import FishRequest, FishResponse
@@ -21,6 +23,7 @@ def fishsell(
     request: FishRequest,
     service: EconomyService = Depends(get_economy_service),
     auth_id: str = Depends(verify_security),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ):
     real_user_id = _resolve_real_user_id(auth_id, request.user_id)
     try:
@@ -28,6 +31,7 @@ def fishsell(
             twitch_id=real_user_id,
             channel_id=request.channel_id,
             amount_str=request.user_input,
+            idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -38,6 +42,7 @@ async def fishbuy(
     request: FishRequest,
     service: EconomyService = Depends(get_economy_service),
     auth_id: str = Depends(verify_security),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ):
     real_user_id = _resolve_real_user_id(auth_id, request.user_id)
     try:
@@ -45,6 +50,7 @@ async def fishbuy(
             twitch_id=real_user_id,
             channel_id=request.channel_id,
             amount_str=request.user_input,
+            idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

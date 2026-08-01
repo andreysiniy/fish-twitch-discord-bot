@@ -13,6 +13,6 @@ class BaseRepository(Generic[T]):
 
     def save(self, obj: T) -> T:
         self.db.add(obj)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(obj)
         return obj

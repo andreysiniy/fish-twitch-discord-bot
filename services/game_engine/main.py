@@ -10,6 +10,7 @@ import infrastructure.models
 from api.routes import admin, auth, economy, fishing, inventory
 from core.config import settings
 from infrastructure.database import SessionLocal
+from infrastructure.migration_status import get_schema_revisions
 from infrastructure.redis_client import RedisClient
 from services.eventing.event_job_runner import FishingEventJobRunner
 from services.eventing.se_job_runner import SEJobRunner
@@ -80,11 +81,16 @@ def liveness() -> dict[str, str]:
 
 @app.get("/health/ready")
 def readiness() -> dict[str, str]:
-    diagnostics = {"database": "unavailable", "redis": "unavailable"}
+    diagnostics = {"database": "unavailable", "redis": "unavailable", "schema": "unknown"}
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
         diagnostics["database"] = "connected"
+        current_revision, expected_revision = get_schema_revisions()
+        if current_revision != expected_revision:
+            diagnostics["schema"] = f"outdated:{current_revision or 'none'}"
+            raise RuntimeError("Database schema revision is not current")
+        diagnostics["schema"] = current_revision or "unknown"
         RedisClient.get_client().ping()
         diagnostics["redis"] = "connected"
     except Exception as error:
