@@ -19,7 +19,7 @@ class EngineError(Exception):
 
 
 ERROR_MESSAGES = {
-    "DISCORD_LINK_REQUIRED": "Link Twitch first with `/fish account link`.",
+    "DISCORD_LINK_REQUIRED": "Link Twitch first with `/fish link`.",
     "GUILD_BINDING_REQUIRED": "This server is not configured. Use `/fish setup bind`.",
     "TWITCH_OWNER_REQUIRED": "Only the Twitch channel owner can manage these settings.",
     "PERMISSION_DENIED": "You do not have permission to perform this operation.",

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import discord
@@ -96,7 +97,20 @@ class LocationModal(discord.ui.Modal):
         except ValueError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
-        await self.on_save(interaction, payload)
+
+        async def confirm(confirm_interaction: discord.Interaction) -> None:
+            await self.on_save(confirm_interaction, payload)
+
+        rendered = json.dumps(payload, ensure_ascii=True, indent=2)
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Location preview",
+                description=f"```json\n{rendered[:3800]}\n```",
+                color=discord.Color.orange(),
+            ),
+            view=ConfirmView(interaction.user.id, confirm),
+            ephemeral=True,
+        )
 
 
 class RewardModal(discord.ui.Modal):
@@ -121,6 +135,10 @@ class RewardModal(discord.ui.Modal):
         self.xp.default = str(defaults.get("xp", 0))
         self.message.default = str(defaults.get("message") or "")
         self.parameters.default = _reward_parameters(defaults)
+        if reward_type == "russian_roulette":
+            self.parameters.placeholder = (
+                "bullets=1;chambers=6;reward=add_mass:2;penalty=timeout:1m"
+            )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
@@ -135,7 +153,20 @@ class RewardModal(discord.ui.Modal):
         except (TypeError, ValueError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
-        await self.on_save(interaction, payload)
+
+        async def confirm(confirm_interaction: discord.Interaction) -> None:
+            await self.on_save(confirm_interaction, payload)
+
+        rendered = json.dumps(payload, ensure_ascii=True, indent=2)
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Reward preview",
+                description=f"```json\n{rendered[:3800]}\n```",
+                color=discord.Color.orange(),
+            ),
+            view=ConfirmView(interaction.user.id, confirm),
+            ephemeral=True,
+        )
 
 
 class EventModal(discord.ui.Modal):
@@ -203,4 +234,17 @@ def _reward_parameters(reward: dict[str, Any]) -> str:
                 f"shot={reward.get('shot_message', '')}",
             ]
         )
+        if reward.get("reward"):
+            values.append(f"reward={_format_outcome(reward['reward'])}")
+        if reward.get("penalty"):
+            values.append(f"penalty={_format_outcome(reward['penalty'])}")
     return ";".join(values)
+
+
+def _format_outcome(outcome: dict[str, Any]) -> str:
+    outcome_type = outcome["type"]
+    if outcome_type == "add_mass":
+        return f"{outcome_type}:{outcome['mass']}"
+    if outcome_type == "add_percentage_mass":
+        return f"{outcome_type}:{outcome['percentage']}"
+    return f"timeout:{outcome['duration']},{outcome.get('reason', '')}"

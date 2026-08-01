@@ -50,6 +50,10 @@ def build_reward_payload(
         payload["chambers"] = int(values.get("chambers", "6"))
         payload["safe_message"] = values.get("safe", "")
         payload["shot_message"] = values.get("shot", "")
+        if values.get("reward"):
+            payload["reward"] = _parse_outcome(values["reward"])
+        if values.get("penalty"):
+            payload["penalty"] = _parse_outcome(values["penalty"])
     elif reward_type != "nothing":
         raise ValueError("Unknown reward type")
     return payload
@@ -65,3 +69,22 @@ def _parse_parameters(value: str) -> dict[str, str]:
             raise ValueError("Use key=value;key=value for parameters")
         result[key.strip().lower()] = raw_value.strip()
     return result
+
+
+def _parse_outcome(value: str) -> dict[str, Any]:
+    outcome_type, separator, raw_value = value.partition(":")
+    if not separator:
+        raise ValueError("Use outcome_type:value for roulette outcomes")
+    outcome_type = outcome_type.strip().lower()
+    parts = [part.strip() for part in raw_value.split(",")]
+    if outcome_type == "add_mass":
+        return {"type": outcome_type, "mass": parse_decimal(parts[0])}
+    if outcome_type == "add_percentage_mass":
+        return {"type": outcome_type, "percentage": parse_decimal(parts[0])}
+    if outcome_type == "timeout":
+        return {
+            "type": outcome_type,
+            "duration": parse_duration(parts[0]),
+            "reason": ",".join(parts[1:]),
+        }
+    raise ValueError("Roulette outcomes support add_mass, add_percentage_mass, or timeout")

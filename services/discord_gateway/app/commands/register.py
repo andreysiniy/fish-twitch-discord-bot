@@ -87,6 +87,18 @@ def register_commands(
             danger=True,
         )
 
+    @fish.command(name="link", description="Create a one-time Twitch authorization link")
+    async def quick_link(interaction: discord.Interaction) -> None:
+        await account_link.callback(interaction)
+
+    @fish.command(name="status", description="Show your Twitch link and server binding")
+    async def quick_status(interaction: discord.Interaction) -> None:
+        await account_status.callback(interaction)
+
+    @fish.command(name="unlink", description="Remove your Twitch account link")
+    async def quick_unlink(interaction: discord.Interaction) -> None:
+        await account_unlink.callback(interaction)
+
     @setup.command(name="status", description="Show the current server binding")
     async def setup_status(interaction: discord.Interaction) -> None:
         await account_status.callback(interaction)
@@ -531,6 +543,73 @@ def register_commands(
             "Event deleted.",
             danger=True,
         )
+
+    async def location_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        try:
+            result = await api.locations(interaction)
+        except EngineError:
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(
+                name=f"{item['location_name']} ({item['location_id']})"[:100],
+                value=item["location_id"],
+            )
+            for item in result["items"]
+            if needle in item["location_id"].casefold()
+            or needle in item["location_name"].casefold()
+        ][:25]
+
+    async def reward_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        location_id = getattr(interaction.namespace, "location_id", None)
+        if not location_id:
+            return []
+        try:
+            result = await api.rewards(interaction, location_id)
+        except EngineError:
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(
+                name=f"{item.get('name') or item['type']} ({item['reward_id']})"[:100],
+                value=item["reward_id"],
+            )
+            for item in result["items"]
+            if needle in item["reward_id"].casefold()
+            or needle in str(item.get("name") or item["type"]).casefold()
+        ][:25]
+
+    async def event_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[int]]:
+        try:
+            result = await api.events(interaction)
+        except EngineError:
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(
+                name=f"{item['event_title']} ({item['id']})"[:100],
+                value=int(item["id"]),
+            )
+            for item in result["items"]
+            if needle in str(item["id"]).casefold() or needle in item["event_title"].casefold()
+        ][:25]
+
+    for command in (location_show, location_edit, location_delete, reward_list, reward_add):
+        command.autocomplete("location_id")(location_autocomplete)
+    for command in (reward_show, reward_edit, reward_delete):
+        command.autocomplete("location_id")(location_autocomplete)
+        command.autocomplete("reward_id")(reward_autocomplete)
+    for command in (event_show, event_edit, event_start, event_delete):
+        command.autocomplete("event_id")(event_autocomplete)
 
     tree.add_command(fish)
 

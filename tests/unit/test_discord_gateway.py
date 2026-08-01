@@ -48,7 +48,16 @@ def test_numeric_parsing_and_diff_are_stable() -> None:
         ("fish", "range=0.1,5", {"min_mass": "0.1", "max_mass": "5"}),
         ("timeout", "duration=10m;reason=test", {"duration": 600, "reason": "test"}),
         ("robbery", "percentage=0.2;range=5", {"percentage": "0.2", "range": 5}),
-        ("russian_roulette", "bullets=1;chambers=6", {"bullets": 1, "chambers": 6}),
+        (
+            "russian_roulette",
+            "bullets=1;chambers=6;reward=add_mass:2;penalty=timeout:1m,test",
+            {
+                "bullets": 1,
+                "chambers": 6,
+                "reward": {"type": "add_mass", "mass": "2"},
+                "penalty": {"type": "timeout", "duration": 60, "reason": "test"},
+            },
+        ),
         ("nothing", "", {}),
     ],
 )
@@ -56,7 +65,8 @@ def test_build_supported_reward_payloads(reward_type, parameters, expected) -> N
     payload = build_reward_payload(reward_type, "Test", "10", "2", "Message", parameters)
     assert payload["type"] == reward_type
     assert payload["weight"] == 10
-    assert expected.items() <= payload.items()
+    for key, value in expected.items():
+        assert payload[key] == value
 
 
 def test_error_mapping_includes_request_id() -> None:
