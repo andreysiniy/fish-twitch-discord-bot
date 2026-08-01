@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from core.game_params import GParam, resolve_param
 from core.messages import (
@@ -13,7 +13,6 @@ from infrastructure.models import EconomyOperation, OutboxEvent
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.se_client import SEApiClient
-
 
 MASS_QUANTUM = Decimal("0.01")
 
@@ -67,7 +66,7 @@ class EconomyService:
         response = self._response(
             channel_config,
             MsgKey.SELL_MASS_SUCCESS,
-            mass=format_large_number_mass(float(mass_to_sell)),
+            mass=format_large_number_mass(mass_to_sell),
             amount=format_large_number_points(points),
             rate=self._format_rate(sell_rate),
         )
@@ -160,14 +159,16 @@ class EconomyService:
             operation.state = "external_applied"
             self.db.commit()
 
-            user.current_mass = (self._decimal(user.current_mass) + mass_to_buy).quantize(MASS_QUANTUM)
-            user.total_mass_stat = (
-                self._decimal(user.total_mass_stat) + mass_to_buy
-            ).quantize(MASS_QUANTUM)
+            user.current_mass = (self._decimal(user.current_mass) + mass_to_buy).quantize(
+                MASS_QUANTUM
+            )
+            user.total_mass_stat = (self._decimal(user.total_mass_stat) + mass_to_buy).quantize(
+                MASS_QUANTUM
+            )
             response = self._response(
                 channel_config,
                 MsgKey.BUY_SUCCESS,
-                mass=format_large_number_mass(float(mass_to_buy)),
+                mass=format_large_number_mass(mass_to_buy),
                 cost=format_large_number_points(cost),
                 rate=self._format_rate(buy_rate),
             )

@@ -1,8 +1,10 @@
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
 from domain.schemas.actions import GameAction
 from domain.schemas.rpg import DropItemDTO
+from pydantic import BaseModel, Field
+
 
 class FishRequest(BaseModel):
     user_id: str
@@ -35,10 +37,12 @@ class FishTravelRequest(BaseModel):
     user_input: Optional[str] = None
     location_number: Optional[int] = None
 
+
 class LocationRequirementDTO(BaseModel):
     level: int = 0
     total_fish_stat: int = 0
-    total_mass_stat: float = 0.0
+    total_mass_stat: Decimal = Decimal("0.00")
+
 
 class TravelLocationDTO(BaseModel):
     number: int
@@ -49,6 +53,7 @@ class TravelLocationDTO(BaseModel):
     requirements: LocationRequirementDTO
     missing_requirements: List[str] = Field(default_factory=list)
 
+
 class FishTravelResponse(BaseModel):
     success: bool
     chat_message: str
@@ -56,45 +61,50 @@ class FishTravelResponse(BaseModel):
     selected_location_id: Optional[str] = None
     locations: List[TravelLocationDTO] = Field(default_factory=list)
 
+
 class LevelUpInfo(BaseModel):
     old_level: int
     new_level: int
     rewards: List[str] = Field(default_factory=list)
 
+
 class FishResponse(BaseModel):
     chat_message: str
-    
+
     xp_gained: int
-    
+
     item_drop: Optional[DropItemDTO] = None
-    
+
     level_up: Optional[LevelUpInfo] = None
-    
+
     actions: List[GameAction] = Field(default_factory=list)
+
 
 class RobberyResultDTO(BaseModel):
     is_success: bool
-    amount_stolen: float
+    amount_stolen: Decimal
     victim_name: str
     victim_twitch_id: str
-    victim_new_mass: float
-    chance_used: float    
+    victim_new_mass: Decimal
+    chance_used: float
+
 
 class RussianRouletteResultDTO(BaseModel):
     is_hit: bool
     bullets: int
     chambers: int
     message: str
-    mass_delta: float = 0.0
+    mass_delta: Decimal = Decimal("0.00")
     penalty: Optional[Dict[str, Any]] = None
     reward: Optional[Dict[str, Any]] = None
+
 
 class FishingResult(BaseModel):
     loot: Dict[str, Any]
     item_drop: Optional[Dict]
     username: str
     xp_gained: int
-    mass_gained: float
+    mass_gained: Decimal
     is_level_up: bool
     old_level: int
     new_level: int
@@ -109,14 +119,14 @@ class PlayerStatsDTO(BaseModel):
     level: int = 1
     xp: int = 0
     xp_to_next_level: int = 0
-    current_mass: float = 0.0
+    current_mass: Decimal = Decimal("0.00")
     total_fish_stat: int = 0
     rod_name: str
     luck_bonus: float = 0.0
     resist_bonus: float = 0.0
     xp_bonus_pct: float = 0.0
     rank: int = 0
-    total_mass_stat: float = 0.0
+    total_mass_stat: Decimal = Decimal("0.00")
 
 
 class FishStatsResponse(BaseModel):
@@ -131,9 +141,9 @@ class TopPlayerDTO(BaseModel):
     username: str
     level: int = 1
     xp: int = 0
-    current_mass: float = 0.0
+    current_mass: Decimal = Decimal("0.00")
     total_fish_stat: int = 0
-    total_mass_stat: float
+    total_mass_stat: Decimal
 
 
 class FishTopResponse(BaseModel):

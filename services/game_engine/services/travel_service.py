@@ -1,7 +1,9 @@
 import re
+from decimal import Decimal
 from typing import Any
 
 from core.messages import MsgKey, resolve_message
+from domain.logic.mass import ZERO_MASS, quantize_mass
 from domain.schemas.fishing import (
     FishTravelRequest,
     FishTravelResponse,
@@ -24,7 +26,7 @@ class TravelService:
                 success=False,
                 chat_message=resolve_message({}, MsgKey.ERR_NO_PROFILE, username=request.username),
                 current_location_id="default",
-                locations=[]
+                locations=[],
             )
 
         channel_conf = user.channel.config or {}
@@ -32,9 +34,11 @@ class TravelService:
         if not pools:
             return FishTravelResponse(
                 success=False,
-                chat_message=resolve_message(channel_conf, MsgKey.TRAVEL_NO_LOCATIONS, username=user.username),
+                chat_message=resolve_message(
+                    channel_conf, MsgKey.TRAVEL_NO_LOCATIONS, username=user.username
+                ),
                 current_location_id=user.current_location_id or "default",
-                locations=[]
+                locations=[],
             )
 
         locations = self._build_locations(user, pools)
@@ -48,22 +52,20 @@ class TravelService:
                     user.current_location_id or "default",
                     locations,
                     include_current_location=True,
-                    include_hint=True
+                    include_hint=True,
                 ),
                 current_location_id=user.current_location_id or "default",
-                locations=locations
+                locations=locations,
             )
 
         if location_number < 1 or location_number > len(locations):
             return FishTravelResponse(
                 success=False,
                 chat_message=resolve_message(
-                    channel_conf,
-                    MsgKey.TRAVEL_FAIL_INVALID_NUMBER,
-                    location_number=location_number
+                    channel_conf, MsgKey.TRAVEL_FAIL_INVALID_NUMBER, location_number=location_number
                 ),
                 current_location_id=user.current_location_id or "default",
-                locations=locations
+                locations=locations,
             )
 
         selected = locations[location_number - 1]
@@ -78,11 +80,11 @@ class TravelService:
                             MsgKey.TRAVEL_FAIL_LEVEL,
                             req_level=selected.requirements.level,
                             location_name=selected.location_name,
-                            level=user.level
+                            level=user.level,
                         ),
                         current_location_id=user.current_location_id or "default",
                         selected_location_id=selected.location_id,
-                        locations=locations
+                        locations=locations,
                     )
 
             return FishTravelResponse(
@@ -91,11 +93,11 @@ class TravelService:
                     channel_conf,
                     MsgKey.TRAVEL_FAIL_REQUIREMENTS,
                     location_name=selected.location_name,
-                    requirements=", ".join(selected.missing_requirements)
+                    requirements=", ".join(selected.missing_requirements),
                 ),
                 current_location_id=user.current_location_id or "default",
                 selected_location_id=selected.location_id,
-                locations=locations
+                locations=locations,
             )
 
         user.current_location_id = selected.location_id
@@ -103,9 +105,7 @@ class TravelService:
         updated_locations = self._build_locations(user, pools)
 
         success_message = resolve_message(
-            channel_conf,
-            MsgKey.TRAVEL_SUCCESS,
-            location_name=selected.location_name
+            channel_conf, MsgKey.TRAVEL_SUCCESS, location_name=selected.location_name
         )
         return FishTravelResponse(
             success=True,
@@ -115,7 +115,7 @@ class TravelService:
             ),
             current_location_id=user.current_location_id,
             selected_location_id=selected.location_id,
-            locations=updated_locations
+            locations=updated_locations,
         )
 
     def _extract_location_number(self, request: FishTravelRequest) -> int | None:
@@ -145,32 +145,40 @@ class TravelService:
                     is_current=(location_id == (user.current_location_id or "default")),
                     is_available=len(missing) == 0,
                     requirements=LocationRequirementDTO(**requirements),
-                    missing_requirements=missing
+                    missing_requirements=missing,
                 )
             )
         return locations
 
-    def _sanitize_requirements(self, requirements: Any) -> dict[str, float | int]:
+    def _sanitize_requirements(self, requirements: Any) -> dict[str, Decimal | int]:
         if not isinstance(requirements, dict):
-            return {"level": 0, "total_fish_stat": 0, "total_mass_stat": 0.0}
+            return {"level": 0, "total_fish_stat": 0, "total_mass_stat": ZERO_MASS}
 
         return {
             "level": max(int(requirements.get("level", 0) or 0), 0),
             "total_fish_stat": max(int(requirements.get("total_fish_stat", 0) or 0), 0),
-            "total_mass_stat": max(float(requirements.get("total_mass_stat", 0.0) or 0.0), 0.0),
+            "total_mass_stat": max(
+                quantize_mass(requirements.get("total_mass_stat", 0)),
+                ZERO_MASS,
+            ),
         }
 
-    def _get_missing_requirements(self, user, requirements: dict[str, float | int]) -> list[str]:
+    def _get_missing_requirements(
+        self,
+        user,
+        requirements: dict[str, Decimal | int],
+    ) -> list[str]:
         missing: list[str] = []
         req_level = int(requirements["level"])
         req_total_fish = int(requirements["total_fish_stat"])
-        req_total_mass = float(requirements["total_mass_stat"])
+        req_total_mass = quantize_mass(requirements["total_mass_stat"])
 
         if user.level < req_level:
             missing.append(f"Level {req_level} (current {user.level})")
         if user.total_fish_stat < req_total_fish:
             missing.append(f"Total fish {req_total_fish} (current {user.total_fish_stat})")
-        if user.total_mass_stat < req_total_mass:
+        current_total_mass = quantize_mass(user.total_mass_stat)
+        if current_total_mass < req_total_mass:
             missing.append(f"Total mass {req_total_mass:.2f} (current {user.total_mass_stat:.2f})")
         return missing
 
@@ -180,7 +188,7 @@ class TravelService:
         current_location_id: str,
         locations: list[TravelLocationDTO],
         include_current_location: bool = False,
-        include_hint: bool = False
+        include_hint: bool = False,
     ) -> str:
         location_parts = []
         for loc in locations:
@@ -197,20 +205,16 @@ class TravelService:
 
         list_message_key = MsgKey.TRAVEL_LIST if include_hint else MsgKey.TRAVEL_LIST_COMPACT
         list_message = resolve_message(
-            channel_conf,
-            list_message_key,
-            locations=" | ".join(location_parts)
+            channel_conf, list_message_key, locations=" | ".join(location_parts)
         )
 
         if include_current_location:
             current_location_name = next(
                 (loc.location_name for loc in locations if loc.location_id == current_location_id),
-                self._format_location_name(current_location_id)
+                self._format_location_name(current_location_id),
             )
             current_location_message = resolve_message(
-                channel_conf,
-                MsgKey.CURRENT_LOCATION,
-                location_name=current_location_name
+                channel_conf, MsgKey.CURRENT_LOCATION, location_name=current_location_name
             )
             return f"{current_location_message} {list_message}"
 

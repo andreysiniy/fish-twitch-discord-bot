@@ -1,8 +1,8 @@
+from decimal import Decimal
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel
-
 from core.action_types import ActionType
+from pydantic import BaseModel
 
 
 class BaseAction(BaseModel):
@@ -25,9 +25,9 @@ class StreamElementsPointsAction(BaseAction):
 
 class AddMassAction(BaseAction):
     type: Literal[ActionType.ADD_MASS] = ActionType.ADD_MASS
-    amount: float
-    amount_now: float
-    total_mass: float
+    amount: Decimal
+    amount_now: Decimal
+    total_mass: Decimal
 
 
 class SendBaseMessageAction(BaseAction):
