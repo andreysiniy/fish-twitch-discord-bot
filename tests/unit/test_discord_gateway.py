@@ -113,6 +113,7 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "help",
         "link",
         "location",
+        "placeholders",
         "reward",
         "setup",
         "status",

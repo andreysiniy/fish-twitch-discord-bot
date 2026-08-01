@@ -1,8 +1,7 @@
-from pydantic import TypeAdapter, ValidationError
 import pytest
-
+from core.messages import DEFAULT_MESSAGES, MsgKey, message_placeholder_catalog
 from domain.config_schema import GameConfig, RewardDefinition
-
+from pydantic import TypeAdapter, ValidationError
 
 reward_adapter = TypeAdapter(RewardDefinition)
 
@@ -39,3 +38,18 @@ def test_roulette_rejects_more_bullets_than_chambers() -> None:
         reward_adapter.validate_python(
             {"type": "russian_roulette", "weight": 1, "bullets": 5, "chambers": 4}
         )
+
+
+def test_message_placeholder_catalog_matches_default_templates() -> None:
+    catalog = {item["message_key"]: item["placeholders"] for item in message_placeholder_catalog()}
+
+    assert set(catalog) == {key.value for key in MsgKey}
+    assert {item["name"] for item in catalog["robbery_success"]} == {
+        "attacker",
+        "attacker_gain",
+        "attacker_mass",
+        "victim",
+        "victim_loss",
+        "victim_mass",
+    }
+    assert "{attacker_mass}" in DEFAULT_MESSAGES[MsgKey.ROBBERY_SUCCESS]

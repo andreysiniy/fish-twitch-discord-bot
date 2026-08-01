@@ -1,6 +1,7 @@
-from enum import Enum
 import string
-from typing import Dict, Any
+from enum import Enum
+from typing import Any, Dict
+
 
 class MsgKey(str, Enum):
     # --- Inventory ---
@@ -10,11 +11,11 @@ class MsgKey(str, Enum):
     INV_FULL = "inv_full"
     INV_EMPTY = "inv_empty"
     INV_LIST_HEADER = "inv_list_header"
-    
+
     # --- Roulette ---
     ROULETTE_SHOT = "roulette_shot"
     ROULETTE_SAFE = "roulette_safe"
-    
+
     # --- Points ---
     POINTS_SET = "points_set"
     POINTS_SET_FAIL = "points_set_fail"
@@ -83,7 +84,7 @@ class MsgKey(str, Enum):
 
     # --- Consumables ---
     BAIT_CONSUMED = "bait_consumed"
-    
+
     # --- Errors ---
     ERR_NO_PROFILE = "err_no_profile"
     ERR_GENERIC = "err_generic"
@@ -128,62 +129,49 @@ DEFAULT_MESSAGES = {
     # percent - percentage of points robbed
     # total_fish_stat - total number of fish caught by user
     # total_mass_stat - total mass of fish caught by user
-    
     MsgKey.EQUIP_SUCCESS: "Equipped {item_name} [{slot_id}].",
     MsgKey.EQUIP_FAIL_NOT_FOUND: "Item in slot #{slot_id} not found.",
     MsgKey.EQUIP_FAIL_WRONG_TYPE: "Item {item_name} — is not a rod!",
     MsgKey.INV_FULL: "Your inventory is full ({current}/{max})! You couldn't keep {item_name}.",
     MsgKey.INV_EMPTY: "Inventory of {username} is empty.",
     MsgKey.INV_LIST_HEADER: "🎒 {username}'s Inventory:",
-    
     MsgKey.ROULETTE_SHOT: "OUCH! {username} got shot!",
     MsgKey.ROULETTE_SAFE: "Click... {username} was lucky.",
-
     MsgKey.POINTS_SET: "Set {username} points to: {new_amount} ({amount}).",
     MsgKey.POINTS_SET_FAIL: "Failed to set points for {username}.",
-
     MsgKey.MASS_SET: "User {username} fish weight set to: {new_mass} ({amount}).",
-
     MsgKey.LEVEL_UP: "Congratulations {username}! You've reached level {new_level}!",
-
     MsgKey.FISH_BASE_MSG: "{username} is fishing... !fish",
     MsgKey.ITEM_CAUGHT: "Caught: {item_name} x{quantity}!",
     MsgKey.ROD_BROKEN: "CRACK! Your {item_name} snapped in half! It's gone forever.",
     MsgKey.NO_ROD_EQUIPPED: "You need a fishing rod to fish here! Equip one first (!fishequip).",
-
     MsgKey.TIMEOUT_ISSUED: "{username} has been timed out for {duration}!",
     MsgKey.TIMEOUT_ISSUED_FAIL: "Failed to timeout {username}.",
-
-    MsgKey.ROBBERY_SUCCESS: "{attacker} {attackes_mass} ({attacker_gain}) robbed {victim}'s pockets of some fish {victim_mass} ({victim_loss})!",
+    MsgKey.ROBBERY_SUCCESS: "{attacker} {attacker_mass} ({attacker_gain}) robbed {victim}'s pockets of some fish {victim_mass} ({victim_loss})!",
     MsgKey.ROBBERY_FAIL: "{attacker} tried to rob anyone, but failed!",
     MsgKey.ROBBERY_PROTECTED: "{attacker} tried to rob {victim}, but they were protected!",
     MsgKey.ROBBERY_POOR: "{attacker} tried to rob {victim}, but they have empty pockets!",
-
     MsgKey.COOLDOWN_ACTIVE: "Fish cooldown for {username} is {cooldown_time} ({cooldown_time_left} left)",
     MsgKey.COOLDOWN_OVER: "Fish cooldown for {username} is {cooldown_time}, ready to fish again!",
     MsgKey.COOLDOWN_DISABLED: "Fish cooldown for {username} is disabled.",
     MsgKey.COOLDOWN_UPDATED: "Cooldown updated ({updated_scope}): global={fishing_cooldown}, sub={subs_fishing_cooldown}",
-
     MsgKey.FISHEVENT_LIST: "Available events: {events}.",
     MsgKey.FISHEVENT_LIST_EMPTY: "Available events: none.",
     MsgKey.FISHEVENT_ENABLED: "Event enabled: [{event_id}] {event_title}.",
     MsgKey.FISHEVENT_ENABLED_TIMED: "Event enabled: [{event_id}] {event_title} for {duration}.",
     MsgKey.FISHEVENT_DISABLED: "Event disabled: [{event_id}] {event_title}.",
-
     MsgKey.SELL_SUCCESS: "Sold {item_name} x{quantity} for {amount} points.",
     MsgKey.SELL_FAIL_NOT_SELLABLE: "You cannot sell {item_name}, it's priceless!",
     MsgKey.SELL_NOTHING: "You have nothing to sell.",
-
-    MsgKey.SELL_MASS_SUCCESS: "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg).",   
-    MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",    
-    MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",    
+    MsgKey.SELL_MASS_SUCCESS: "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg).",
+    MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",
+    MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",
     MsgKey.SELL_MASS_INVALID_AMOUNT: "Invalid amount. Use !fishsell <kg> or !fishsell all.",
     MsgKey.BUY_SUCCESS: "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg).",
     MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
     MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg>.",
     MsgKey.SE_NOT_CONFIGURED: "StreamElements integration is not configured.",
-    MsgKey.MARKET_INFO: "📈 Current Fish Market Rate: {rate} points per 1kg.",    
-
+    MsgKey.MARKET_INFO: "📈 Current Fish Market Rate: {rate} points per 1kg.",
     MsgKey.TRAVEL_SUCCESS: "You traveled to {location_name}.",
     MsgKey.TRAVEL_FAIL_LEVEL: "You need Level {req_level} to enter {location_name} (Current: {level}).",
     MsgKey.TRAVEL_FAIL_NOT_FOUND: "Location '{location_id}' does not exist.",
@@ -193,14 +181,11 @@ DEFAULT_MESSAGES = {
     MsgKey.TRAVEL_FAIL_INVALID_NUMBER: "Invalid location number '{location_number}'. Use !fishtravel to see locations.",
     MsgKey.TRAVEL_FAIL_REQUIREMENTS: "You cannot travel to {location_name}. Missing: {requirements}.",
     MsgKey.TRAVEL_NO_LOCATIONS: "No travel locations configured yet.",
-
     MsgKey.BAIT_CONSUMED: "Your {item_name} ran out!",
-
     MsgKey.ERR_NO_PROFILE: "No profile found for {username}. Start fishing first (!fish).",
     MsgKey.ERR_GENERIC: "An error occurred. Please try again later.",
     MsgKey.ERR_NO_POOL: "No loot pool configured for this channel/location.",
     MsgKey.ERR_NO_PERMISSION: "You don't have permission to do that.",
-
     MsgKey.PROFILE_STATS: "👤 {username} | Lvl: {level} | XP: {xp}/{xp_next} | Fish total weight: {current_mass} | Total fish gained: {total_mass_stat} | Amount of fish caught: {total_fish_stat}",
     MsgKey.PROFILE_STATS_DETAILED: (
         "📊 {username} Stats: "
@@ -217,19 +202,97 @@ DEFAULT_MESSAGES = {
     MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop",
 }
 
+
+PLACEHOLDER_DESCRIPTIONS = {
+    "amount": "Amount added, removed, sold, or received.",
+    "attacker": "Robbery attacker's display name.",
+    "attacker_gain": "Mass gained by the robbery attacker.",
+    "attacker_mass": "Attacker's mass after the robbery.",
+    "balance": "User's current points balance.",
+    "cooldown_time": "Configured fishing cooldown duration.",
+    "cooldown_time_left": "Remaining fishing cooldown duration.",
+    "cost": "Purchase cost in points.",
+    "current": "Current number of occupied inventory slots.",
+    "current_mass": "User's current fish mass.",
+    "duration": "Formatted timeout or event duration.",
+    "event_id": "Fishing event identifier.",
+    "event_title": "Fishing event title.",
+    "events": "Formatted list of fishing events.",
+    "fishing_cooldown": "Normal viewer fishing cooldown.",
+    "item_name": "Item display name.",
+    "level": "User's current level.",
+    "location_id": "Fishing location identifier.",
+    "location_name": "Fishing location display name.",
+    "location_number": "Location number entered by the user.",
+    "locations": "Formatted list of available locations.",
+    "luck_fmt": "Formatted luck bonus.",
+    "mass": "Fish mass involved in the operation.",
+    "max": "Maximum inventory capacity.",
+    "mode": "Leaderboard mode.",
+    "new_amount": "New points balance.",
+    "new_level": "User's level after leveling up.",
+    "new_mass": "User's mass after the operation.",
+    "quantity": "Item quantity.",
+    "rank": "User's leaderboard rank.",
+    "rate": "Current fish market rate.",
+    "req_level": "Minimum level required for a location.",
+    "requirements": "Formatted unmet location requirements.",
+    "resist_fmt": "Formatted robbery resistance.",
+    "rod_name": "Equipped fishing rod name.",
+    "slot_id": "Inventory slot identifier.",
+    "subs_fishing_cooldown": "Subscriber fishing cooldown.",
+    "top_lines": "Formatted leaderboard rows.",
+    "total_fish_stat": "User's total number of catches.",
+    "total_mass": "Total mass used for leaderboard ranking.",
+    "total_mass_stat": "User's lifetime caught mass.",
+    "updated_scope": "Cooldown setting scope that was updated.",
+    "username": "Twitch user's display name.",
+    "victim": "Robbery victim's display name.",
+    "victim_loss": "Mass lost by the robbery victim.",
+    "victim_mass": "Victim's mass after the robbery.",
+    "xp": "Current or awarded experience points.",
+    "xp_fmt": "Formatted experience bonus.",
+    "xp_next": "Experience required for the next level.",
+}
+
+
+def message_placeholder_catalog() -> list[dict[str, Any]]:
+    catalog = []
+    for key in MsgKey:
+        names = sorted(
+            {
+                field_name
+                for _literal, field_name, _format_spec, _conversion in string.Formatter().parse(
+                    DEFAULT_MESSAGES[key]
+                )
+                if field_name
+            }
+        )
+        catalog.append(
+            {
+                "message_key": key.value,
+                "placeholders": [
+                    {"name": name, "description": PLACEHOLDER_DESCRIPTIONS[name]} for name in names
+                ],
+            }
+        )
+    return catalog
+
+
 class SafeFormatter(string.Formatter):
     def get_value(self, key, args, kwargs):
         if isinstance(key, str):
-            return kwargs.get(key, '{' + key + '}')
+            return kwargs.get(key, "{" + key + "}")
         return super().get_value(key, args, kwargs)
-    
+
 
 formatter = SafeFormatter()
+
 
 def resolve_message(channel_config: Dict[str, Any], key: MsgKey, **kwargs) -> str:
     if not channel_config:
         channel_config = {}
-        
+
     custom_messages = channel_config.get("messages", {})
     if isinstance(key, MsgKey):
         template = custom_messages.get(key.value)
@@ -242,51 +305,55 @@ def resolve_message(channel_config: Dict[str, Any], key: MsgKey, **kwargs) -> st
         return formatter.format(template, **kwargs)
     except Exception as e:
         return f"{template} (Format Error: {e})"
-    
+
+
 def format_large_number_mass(value: float) -> str:
     abs_value = abs(value)
     if abs_value >= 1_000_000_000_000_000:
         value = value / 1_000_000_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "Tt"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "Tt"
     elif abs_value >= 1_000_000_000_000:
         value = value / 1_000_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "Gt"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "Gt"
     elif abs_value >= 1_000_000_000:
         value = value / 1_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "Mt"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "Mt"
     elif abs_value >= 1_000_000:
         value = value / 1_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "kt"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "kt"
     elif abs_value >= 1_000:
         value = value / 1_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "t"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "t"
     else:
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "kg"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "kg"
+
 
 def format_large_number_mass_signed(value: float) -> str:
     sign = "+" if value >= 0 else "-"
     formatted_value = format_large_number_mass(abs(value))
     return f"{sign}{formatted_value}"
 
+
 def format_large_number_points(value) -> str:
     abs_value = abs(value)
     if abs_value >= 1_000_000_000_000_000:
         value = value / 1_000_000_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "Q"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "Q"
     elif abs_value >= 1_000_000_000_000:
         value = value / 1_000_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "T"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "T"
     elif abs_value >= 1_000_000_000:
         value = value / 1_000_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "B"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "B"
     elif abs_value >= 1_000_000:
         value = value / 1_000_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "M"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "M"
     elif abs_value >= 1_000:
         value = value / 1_000
-        return f"{value:.2f}".rstrip('0').rstrip('.') + "K"
+        return f"{value:.2f}".rstrip("0").rstrip(".") + "K"
     else:
-        return f"{value:.2f}".rstrip('0').rstrip('.')
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
 
 def format_time(seconds):
     seconds = int(seconds)
@@ -310,15 +377,17 @@ def format_time(seconds):
     if seconds or not parts:
         parts.append(f"{seconds}s")
 
-    return ' '.join(parts)
+    return " ".join(parts)
+
 
 def format_percent(value):
     percent = abs(value) * 100
-    formatted = f"{percent:.2f}".rstrip('0').rstrip('.')
+    formatted = f"{percent:.2f}".rstrip("0").rstrip(".")
     return f"{formatted}%"
+
 
 def format_percent_signed(value):
     sign = "+" if value >= 0 else "-"
     percent = abs(value) * 100
-    formatted = f"{percent:.2f}".rstrip('0').rstrip('.')
+    formatted = f"{percent:.2f}".rstrip("0").rstrip(".")
     return f"{sign}{formatted}%"

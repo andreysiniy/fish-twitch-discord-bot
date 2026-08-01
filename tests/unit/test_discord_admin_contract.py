@@ -79,6 +79,7 @@ def test_openapi_exposes_versioned_discord_admin_contract() -> None:
     expected_paths = {
         "/v1/integrations/discord/link/start",
         "/v1/integrations/discord/link/status",
+        "/v1/integrations/discord/messages/placeholders",
         "/v1/integrations/discord/guilds/{guild_id}/bind",
         "/v1/admin/channels/{channel_twitch_id}/config",
         "/v1/admin/channels/{channel_twitch_id}/config/schema",
