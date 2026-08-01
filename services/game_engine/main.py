@@ -1,20 +1,27 @@
 import logging
 
 import uvicorn
+from api.routes import (
+    actions,
+    admin,
+    auth,
+    discord_admin,
+    discord_integrations,
+    economy,
+    fishing,
+    inventory,
+)
+from core.api_errors import ApiProblem
+from core.config import settings
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
-
-import infrastructure.models
-from api.routes import actions, admin, auth, economy, fishing, inventory
-from core.config import settings
 from infrastructure.database import SessionLocal
 from infrastructure.migration_status import get_schema_revisions
 from infrastructure.redis_client import RedisClient
 from services.eventing.event_job_runner import FishingEventJobRunner
 from services.eventing.se_job_runner import SEJobRunner
-
+from sqlalchemy import text
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -44,6 +51,12 @@ app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 app.include_router(economy.router, prefix="/v1", tags=["Economy"])
 app.include_router(actions.router, prefix="/v1/actions", tags=["External Actions"])
+app.include_router(
+    discord_integrations.router,
+    prefix="/v1",
+    tags=["Discord Integration"],
+)
+app.include_router(discord_admin.router, prefix="/v1/admin", tags=["Discord Admin"])
 
 event_job_runner = FishingEventJobRunner(poll_interval_seconds=1.0, batch_size=50)
 se_job_runner = SEJobRunner()
@@ -73,6 +86,11 @@ async def unhandled_exception_handler(request: Request, error: Exception) -> JSO
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal server error"},
     )
+
+
+@app.exception_handler(ApiProblem)
+async def api_problem_handler(request: Request, error: ApiProblem) -> JSONResponse:
+    return JSONResponse(status_code=error.status_code, content={"detail": error.detail()})
 
 
 @app.get("/health/live")

@@ -30,6 +30,12 @@ class Channel(Base):
     se_channel_id = Column(String, nullable=True)
     
     config = Column(JSONB, default=dict, nullable=False)
+    config_version = Column(Integer, default=1, nullable=False)
+    config_updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     users_progress = relationship("UserProgress", back_populates="channel")
     reward_pools = relationship("RewardPool", back_populates="channel")
@@ -144,6 +150,13 @@ class RewardPool(Base):
     
     rewards_data = Column(JSONB, default=list, nullable=False)
     requirements = Column(JSONB, default=dict, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     items_drop_rate = Column(Float, default=0.1)
     items = relationship("LocationItem", back_populates="pool")
@@ -182,6 +195,18 @@ class FishingEvent(Base):
     is_active = Column(Boolean, default=False, nullable=False)
     modifiers = Column(JSONB, default=dict, nullable=False)
     override_loot_pool = Column(String, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     channel = relationship("Channel", back_populates="fishing_events")
 
@@ -228,3 +253,77 @@ class OutboxEvent(Base):
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     processed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class DiscordAccountLink(Base):
+    __tablename__ = "discord_account_links"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    discord_user_id = Column(String, unique=True, nullable=False, index=True)
+    twitch_user_id = Column(String, unique=True, nullable=False, index=True)
+    twitch_login = Column(String, nullable=False)
+    verified_at = Column(DateTime(timezone=True), nullable=False)
+    last_verified_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class DiscordGuildBinding(Base):
+    __tablename__ = "discord_guild_bindings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    discord_guild_id = Column(String, unique=True, nullable=False, index=True)
+    channel_id = Column(Integer, ForeignKey("channels.id"), unique=True, nullable=False, index=True)
+    configured_by_discord_id = Column(String, nullable=False)
+    management_channel_id = Column(String, nullable=True)
+    locale = Column(String, nullable=False, default="en")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    channel = relationship("Channel")
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_log"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    request_id = Column(String, nullable=False, index=True)
+    idempotency_key = Column(String, nullable=True, index=True)
+    channel_twitch_id = Column(String, nullable=False, index=True)
+    actor_twitch_id = Column(String, nullable=False, index=True)
+    actor_discord_id = Column(String, nullable=True, index=True)
+    actor_service = Column(String, nullable=False)
+    guild_id = Column(String, nullable=True, index=True)
+    action = Column(String, nullable=False, index=True)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(String, nullable=False)
+    before_json = Column(JSONB, default=dict, nullable=False)
+    after_json = Column(JSONB, default=dict, nullable=False)
+    result = Column(String, nullable=False)
+    error_code = Column(String, nullable=True)
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint("actor_scope", "idempotency_key", name="uq_idempotency_actor_key"),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_scope = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False)
+    request_hash = Column(String, nullable=False)
+    response_status = Column(Integer, nullable=False)
+    response_json = Column(JSONB, default=dict, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

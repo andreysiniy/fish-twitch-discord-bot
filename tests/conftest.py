@@ -11,6 +11,7 @@ sys.path.insert(1, str(BOT_GATEWAY))
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough")
 os.environ.setdefault("BOT_API_KEY", "test-bot-api-key")
+os.environ.setdefault("DISCORD_BOT_API_KEY", "test-discord-api-key")
 os.environ.setdefault("TWITCH_CLIENT_ID", "test-client-id")
 os.environ.setdefault("TWITCH_CLIENT_SECRET", "test-client-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
