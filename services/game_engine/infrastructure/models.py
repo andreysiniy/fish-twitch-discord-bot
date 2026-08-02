@@ -194,7 +194,14 @@ class InventoryItem(Base):
 
     definition = relationship("ItemDefinition", lazy="joined")
     owner = relationship("UserProgress", back_populates="items")
-    equipped_record = relationship("EquippedItem", back_populates="inventory_item", uselist=False)
+    equipped_record = relationship(
+        "EquippedItem",
+        back_populates="inventory_item",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        single_parent=True,
+    )
 
 
 class EquippedItem(Base):

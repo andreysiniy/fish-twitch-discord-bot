@@ -112,10 +112,14 @@ class FishingService:
             if result.item_drop.get("quantity") is None:
                 result.item_drop["quantity"] = 1
 
-            self.user_repo.update_inventory(user, result.item_drop)
             location_item_id = result.item_drop.get("db_id")
-            if location_item_id:
-                self.config_repo.consume_location_item_stock(location_item_id, amount=1)
+            has_stock = not location_item_id or self.config_repo.consume_location_item_stock(
+                location_item_id, amount=1
+            )
+            if has_stock:
+                self.user_repo.update_inventory(user, result.item_drop)
+            else:
+                result.item_drop = None
 
         result.broken_item_name = self.user_repo.apply_equipped_rod_durability_loss(
             user,

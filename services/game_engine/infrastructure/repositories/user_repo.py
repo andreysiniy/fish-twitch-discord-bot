@@ -2,8 +2,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import func
 import random
 
-from infrastructure.models import UserProgress, Channel, ItemDefinition, InventoryItem
-from sqlalchemy.orm.attributes import flag_modified
+from infrastructure.models import UserProgress, Channel, InventoryItem
+from infrastructure.repositories.inventory_repo import InventoryRepository
 
 
 class UserRepository:
@@ -137,67 +137,21 @@ class UserRepository:
         item_id = str(item_data.get("item_id", "")).strip()
         if not item_id:
             raise ValueError("item_id is required for inventory update")
-
-        channel = self.db.query(Channel).filter(Channel.id == user.channel_id).first()
-        if not channel:
-            raise ValueError("User channel not found")
-
-        title = str(item_data.get("title") or item_id).strip() or item_id
-        base_stats = item_data.get("base_stats") or {}
-
-        definition = (
-            self.db.query(ItemDefinition)
-            .filter(
-                ItemDefinition.channel_id == channel.id,
-                ItemDefinition.item_id == item_id,
-            )
-            .first()
+        meta = dict(item_data.get("meta") or {})
+        if item_data.get("obtained_at"):
+            meta["obtained_at"] = item_data["obtained_at"]
+        granted = InventoryRepository(self.db).grant_many(
+            user,
+            [
+                {
+                    "item_id": item_id,
+                    "quantity": item_data.get("quantity", 1),
+                    "current_durability": item_data.get("current_durability"),
+                    "meta": meta,
+                }
+            ],
         )
-        if not definition:
-            normalized_slot = str(item_data.get("slot") or "").strip()
-            definition = ItemDefinition(
-                channel_id=channel.id,
-                item_id=item_id,
-                title=title,
-                description=item_data.get("description"),
-                type=item_data.get("type", "equipment"),
-                slot=normalized_slot or None,
-                rarity=item_data.get("rarity", "common"),
-                durability=item_data.get("durability"),
-                stack_size=max(int(item_data.get("stack_size", 1) or 1), 1),
-                image_url=item_data.get("image_url"),
-                base_stats=base_stats,
-            )
-            self.db.add(definition)
-            self.db.flush()
-        else:
-            if not getattr(definition, "title", None):
-                definition.title = title
-            if getattr(definition, "stack_size", None) in (None, 0):
-                definition.stack_size = 1
-            self.db.add(definition)
-            self.db.flush()
-
-        next_slot_id = self._get_next_slot_id(user.id)
-        quantity = max(int(item_data.get("quantity", 1) or 1), 1)
-        meta = {"obtained_at": item_data.get("obtained_at")} if item_data.get("obtained_at") else {}
-
-        current_durability = item_data.get("current_durability")
-        if current_durability is None:
-            current_durability = definition.durability
-
-        inv_item = InventoryItem(
-            user_id=user.id,
-            item_id=definition.id,
-            slot_id=next_slot_id,
-            quantity=quantity,
-            current_durability=current_durability,
-            meta=meta,
-        )
-        self.db.add(inv_item)
-        self.db.flush()
-        self.db.refresh(inv_item)
-        return inv_item
+        return granted[0]
 
     def grant_item_to_user(
         self,
@@ -208,47 +162,19 @@ class UserRepository:
         current_durability: int | None = None,
         meta: dict | None = None,
     ) -> InventoryItem:
-        channel = self.db.query(Channel).filter(Channel.id == user.channel_id).first()
-        if not channel:
-            raise ValueError("User channel not found")
-
-        definition = (
-            self.db.query(ItemDefinition)
-            .filter(
-                ItemDefinition.channel_id == channel.id,
-                ItemDefinition.item_id == item_id,
-            )
-            .first()
+        granted = InventoryRepository(self.db).grant_many(
+            user,
+            [
+                {
+                    "item_id": item_id,
+                    "quantity": quantity,
+                    "slot_id": slot_id,
+                    "current_durability": current_durability,
+                    "meta": meta or {},
+                }
+            ],
         )
-        if not definition:
-            raise ValueError(f"Item definition '{item_id}' not found for channel {channel.twitch_id}")
-
-        final_slot_id = slot_id if slot_id is not None else self._get_next_slot_id(user.id)
-        if slot_id is not None:
-            occupied = (
-                self.db.query(InventoryItem)
-                .filter(InventoryItem.user_id == user.id, InventoryItem.slot_id == slot_id)
-                .first()
-            )
-            if occupied:
-                raise ValueError(f"Slot {slot_id} is already occupied")
-
-        resolved_durability = current_durability
-        if resolved_durability is None:
-            resolved_durability = definition.durability
-
-        inv_item = InventoryItem(
-            user_id=user.id,
-            item_id=definition.id,
-            slot_id=final_slot_id,
-            quantity=max(int(quantity or 1), 1),
-            current_durability=resolved_durability,
-            meta=meta or {},
-        )
-        self.db.add(inv_item)
-        self.db.flush()
-        self.db.refresh(inv_item)
-        return inv_item
+        return granted[0]
 
     def get_user_inventory_items(self, user_id: int) -> list[InventoryItem]:
         return (
@@ -263,39 +189,21 @@ class UserRepository:
         user: UserProgress,
         durability_loss: int,
     ) -> str | None:
-        if durability_loss <= 0:
-            return None
-        inventory = dict(user.inventory or {})
-        equipped_slot = inventory.get("equipped_rod_slot")
-        if equipped_slot is None:
-            return None
-        item = (
-            self.db.query(InventoryItem)
-            .filter(InventoryItem.user_id == user.id, InventoryItem.slot_id == equipped_slot)
-            .first()
+        return InventoryRepository(self.db).consume_durability(
+            user.id, "rod", durability_loss
         )
-        if not item or item.current_durability is None:
-            return None
-        item.current_durability = max(int(item.current_durability) - durability_loss, 0)
-        if item.current_durability > 0:
-            self.db.flush()
-            return None
-
-        item_name = item.definition.title if item.definition else str(item.item_id)
-        inventory["equipped_rod_slot"] = None
-        user.inventory = inventory
-        flag_modified(user, "inventory")
-        self.db.delete(item)
-        self.db.flush()
-        return item_name
 
     def _get_next_slot_id(self, user_id: int) -> int:
-        max_slot = (
-            self.db.query(func.max(InventoryItem.slot_id))
+        occupied = {
+            row[0]
+            for row in self.db.query(InventoryItem.slot_id)
             .filter(InventoryItem.user_id == user_id)
-            .scalar()
-        )
-        return int(max_slot or 0) + 1
+            .all()
+        }
+        slot_id = 1
+        while slot_id in occupied:
+            slot_id += 1
+        return slot_id
 
     def save_progress(self, user: UserProgress):
         self.db.add(user)

@@ -208,12 +208,18 @@ def test_points_bonus_is_applied_to_points_reward() -> None:
             title="Bonus Rod",
             description=None,
             image_url=None,
-            type="rod",
+            type="equipment",
             slot="rod",
             rarity="common",
-            durability=100,
+            max_durability=100,
             stack_size=1,
-            base_stats={"points_bonus": 25},
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "points_flat_bonus",
+                    "value": "25",
+                }
+            ],
         ),
     )
     result = FishingEngine().calculate_result(
