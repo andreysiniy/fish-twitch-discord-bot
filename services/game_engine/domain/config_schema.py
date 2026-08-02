@@ -132,12 +132,19 @@ class NothingReward(RewardBase):
     type: Literal["nothing"]
 
 
+class DupeReward(RewardBase):
+    type: Literal["dupe"]
+    amount: int = Field(..., ge=1, le=20)
+    delay: int = Field(0, ge=0, le=60)
+
+
 RewardDefinition = Annotated[
     FishReward
     | TimeoutReward
     | PointsReward
     | RobberyReward
     | RussianRouletteReward
+    | DupeReward
     | NothingReward,
     Field(discriminator="type"),
 ]

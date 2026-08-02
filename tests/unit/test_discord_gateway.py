@@ -10,6 +10,7 @@ from app.config import DiscordSettings
 from app.interactions.modals import (
     EventBonusModal,
     EventModal,
+    DupeRewardModal,
     FishRewardModal,
     MessageTemplateModal,
     RewardModal,
@@ -82,6 +83,7 @@ def test_numeric_parsing_and_diff_are_stable() -> None:
             },
         ),
         ("nothing", {}, {}),
+        ("dupe", {"amount": "3", "delay": "2"}, {"amount": 3, "delay": 2}),
     ],
 )
 def test_build_supported_reward_payloads(reward_type, parameters, expected) -> None:
@@ -143,6 +145,7 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
             reward_defaults["reward"],
             reward_defaults,
         ),
+        DupeRewardModal(save, {}),
         EventModal(save),
         EventBonusModal(event_payload, save, {}),
     ]
@@ -155,7 +158,7 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         "Maximum mass",
         "Percentage",
     }
-    assert {child.label for child in modals[6].children} == {
+    assert {child.label for child in modals[7].children} == {
         "Name",
         "Override location",
         "Luck multiplier",
@@ -165,13 +168,14 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
 
     first_step_labels = {
         reward_type: {child.label for child in create_reward_modal(reward_type, save).children}
-        for reward_type in ("fish", "timeout", "robbery", "russian_roulette")
+        for reward_type in ("fish", "timeout", "robbery", "russian_roulette", "dupe")
     }
     assert first_step_labels == {
         "fish": {"Fixed mass", "Minimum mass", "Maximum mass", "Percentage"},
         "timeout": {"Duration", "Reason"},
         "robbery": {"Fixed mass", "Percentage", "Victim search range"},
         "russian_roulette": {"Bullets", "Chambers", "Safe message", "Shot message"},
+        "dupe": {"Repeat count", "Delay between casts"},
     }
 
     message_modal = MessageTemplateModal(

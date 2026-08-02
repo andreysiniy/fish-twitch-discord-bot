@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from typing import Any, Dict
@@ -21,22 +22,28 @@ class ActionHandler:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def handle_engine_response(self, ctx, response: Dict[str, Any]) -> None:
+    async def handle_engine_response(
+        self, ctx, response: Dict[str, Any], *, allow_dupe: bool = True
+    ) -> None:
         actions = response.get("actions") or []
         for index, action in enumerate(actions):
-            await self._execute_action(ctx, action, index)
+            await self._execute_action(ctx, action, index, allow_dupe=allow_dupe)
 
         chat_message = response.get("chat_message")
         if chat_message and not actions:
             await ctx.send(chat_message)
 
-    async def _execute_action(self, ctx, action: Dict[str, Any], index: int) -> None:
+    async def _execute_action(
+        self, ctx, action: Dict[str, Any], index: int, *, allow_dupe: bool
+    ) -> None:
         action_type = str(action.get("type", ""))
         try:
             if action_type == "timeout":
                 await self._handle_timeout(ctx, action)
             elif action_type == "points":
                 await self._handle_points(ctx, action, index)
+            elif action_type == "dupe" and allow_dupe:
+                await self._handle_dupe(ctx, action)
         except Exception as error:
             logger.exception("Failed to execute action type=%s", action_type)
             await ctx.send(f"Action '{action_type}' failed: {type(error).__name__}")
@@ -45,6 +52,29 @@ class ActionHandler:
         action_message = action.get("action_message")
         if action_message:
             await ctx.send(action_message)
+
+    async def _handle_dupe(self, ctx, action: Dict[str, Any]) -> None:
+        amount = max(min(int(action.get("amount", 1)), 20), 1)
+        delay = max(min(int(action.get("delay", 0)), 60), 0)
+        channel_id = await get_channel_id(ctx)
+        author = ctx.author
+        badges = getattr(author, "badges", None)
+        is_subscriber = bool(getattr(author, "is_subscriber", False)) or (
+            isinstance(badges, dict) and "subscriber" in badges
+        )
+        payload = {
+            "user_id": str(author.id),
+            "username": author.name,
+            "channel_id": channel_id,
+            "is_mod": bool(getattr(author, "is_mod", False)),
+            "is_sub": is_subscriber,
+            "bypass_cooldown": True,
+        }
+        for _ in range(amount):
+            if delay:
+                await asyncio.sleep(delay)
+            response = await self.bot.api_client.fish(payload)
+            await self.handle_engine_response(ctx, response, allow_dupe=False)
 
     async def _handle_timeout(self, ctx, action: Dict[str, Any]) -> None:
         duration = max(min(int(action.get("duration", 60)), 1_209_600), 1)

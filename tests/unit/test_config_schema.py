@@ -65,6 +65,17 @@ def test_roulette_accepts_negative_mass_effects() -> None:
     assert reward.penalty.percentage == Decimal("-0.2")
 
 
+def test_dupe_reward_validates_repeat_settings() -> None:
+    reward = reward_adapter.validate_python(
+        {"type": "dupe", "weight": 100, "amount": 3, "delay": 2}
+    )
+
+    assert reward.amount == 3
+    assert reward.delay == 2
+    with pytest.raises(ValidationError):
+        reward_adapter.validate_python({"type": "dupe", "amount": 21})
+
+
 def test_message_placeholder_catalog_matches_default_templates() -> None:
     catalog = {item["message_key"]: item["placeholders"] for item in message_placeholder_catalog()}
 

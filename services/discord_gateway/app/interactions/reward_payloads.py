@@ -3,7 +3,7 @@ from typing import Any
 
 from app.presentation.formatting import parse_decimal, parse_duration
 
-REWARD_TYPES = {"fish", "timeout", "robbery", "russian_roulette", "nothing"}
+REWARD_TYPES = {"fish", "timeout", "robbery", "russian_roulette", "dupe", "nothing"}
 OUTCOME_TYPES = {"add_mass", "add_percentage_mass", "timeout"}
 
 
@@ -93,6 +93,13 @@ def complete_reward_payload(
             payload["reward"] = values["reward"]
         if values.get("penalty") is not None:
             payload["penalty"] = values["penalty"]
+    elif reward_type == "dupe":
+        payload["amount"] = _bounded_int(
+            str(values.get("amount") or "1"), "Repeat count", 1, 20
+        )
+        payload["delay"] = _bounded_int(
+            str(values.get("delay") or "0"), "Delay", 0, 60
+        )
     elif reward_type != "nothing":
         raise ValueError("Unknown reward type")
     return payload

@@ -33,7 +33,7 @@ SECTION_CHOICES = [
 ]
 REWARD_CHOICES = [
     app_commands.Choice(name=value.replace("_", " ").title(), value=value)
-    for value in ("fish", "timeout", "robbery", "russian_roulette", "nothing")
+    for value in ("fish", "timeout", "robbery", "russian_roulette", "dupe", "nothing")
 ]
 
 

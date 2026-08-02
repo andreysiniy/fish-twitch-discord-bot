@@ -181,6 +181,7 @@ def create_reward_modal(
         "timeout": lambda: TimeoutRewardModal(on_save, defaults),
         "robbery": lambda: RobberyRewardModal(on_save, defaults),
         "russian_roulette": lambda: RouletteSettingsModal(on_save, defaults),
+        "dupe": lambda: DupeRewardModal(on_save, defaults),
         "nothing": lambda: RewardModal("nothing", {}, on_save, defaults),
     }
     try:
@@ -317,6 +318,36 @@ class TimeoutRewardModal(discord.ui.Modal):
             interaction,
             "timeout",
             {"duration": self.duration.value, "reason": self.reason.value},
+            self.on_save,
+            self.defaults,
+        )
+
+
+class DupeRewardModal(discord.ui.Modal):
+    def __init__(self, on_save, defaults: dict[str, Any]):
+        super().__init__(title="Repeat fishing settings")
+        self.on_save = on_save
+        self.defaults = defaults
+        self.amount = discord.ui.TextInput(
+            label="Repeat count",
+            default=str(defaults.get("amount", 1)),
+            placeholder="Additional casts from 1 to 20",
+            max_length=2,
+        )
+        self.delay = discord.ui.TextInput(
+            label="Delay between casts",
+            default=str(defaults.get("delay", 0)),
+            placeholder="Seconds from 0 to 60",
+            max_length=2,
+        )
+        self.add_item(self.amount)
+        self.add_item(self.delay)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _continue_to_reward_details(
+            interaction,
+            "dupe",
+            {"amount": self.amount.value, "delay": self.delay.value},
             self.on_save,
             self.defaults,
         )
