@@ -188,6 +188,7 @@ class FishingEngine:
         if victim is None:
             return RobberyResultDTO(
                 is_success=False,
+                victim_found=False,
                 amount_stolen=ZERO_MASS,
                 victim_name="",
                 victim_twitch_id="",

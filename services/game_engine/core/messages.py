@@ -39,6 +39,7 @@ class MsgKey(str, Enum):
     # --- Robbery ---
     ROBBERY_SUCCESS = "robbery_success"
     ROBBERY_FAIL = "robbery_fail"
+    ROBBERY_NO_TARGET = "robbery_no_target"
     ROBBERY_PROTECTED = "robbery_protected"
     ROBBERY_POOR = "robbery_poor"
 
@@ -149,6 +150,7 @@ DEFAULT_MESSAGES = {
     MsgKey.TIMEOUT_ISSUED_FAIL: "Failed to timeout {username}.",
     MsgKey.ROBBERY_SUCCESS: "{attacker} {attacker_mass} ({attacker_gain}) robbed {victim}'s pockets of some fish {victim_mass} ({victim_loss})!",
     MsgKey.ROBBERY_FAIL: "{attacker} tried to rob anyone, but failed!",
+    MsgKey.ROBBERY_NO_TARGET: "{attacker} looked for someone to rob, but nobody was available!",
     MsgKey.ROBBERY_PROTECTED: "{attacker} tried to rob {victim}, but they were protected!",
     MsgKey.ROBBERY_POOR: "{attacker} tried to rob {victim}, but they have empty pockets!",
     MsgKey.COOLDOWN_ACTIVE: "Fish cooldown for {username} is {cooldown_time} ({cooldown_time_left} left)",

@@ -132,6 +132,38 @@ def test_robbery_uses_nested_custom_parameters(monkeypatch) -> None:
     assert result.chance_used == 0
 
 
+def test_robbery_without_target_uses_dedicated_message() -> None:
+    robbery_result = FishingEngine().calculate_mass_robbery(
+        attacker=make_user(id=1),
+        victim=None,
+        channel_config={},
+        catch={"percentage": "0.5"},
+    )
+    user = make_user(
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("10.00"),
+        total_mass_stat=Decimal("10.00"),
+    )
+    result = FishingResult(
+        loot={"type": "robbery", "percentage": "0.5", "message": "Robbery started."},
+        item_drop=None,
+        username=user.username,
+        xp_gained=0,
+        mass_gained=Decimal("0"),
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+        luck_used=1.0,
+        robbery_result=robbery_result,
+    )
+
+    response = FishingPresenter().build_response(user, result)
+
+    assert robbery_result.victim_found is False
+    assert "nobody was available" in response.actions[-1].action_message
+    assert "tried to rob ," not in response.actions[-1].action_message
+
+
 def test_robbery_mass_uses_decimal_arithmetic(monkeypatch) -> None:
     monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0.0)
     result = FishingEngine().calculate_mass_robbery(
