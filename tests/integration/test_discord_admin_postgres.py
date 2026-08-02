@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 import pytest
 from api.discord_dependencies import DiscordServiceContext
 from core.api_errors import ApiProblem
+from domain.item_schema import ModifierScope
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
     DiscordEventCreateRequest,
     DiscordEventStartRequest,
     LocationCreateRequest,
     MessageTemplatePatchRequest,
+    PlayerModifierSetRequest,
     RewardCreateRequest,
 )
 from infrastructure.database import SessionLocal
@@ -19,6 +21,7 @@ from infrastructure.models import (
     DiscordAccountLink,
     DiscordGuildBinding,
     RewardPool,
+    UserProgress,
 )
 from services.discord_admin_service import DiscordAdminService
 
@@ -155,6 +158,70 @@ def test_versioned_discord_admin_workflow_is_atomic_and_audited() -> None:
             "event.create",
             "event.start",
         } <= actions
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(twitch_id="modifier-channel", name="modifier_channel", config={})
+        db.add(channel)
+        db.flush()
+        player = UserProgress(
+            user_twitch_id="modifier-player",
+            username="modifier_player",
+            channel_id=channel.id,
+        )
+        db.add_all(
+            [
+                player,
+                DiscordAccountLink(
+                    discord_user_id="1001",
+                    twitch_user_id="modifier-channel",
+                    twitch_login="modifier_channel",
+                    verified_at=now,
+                    last_verified_at=now,
+                ),
+                DiscordGuildBinding(
+                    discord_guild_id="2001",
+                    channel_id=channel.id,
+                    configured_by_discord_id="1001",
+                ),
+            ]
+        )
+        db.flush()
+        service = DiscordAdminService(db)
+        created = service.set_player_modifier(
+            _context("modifier-set"),
+            channel.twitch_id,
+            player.user_twitch_id,
+            PlayerModifierSetRequest(
+                stat_key="positive_mass_bonus_pct",
+                operation="add",
+                value="0.25",
+                scope="fishing",
+                source_key="promotion.weekly",
+                reason="Weekly promotion",
+            ),
+        )
+        assert created["version"] == 1
+
+        explained = service.explain_player_stats(
+            _context("modifier-explain"),
+            channel.twitch_id,
+            player.user_twitch_id,
+            ModifierScope.FISHING,
+        )
+        stat = explained["stats"]["positive_mass_bonus_pct"]
+        assert stat["value"] == "0.25000000"
+        assert stat["contributions"][0]["label"] == "Weekly promotion"
+
+        actions = {row.action for row in db.query(AdminAuditLog).all()}
+        assert "player_modifier.set" in actions
     finally:
         db.rollback()
         db.close()

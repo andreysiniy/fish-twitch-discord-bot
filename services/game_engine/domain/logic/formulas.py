@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from domain.logic.mass import quantize_mass, to_decimal
+from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 
 
 def calculate_xp_required(level: int, base: int = 100, exponent: float = 1.5) -> int:
@@ -42,3 +42,27 @@ def calculate_robbery_loss(
     divisor = to_decimal(loss_divisor)
     loss_modifier = Decimal("1") / (Decimal("1") + (resistance / divisor))
     return quantize_mass(to_decimal(potential_loss) * loss_modifier)
+
+
+def calculate_typed_robbery(
+    *,
+    base_chance: Decimal,
+    attacker_chance_add: Decimal,
+    victim_evasion: Decimal,
+    victim_mass: Decimal,
+    protected_mass: Decimal,
+    base_amount: Decimal,
+    attacker_amount_bonus: Decimal,
+    victim_protection: Decimal,
+    min_chance: Decimal = Decimal("0"),
+    max_chance: Decimal = Decimal("1"),
+) -> tuple[Decimal, Decimal, Decimal]:
+    chance = min(
+        max(base_chance + attacker_chance_add - victim_evasion, min_chance),
+        max_chance,
+    )
+    stealable = max(victim_mass - protected_mass, ZERO_MASS)
+    stolen = base_amount * (Decimal("1") + attacker_amount_bonus)
+    stolen *= Decimal("1") - victim_protection
+    stolen = quantize_mass(min(max(stolen, ZERO_MASS), stealable))
+    return chance, stealable, stolen

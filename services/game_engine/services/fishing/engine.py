@@ -104,21 +104,50 @@ class FishingEngine:
         items_drop_rate,
         custom_params,
         calculation_strategy: Optional[CalculationStrategy] = None,
+        modifier_values: Optional[Dict[str, Decimal]] = None,
+        behavioral_effects: Optional[list[Dict[str, Any]]] = None,
+        negative_mass_floor: Decimal = ZERO_MASS,
+        roulette_mass_floor: Decimal = ZERO_MASS,
     ) -> FishingResult:
         player_stats = calculate_player_stats(user)
-        luck = 1 + player_stats.get("luck_bonus", 0.0)
-        xp_bonus = player_stats.get("xp_bonus_pct", 0.0)
+        typed_modifiers = modifier_values is not None
+        modifiers = modifier_values or {}
+        luck = Decimal("1") + (
+            to_decimal(modifiers.get("loot_luck_pct", 0))
+            if typed_modifiers
+            else to_decimal(player_stats.get("luck_bonus", 0.0))
+        )
+        xp_bonus = (
+            to_decimal(modifiers.get("xp_gain_bonus_pct", 0))
+            if typed_modifiers
+            else to_decimal(player_stats.get("xp_bonus_pct", 0.0))
+        )
         strategy = calculation_strategy or self._default_strategy
 
-        catch = rng.roll_loot(loot_pool, luck_modifier=luck)
+        catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+        catch = self._reroll_reward_effects(
+            catch,
+            loot_pool,
+            float(luck),
+            behavioral_effects or [],
+        )
         if catch.get("type") == ActionType.POINTS:
             catch = dict(catch)
             catch["value"] = int(catch.get("value", 0) or 0) + int(
-                player_stats.get("points_bonus", 0) or 0
+                modifiers.get("points_flat_bonus", player_stats.get("points_bonus", 0)) or 0
             )
         item_catch = None
-        if item_pool and random.random() < items_drop_rate:
-            item_catch = rng.roll_loot(item_pool, luck_modifier=luck)
+        item_drop_chance = min(
+            max(
+                to_decimal(items_drop_rate)
+                + to_decimal(modifiers.get("item_drop_chance_add", 0)),
+                ZERO_MASS,
+            ),
+            Decimal("1"),
+        )
+        rarity_luck = Decimal("1") + to_decimal(modifiers.get("item_rarity_luck_pct", 0))
+        if item_pool and random.random() < float(item_drop_chance):
+            item_catch = rng.roll_loot(item_pool, luck_modifier=float(rarity_luck))
             if item_catch:
                 base_durability = item_catch.get("max_durability")
 
@@ -139,7 +168,7 @@ class FishingEngine:
         base_xp_gain = formulas.calculate_xp_gain(
             base_xp=catch.get("xp", 0),
             item_xp=item_catch.get("xp_gain", 0) if item_catch else 0,
-            bonus_pct=xp_bonus,
+            bonus_pct=float(xp_bonus),
         )
         xp_gain = strategy.adjust_xp_gain(base_xp_gain)
 
@@ -153,9 +182,11 @@ class FishingEngine:
         if catch.get("type") == ActionType.FISH:
             mass_gain = self._calculate_mass(
                 catch,
-                luck,
+                float(luck),
                 quantize_mass(user.current_mass),
                 strategy,
+                modifiers if typed_modifiers else None,
+                negative_mass_floor,
             )
         elif catch.get("type") == ActionType.RUSSIAN_ROULETTE:
             roulette_result = self.calculate_russian_roulette(
@@ -163,6 +194,8 @@ class FishingEngine:
                 catch=catch,
                 luck_modifier=luck,
                 calculation_strategy=strategy,
+                modifier_values=modifiers if typed_modifiers else None,
+                mass_floor=roulette_mass_floor,
             )
             mass_gain = roulette_result.mass_delta
 
@@ -175,7 +208,7 @@ class FishingEngine:
             is_level_up=is_levelup,
             old_level=old_level,
             new_level=new_level,
-            luck_used=luck,
+            luck_used=float(luck),
             roulette_result=roulette_result,
         )
 
@@ -185,6 +218,9 @@ class FishingEngine:
         victim: UserProgress,
         channel_config: Dict[str, Any],
         catch: Dict,
+        attacker_modifiers: Optional[Dict[str, Decimal]] = None,
+        victim_modifiers: Optional[Dict[str, Decimal]] = None,
+        protected_mass_floor: Decimal = ZERO_MASS,
     ) -> RobberyResultDTO:
         if victim is None:
             return RobberyResultDTO(
@@ -202,6 +238,46 @@ class FishingEngine:
         resist_divisor = resolve_param(custom_params, GParam.ROB_RESIST_DIVISOR)
         loss_divisor = resolve_param(custom_params, GParam.ROB_LOSS_DIVISOR)
         base_rob_chance = resolve_param(custom_params, GParam.ROB_BASE_CHANCE)
+
+        if attacker_modifiers is not None and victim_modifiers is not None:
+            victim_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
+            protected_mass = max(
+                to_decimal(victim_modifiers.get("protected_mass_flat", 0)),
+                to_decimal(protected_mass_floor),
+            )
+            stealable = max(victim_mass - protected_mass, ZERO_MASS)
+            steal_percent = max(to_decimal(catch.get("percentage", 0)), ZERO_MASS)
+            steal_value = max(to_decimal(catch.get("mass", 0)), ZERO_MASS)
+            base_amount = stealable * steal_percent + steal_value
+            final_chance, _, final_amount = formulas.calculate_typed_robbery(
+                base_chance=to_decimal(base_rob_chance),
+                attacker_chance_add=to_decimal(
+                    attacker_modifiers.get("robbery_attack_chance_add", 0)
+                ),
+                victim_evasion=to_decimal(victim_modifiers.get("robbery_evasion_pct", 0)),
+                victim_mass=victim_mass,
+                protected_mass=protected_mass,
+                base_amount=base_amount,
+                attacker_amount_bonus=to_decimal(
+                    attacker_modifiers.get("robbery_amount_bonus_pct", 0)
+                ),
+                victim_protection=to_decimal(
+                    victim_modifiers.get("robbery_protection_pct", 0)
+                ),
+                min_chance=to_decimal(min_chance),
+                max_chance=to_decimal(max_chance),
+            )
+            is_success = random.random() < float(final_chance)
+            if not is_success:
+                final_amount = ZERO_MASS
+            return RobberyResultDTO(
+                is_success=is_success,
+                amount_stolen=final_amount,
+                victim_name=victim.username,
+                victim_twitch_id=victim.user_twitch_id,
+                victim_new_mass=quantize_mass(victim_mass - final_amount),
+                chance_used=round(float(final_chance), 3),
+            )
 
         attacker_stats = calculate_player_stats(attacker)
         attacker_luck = 1.0 + attacker_stats.get("luck_bonus", 0.0)
@@ -256,6 +332,8 @@ class FishingEngine:
         catch: Dict[str, Any],
         luck_modifier: float,
         calculation_strategy: Optional[CalculationStrategy] = None,
+        modifier_values: Optional[Dict[str, Decimal]] = None,
+        mass_floor: Decimal = ZERO_MASS,
     ) -> RussianRouletteResultDTO:
         bullets = max(int(catch.get("bullets", 1)), 0)
         chambers = max(int(catch.get("chambers", 6)), 1)
@@ -284,6 +362,8 @@ class FishingEngine:
             quantize_mass(user.current_mass),
             luck_modifier,
             strategy,
+            modifier_values,
+            mass_floor,
         )
 
         return RussianRouletteResultDTO(
@@ -320,8 +400,18 @@ class FishingEngine:
         luck_modifier: float,
         user_balance: Decimal,
         strategy: CalculationStrategy,
+        modifier_values: Optional[Dict[str, Decimal]] = None,
+        mass_floor: Decimal = ZERO_MASS,
     ) -> Decimal:
-        return strategy.calculate(catch, luck_modifier, user_balance)
+        if modifier_values is None:
+            return strategy.calculate(catch, luck_modifier, user_balance)
+        raw_delta = strategy.calculate(catch, 1.0, user_balance)
+        return self._apply_signed_mass_modifiers(
+            raw_delta,
+            user_balance,
+            modifier_values,
+            mass_floor,
+        )
 
     def _calculate_roulette_mass_delta(
         self,
@@ -329,6 +419,8 @@ class FishingEngine:
         user_balance: Decimal,
         luck_modifier: float,
         strategy: CalculationStrategy,
+        modifier_values: Optional[Dict[str, Decimal]] = None,
+        mass_floor: Decimal = ZERO_MASS,
     ) -> Decimal:
         if not isinstance(effect_conf, dict):
             return ZERO_MASS
@@ -348,4 +440,53 @@ class FishingEngine:
         if source is None:
             return ZERO_MASS
 
-        return strategy.calculate(source, luck_modifier, user_balance)
+        if modifier_values is None:
+            return strategy.calculate(source, luck_modifier, user_balance)
+        raw_delta = strategy.calculate(source, 1.0, user_balance)
+        return self._apply_signed_mass_modifiers(
+            raw_delta,
+            user_balance,
+            modifier_values,
+            mass_floor,
+        )
+
+    @staticmethod
+    def _apply_signed_mass_modifiers(
+        raw_delta: Decimal,
+        user_balance: Decimal,
+        modifier_values: Dict[str, Decimal],
+        mass_floor: Decimal,
+    ) -> Decimal:
+        delta = to_decimal(raw_delta)
+        if delta >= ZERO_MASS:
+            delta *= Decimal("1") + to_decimal(
+                modifier_values.get("positive_mass_bonus_pct", 0)
+            )
+        else:
+            reduction = to_decimal(modifier_values.get("negative_mass_reduction_pct", 0))
+            delta *= max(Decimal("1") - reduction, ZERO_MASS)
+            if mass_floor > ZERO_MASS:
+                delta = max(delta, to_decimal(mass_floor) - to_decimal(user_balance))
+        return quantize_mass(delta)
+
+    @staticmethod
+    def _reroll_reward_effects(
+        catch: Dict[str, Any],
+        loot_pool: list[Dict[str, Any]],
+        luck: float,
+        effects: list[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        current = catch
+        for effect in effects:
+            if effect.get("type") != "reroll_reward":
+                continue
+            targets = set(effect.get("target_action_types") or [])
+            triggered = 0
+            for _ in range(int(effect.get("max_rerolls", 1))):
+                if str(current.get("type")) not in targets:
+                    break
+                current = rng.roll_loot(loot_pool, luck_modifier=luck)
+                triggered += 1
+            if triggered:
+                effect["_trigger_count"] = triggered
+        return current

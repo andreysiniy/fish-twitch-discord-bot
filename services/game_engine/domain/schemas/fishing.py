@@ -89,6 +89,8 @@ class RobberyResultDTO(BaseModel):
     victim_twitch_id: str
     victim_new_mass: Decimal
     chance_used: float
+    absorbed: bool = False
+    counter_actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class RussianRouletteResultDTO(BaseModel):

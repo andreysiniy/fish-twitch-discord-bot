@@ -133,6 +133,20 @@ class UserRepository:
             return self.get_random_victim(channel_id, attacker_id)
         return random.choice(candidates)
 
+    def lock_users(self, user_ids: list[int]) -> dict[int, UserProgress]:
+        normalized_ids = sorted({int(user_id) for user_id in user_ids})
+        rows = (
+            self.db.query(UserProgress)
+            .filter(UserProgress.id.in_(normalized_ids))
+            .order_by(UserProgress.id.asc())
+            .with_for_update(of=UserProgress)
+            .populate_existing()
+            .all()
+        )
+        if len(rows) != len(normalized_ids):
+            raise ValueError("User not found while locking robbery participants")
+        return {row.id: row for row in rows}
+
     def update_inventory(self, user: UserProgress, item_data: dict):
         item_id = str(item_data.get("item_id", "")).strip()
         if not item_id:

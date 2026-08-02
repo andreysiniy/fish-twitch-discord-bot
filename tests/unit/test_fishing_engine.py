@@ -232,6 +232,53 @@ def test_points_bonus_is_applied_to_points_reward() -> None:
     assert result.loot["value"] == 125
 
 
+@pytest.mark.parametrize(
+    ("fixed_mass", "modifiers", "mass_floor", "expected"),
+    [
+        ("10", {"positive_mass_bonus_pct": Decimal("0.20")}, "0", Decimal("12.00")),
+        ("-30", {"negative_mass_reduction_pct": Decimal("0.50")}, "0", Decimal("-15.00")),
+        ("-30", {"negative_mass_reduction_pct": Decimal("0")}, "90", Decimal("-10.00")),
+    ],
+)
+def test_typed_mass_modifiers_handle_sign_and_floor(
+    fixed_mass: str,
+    modifiers: dict,
+    mass_floor: str,
+    expected: Decimal,
+) -> None:
+    result = FishingEngine().calculate_result(
+        user=make_user(current_mass=Decimal("100")),
+        loot_pool=[{"type": "fish", "weight": 1, "fixed_mass": fixed_mass}],
+        item_pool=[],
+        items_drop_rate=0,
+        custom_params={},
+        modifier_values=modifiers,
+        negative_mass_floor=Decimal(mass_floor),
+    )
+    assert result.mass_gained == expected
+
+
+def test_typed_roulette_penalty_uses_negative_reduction(monkeypatch) -> None:
+    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
+    result = FishingEngine().calculate_result(
+        user=make_user(current_mass=Decimal("100")),
+        loot_pool=[
+            {
+                "type": "russian_roulette",
+                "weight": 1,
+                "bullets": 1,
+                "chambers": 1,
+                "penalty": {"type": "add_mass", "mass": "-40"},
+            }
+        ],
+        item_pool=[],
+        items_drop_rate=0,
+        custom_params={},
+        modifier_values={"negative_mass_reduction_pct": Decimal("0.25")},
+    )
+    assert result.mass_gained == Decimal("-30.00")
+
+
 def test_robbery_uses_nested_custom_parameters(monkeypatch) -> None:
     monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0.5)
     result = FishingEngine().calculate_mass_robbery(
@@ -369,6 +416,14 @@ def test_fishing_service_persists_decimal_mass() -> None:
     channel_repo = Mock()
     channel_repo.get_active_fishing_event.return_value = None
     service = FishingService(user_repo, config_repo, cooldown_repo, channel_repo)
+    service.modifier_service.resolve = Mock(
+        return_value=SimpleNamespace(
+            value=lambda _stat: Decimal("0"),
+            values={},
+            effects=(),
+            mass_floor=lambda _scope: Decimal("0"),
+        )
+    )
     service.engine.calculate_result = Mock(
         return_value=FishingResult(
             loot={"type": "fish"},
