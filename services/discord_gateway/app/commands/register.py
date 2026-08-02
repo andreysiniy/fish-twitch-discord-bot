@@ -10,7 +10,14 @@ from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.modals import ConfigModal, EventModal, LocationModal, RewardModal
 from app.interactions.sessions import WizardSessionStore
-from app.presentation.embeds import config_embed, status_embed
+from app.presentation.embeds import (
+    config_embed,
+    event_list_entry,
+    location_list_entry,
+    placeholder_help_embeds,
+    reward_list_entry,
+    status_embed,
+)
 from app.presentation.formatting import parse_duration
 from app.presentation.pagination import PagedEmbedView
 
@@ -49,9 +56,26 @@ def register_commands(
             "`config` — XP, economy, robbery, and cooldown settings\n"
             "`location` — fishing locations\n"
             "`reward` — weighted channel rewards\n"
-            "`event` — channel events"
+            "`event` — channel events\n"
+            "`placeholders` — message placeholder reference"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @fish.command(name="placeholders", description="Show placeholders for custom messages")
+    async def placeholders(
+        interaction: discord.Interaction,
+        message_key: str | None = None,
+    ) -> None:
+        async def operation() -> None:
+            result = await api.message_placeholders(interaction)
+            try:
+                embeds = placeholder_help_embeds(result["items"], message_key)
+            except ValueError as error:
+                await interaction.followup.send(str(error), ephemeral=True)
+                return
+            await interaction.followup.send(embeds=embeds, ephemeral=True)
+
+        await _deferred(interaction, operation)
 
     @account.command(name="link", description="Create a one-time Twitch authorization link")
     async def account_link(interaction: discord.Interaction) -> None:
@@ -235,10 +259,7 @@ def register_commands(
                 interaction.user.id,
                 "Fishing locations",
                 result["items"],
-                lambda item: (
-                    item["location_name"],
-                    f"ID: `{item['location_id']}` • rewards: {item['reward_count']} • version: {item['version']}",
-                ),
+                location_list_entry,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
@@ -310,14 +331,8 @@ def register_commands(
                 interaction.user.id,
                 f"Rewards — {location_id}",
                 result["items"],
-                lambda item: (
-                    item.get("name") or item["type"],
-                    (
-                        f"ID: `{item['reward_id']}` • type: `{item['type']}` • "
-                        f"weight: {item['weight']} • "
-                        f"chance: {float(item.get('probability', 0)):.2%}"
-                    ),
-                ),
+                reward_list_entry,
+                page_size=1,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
@@ -444,14 +459,8 @@ def register_commands(
                 interaction.user.id,
                 "Channel events",
                 result["items"],
-                lambda item: (
-                    item["event_title"],
-                    (
-                        f"ID: `{item['id']}` • "
-                        f"{'active' if item['is_active'] else 'inactive'} • "
-                        f"version: {item['version']}"
-                    ),
-                ),
+                event_list_entry,
+                page_size=5,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 

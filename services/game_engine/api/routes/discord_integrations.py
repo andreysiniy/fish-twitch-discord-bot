@@ -1,11 +1,21 @@
+from html import escape
+
 from api.dependencies import get_discord_admin_service
 from api.discord_dependencies import DiscordServiceContext, get_discord_service_context
+from core.messages import message_placeholder_catalog
 from domain.schemas.discord_admin import GuildBindRequest
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 from services.discord_admin_service import DiscordAdminService
 
 router = APIRouter()
+
+
+@router.get("/integrations/discord/messages/placeholders")
+def message_placeholders(
+    _context: DiscordServiceContext = Depends(get_discord_service_context),
+):
+    return {"items": message_placeholder_catalog()}
 
 
 @router.post("/integrations/discord/link/start")
@@ -84,6 +94,3 @@ async def discord_twitch_callback(
         f"<html><body><h1>Twitch linked</h1><p>{login}</p>"
         "<p>You can return to Discord.</p></body></html>"
     )
-# ruff: noqa: B008
-
-from html import escape

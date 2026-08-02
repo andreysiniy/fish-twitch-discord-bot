@@ -7,9 +7,21 @@ from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.config import DiscordSettings
-from app.interactions.reward_payloads import build_reward_payload
+from app.interactions.modals import (
+    EventBonusModal,
+    EventModal,
+    FishRewardModal,
+    RewardModal,
+    RobberyRewardModal,
+    RouletteOutcomeModal,
+    RouletteSettingsModal,
+    TimeoutRewardModal,
+)
+from app.interactions.reward_payloads import build_reward_payload, build_roulette_outcome
 from app.interactions.sessions import WizardSessionStore
+from app.presentation.embeds import event_list_entry, location_list_entry, reward_list_entry
 from app.presentation.formatting import diff_lines, parse_decimal, parse_duration
+from app.presentation.pagination import PagedEmbedView
 
 
 class FakeRedis:
@@ -49,12 +61,17 @@ def test_numeric_parsing_and_diff_are_stable() -> None:
 @pytest.mark.parametrize(
     ("reward_type", "parameters", "expected"),
     [
-        ("fish", "range=0.1,5", {"min_mass": "0.1", "max_mass": "5"}),
-        ("timeout", "duration=10m;reason=test", {"duration": 600, "reason": "test"}),
-        ("robbery", "percentage=0.2;range=5", {"percentage": "0.2", "range": 5}),
+        ("fish", {"min_mass": "0.1", "max_mass": "5"}, {"min_mass": "0.1", "max_mass": "5"}),
+        ("timeout", {"duration": "10m", "reason": "test"}, {"duration": 600, "reason": "test"}),
+        ("robbery", {"percentage": "0.2", "range": "5"}, {"percentage": "0.2", "range": 5}),
         (
             "russian_roulette",
-            "bullets=1;chambers=6;reward=add_mass:2;penalty=timeout:1m,test",
+            {
+                "bullets": "1",
+                "chambers": "6",
+                "reward": {"type": "add_mass", "mass": "2"},
+                "penalty": {"type": "timeout", "duration": 60, "reason": "test"},
+            },
             {
                 "bullets": 1,
                 "chambers": 6,
@@ -62,7 +79,7 @@ def test_numeric_parsing_and_diff_are_stable() -> None:
                 "penalty": {"type": "timeout", "duration": 60, "reason": "test"},
             },
         ),
-        ("nothing", "", {}),
+        ("nothing", {}, {}),
     ],
 )
 def test_build_supported_reward_payloads(reward_type, parameters, expected) -> None:
@@ -71,6 +88,125 @@ def test_build_supported_reward_payloads(reward_type, parameters, expected) -> N
     assert payload["weight"] == 10
     for key, value in expected.items():
         assert payload[key] == value
+
+
+def test_reward_payloads_reject_ambiguous_fields_and_build_roulette_outcomes() -> None:
+    with pytest.raises(ValueError, match="exactly one fish mass mode"):
+        build_reward_payload(
+            "fish",
+            "Test",
+            "10",
+            "0",
+            "",
+            {"fixed_mass": "1", "percentage": "0.1"},
+        )
+
+    assert build_roulette_outcome("add_percentage_mass", "", "0.25", "", "") == {
+        "type": "add_percentage_mass",
+        "percentage": "0.25",
+    }
+    assert build_roulette_outcome("timeout", "", "", "10m", "Unlucky") == {
+        "type": "timeout",
+        "duration": 600,
+        "reason": "Unlucky",
+    }
+
+
+def test_structured_modals_use_separate_fields_with_hints() -> None:
+    async def save(_interaction, _payload):
+        return None
+
+    base = {"type": "fish", "weight": 100, "xp": 0, "message": ""}
+    reward_defaults = {
+        "type": "russian_roulette",
+        "bullets": 1,
+        "chambers": 6,
+        "reward": {"type": "add_mass", "mass": "2"},
+    }
+    event_payload = {
+        "event_title": "Test",
+        "override_loot_pool": None,
+        "modifiers": {"luck_mult": "1", "xp_mult": "1", "cd_reduction": "0"},
+    }
+    modals = [
+        RewardModal("fish", save),
+        FishRewardModal(base, save, {}),
+        TimeoutRewardModal({**base, "type": "timeout"}, save, {}),
+        RobberyRewardModal({**base, "type": "robbery"}, save, {}),
+        RouletteSettingsModal({**base, "type": "russian_roulette"}, save, reward_defaults),
+        RouletteOutcomeModal(
+            "reward",
+            {**base, "type": "russian_roulette"},
+            save,
+            reward_defaults["reward"],
+            reward_defaults,
+        ),
+        EventModal(save),
+        EventBonusModal(event_payload, save, {}),
+    ]
+
+    assert all(len(modal.children) <= 5 for modal in modals)
+    assert all(child.placeholder for modal in modals for child in modal.children)
+    assert {child.label for child in modals[1].children} == {
+        "Fixed mass",
+        "Minimum mass",
+        "Maximum mass",
+        "Percentage",
+    }
+    assert {child.label for child in modals[6].children} == {
+        "Name",
+        "Override location",
+        "Luck multiplier",
+        "XP multiplier",
+        "Cooldown reduction",
+    }
+
+
+def test_entity_list_entries_include_all_parameters_without_truncation() -> None:
+    marker = "complete-message-marker"
+    reward = {
+        "reward_id": "reward-1",
+        "type": "russian_roulette",
+        "name": "Risky reward",
+        "weight": 100,
+        "probability": 0.5,
+        "xp": 25,
+        "message": "M" * 300,
+        "bullets": 1,
+        "chambers": 6,
+        "safe_message": "S" * 300,
+        "shot_message": "X" * 300 + marker,
+        "reward": {"type": "add_mass", "mass": "2.5"},
+        "penalty": {"type": "timeout", "duration": 60, "reason": "Unlucky"},
+    }
+    title, details = reward_list_entry(reward)
+    view = PagedEmbedView(1, "Rewards", [reward], reward_list_entry, page_size=1)
+    rendered = "\n".join(field.value for field in view.embed().fields)
+
+    assert title == "Risky reward"
+    assert "probability: 50.00%" in details
+    assert all(f"{key}:" in details for key in reward)
+    assert marker in rendered
+
+    location = {
+        "location_id": "river",
+        "location_name": "River",
+        "items_drop_rate": 0.1,
+        "requirements": {"level": 2},
+        "reward_count": 4,
+        "version": 3,
+    }
+    event = {
+        "id": 7,
+        "event_title": "Double XP",
+        "is_active": True,
+        "override_loot_pool": "river",
+        "modifiers": {"xp_mult": "2", "bonus_mass": "0.15"},
+        "version": 2,
+        "updated_at": "2026-08-02T00:00:00+00:00",
+    }
+    assert all(f"{key}:" in location_list_entry(location)[1] for key in location)
+    assert all(f"{key}:" in event_list_entry(event)[1] for key in event)
 
 
 def test_error_mapping_includes_request_id() -> None:
@@ -113,6 +249,7 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "help",
         "link",
         "location",
+        "placeholders",
         "reward",
         "setup",
         "status",

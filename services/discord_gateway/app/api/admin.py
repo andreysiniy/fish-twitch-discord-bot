@@ -14,6 +14,13 @@ class AdminApi:
     async def status(self, interaction: discord.Interaction) -> dict[str, Any]:
         return await self.client.request(interaction, "GET", "/v1/integrations/discord/link/status")
 
+    async def message_placeholders(self, interaction: discord.Interaction) -> dict[str, Any]:
+        return await self.client.request(
+            interaction,
+            "GET",
+            "/v1/integrations/discord/messages/placeholders",
+        )
+
     async def link_start(self, interaction: discord.Interaction) -> dict[str, Any]:
         return await self.client.request(
             interaction,

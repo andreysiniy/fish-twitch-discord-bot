@@ -35,7 +35,10 @@ class PagedEmbedView(discord.ui.View):
             embed.description = "No entries."
         for item in page_items:
             name, value = self.formatter(item)
-            embed.add_field(name=name[:256], value=value[:1024], inline=False)
+            chunks = _field_chunks(value)
+            for index, chunk in enumerate(chunks):
+                field_name = name if index == 0 else f"{name} (continued)"
+                embed.add_field(name=field_name[:256], value=chunk, inline=False)
         embed.set_footer(text=f"Page {self.page + 1}/{self.page_count} • {len(self.items)} entries")
         return embed
 
@@ -62,3 +65,20 @@ class PagedEmbedView(discord.ui.View):
         self.page = min(self.page_count - 1, self.page + 1)
         self._update_buttons()
         await interaction.response.edit_message(embed=self.embed(), view=self)
+
+
+def _field_chunks(value: str, limit: int = 1024) -> list[str]:
+    if not value:
+        return ["—"]
+    chunks = []
+    remaining = value
+    while remaining:
+        if len(remaining) <= limit:
+            chunks.append(remaining)
+            break
+        split_at = remaining.rfind("\n", 0, limit + 1)
+        if split_at <= 0:
+            split_at = limit
+        chunks.append(remaining[:split_at])
+        remaining = remaining[split_at:].lstrip("\n")
+    return chunks
