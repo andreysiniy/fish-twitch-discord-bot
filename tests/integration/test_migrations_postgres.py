@@ -52,7 +52,6 @@ def test_latest_pre_alembic_snapshot_upgrades_without_data_loss() -> None:
                 type="equipment",
                 slot="rod",
                 rarity="rare",
-                durability=7,
                 stack_size=1,
             )
             db.add_all([user, definition])
@@ -140,7 +139,10 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "DROP COLUMN updated_at, DROP COLUMN updated_by",
         "ALTER TABLE item_definitions ADD COLUMN sell_value NUMERIC(18, 2), "
         "ADD COLUMN is_sellable BOOLEAN NOT NULL DEFAULT TRUE, "
-        "ADD COLUMN is_tradeable BOOLEAN NOT NULL DEFAULT TRUE",
+        "ADD COLUMN is_tradeable BOOLEAN NOT NULL DEFAULT TRUE, "
+        "ADD COLUMN durability INTEGER, "
+        "ADD COLUMN base_stats JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "UPDATE item_definitions SET durability = 7 WHERE item_id = 'legacy_rod'",
     )
     with engine.begin() as connection:
         for statement in statements:

@@ -34,6 +34,7 @@ ENV/
 .env.*
 !.env.example
 *.ini
+!services/game_engine/alembic.ini
 *.cfg
 
 # --- Docker ---
