@@ -7,3 +7,13 @@ from .models import (
     LocationItem,
     FishingEvent,
 )
+
+__all__ = [
+    "Channel",
+    "FishingEvent",
+    "InventoryItem",
+    "ItemDefinition",
+    "LocationItem",
+    "RewardPool",
+    "UserProgress",
+]

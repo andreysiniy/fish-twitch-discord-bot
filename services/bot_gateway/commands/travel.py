@@ -27,7 +27,7 @@ class TravelCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Travel processed."))
         except EngineApiError as error:
             await ctx.send(f"Travel error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish travel command failed")
             await ctx.send("Could not process travel action.")
 logger = logging.getLogger(__name__)

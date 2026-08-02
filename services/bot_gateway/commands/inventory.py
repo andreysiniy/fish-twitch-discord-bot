@@ -21,7 +21,7 @@ class InventoryCog(commands.Cog):
             await self._send_inventory(ctx, response)
         except EngineApiError as error:
             await ctx.send(f"Inventory error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish inventory command failed")
             await ctx.send("Could not retrieve inventory.")
 
@@ -38,7 +38,7 @@ class InventoryCog(commands.Cog):
             await ctx.send(response.get("message", "Item equipped."))
         except EngineApiError as error:
             await ctx.send(f"Equip error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish equip command failed")
             await ctx.send("Could not equip item.")
 
