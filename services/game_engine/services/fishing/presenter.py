@@ -155,12 +155,7 @@ class FishingPresenter:
 
         percentage = Decimal("0")
         if result.loot.get("percentage") is not None:
-            percentage = to_decimal(result.loot.get("percentage"))
-            luck_multiplier = max(Decimal("1"), to_decimal(result.luck_used))
-            if percentage >= 0:
-                percentage *= luck_multiplier
-            else:
-                percentage /= luck_multiplier
+            percentage = self._effective_mass_percentage(user, result)
         percentage_formatted = format_percent_signed(percentage)
 
         base_msg_action = self._present_basic_msg(
@@ -329,13 +324,9 @@ class FishingPresenter:
         mass_formatted = format_large_number_mass_signed(result.mass_gained)
         new_mass_formatted = format_large_number_mass(user.current_mass)
 
-        percentage_value = to_decimal(active_effect.get("percentage", 0) or 0)
-        if percentage_value != 0:
-            luck_multiplier = max(Decimal("1"), to_decimal(result.luck_used))
-            if percentage_value >= 0:
-                percentage_value *= luck_multiplier
-            else:
-                percentage_value /= luck_multiplier
+        percentage_value = Decimal("0")
+        if active_effect.get("percentage") is not None:
+            percentage_value = self._effective_mass_percentage(user, result)
         percentage_formatted = format_percent_signed(percentage_value)
 
         timeout_duration = int(active_effect.get("duration", 0) or 0)
@@ -394,6 +385,14 @@ class FishingPresenter:
             )
 
         return actions
+
+    @staticmethod
+    def _effective_mass_percentage(user: UserProgress, result: FishingResult) -> Decimal:
+        applied_delta = to_decimal(result.mass_gained)
+        previous_mass = to_decimal(user.current_mass) - applied_delta
+        if previous_mass <= 0:
+            return Decimal("0")
+        return applied_delta / previous_mass
 
     def _present_item_drop(self, user: UserProgress, item: Dict, config: Dict) -> List[GameAction]:
         item_name = item.get("title", "Unknown Item")
