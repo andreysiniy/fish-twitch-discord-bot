@@ -128,9 +128,6 @@ def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
         "break_policy",
         "effects",
         "value",
-        "sell_value",
-        "is_sellable",
-        "is_tradeable",
         "is_active",
         "version",
     )

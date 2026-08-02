@@ -2,7 +2,6 @@ from domain.schemas.rpg import (
     EquipRequestDTO,
     EquipResponseDTO,
     InventoryResponseDTO,
-    RepairRequestDTO,
     UnequipRequestDTO,
     UseItemRequestDTO,
     UseItemResponseDTO,
@@ -43,23 +42,6 @@ class InventoryService:
         return EquipResponseDTO(
             success=True,
             message=f"Unequipped {data.equipment_slot.value}.",
-        )
-
-    def repair_item(self, data: RepairRequestDTO) -> EquipResponseDTO:
-        user = self.user_repo.get_progress(data.user_id, data.channel_id)
-        if not user:
-            return EquipResponseDTO(success=False, message="You have no inventory.")
-        try:
-            item = self.inventory_repo.repair(user.id, data.slot_id)
-        except ValueError as error:
-            return EquipResponseDTO(success=False, message=str(error))
-        return EquipResponseDTO(
-            success=True,
-            message=(
-                f"Repaired [{item.slot_id}] {item.definition.title} to "
-                f"{item.current_durability} durability."
-            ),
-            equipped_item_name=item.definition.title,
         )
 
     def use_item(self, data: UseItemRequestDTO) -> UseItemResponseDTO:

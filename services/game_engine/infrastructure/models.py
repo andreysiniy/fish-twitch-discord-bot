@@ -151,7 +151,6 @@ class ItemDefinition(Base):
     base_stats = Column(JSONB, default=dict, nullable=False)
     effects = Column(JSONB, default=list, nullable=False)
     value = Column(Numeric(18, 2), nullable=True)
-    sell_value = Column(Numeric(18, 2), nullable=True)
     schema_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -163,8 +162,6 @@ class ItemDefinition(Base):
         nullable=False,
     )
     updated_by = Column(String, nullable=True)
-    is_sellable = Column(Boolean, default=True, nullable=False)
-    is_tradeable = Column(Boolean, default=True, nullable=False)
 
     channel = relationship("Channel", back_populates="item_definitions")
 

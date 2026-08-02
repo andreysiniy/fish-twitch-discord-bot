@@ -5,7 +5,6 @@ from domain.schemas.rpg import (
     EquipRequestDTO,
     EquipResponseDTO,
     InventoryResponseDTO,
-    RepairRequestDTO,
     UnequipRequestDTO,
     UseItemRequestDTO,
     UseItemResponseDTO,
@@ -31,16 +30,6 @@ def unequip_item(
 ):
     _assert_inventory_owner(security_subject, request.user_id)
     return service.unequip_item(request)
-
-
-@router.post("/repair", response_model=EquipResponseDTO)
-def repair_item(
-    request: RepairRequestDTO,
-    service: InventoryService = Depends(get_inventory_service),
-    security_subject: str = Depends(verify_security),
-):
-    _assert_inventory_owner(security_subject, request.user_id)
-    return service.repair_item(request)
 
 
 @router.post("/use", response_model=UseItemResponseDTO)

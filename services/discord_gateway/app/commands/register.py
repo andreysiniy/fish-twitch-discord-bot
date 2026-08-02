@@ -879,9 +879,6 @@ def register_commands(
                     "schema_version": current["schema_version"],
                     "image_url": current.get("image_url"),
                     "value": current.get("value"),
-                    "sell_value": current.get("sell_value"),
-                    "is_sellable": current["is_sellable"],
-                    "is_tradeable": current["is_tradeable"],
                 }
             )
             await api.upsert_item(interaction, payload)
@@ -1442,7 +1439,4 @@ def _item_payload(
         "effects": effects,
         "image_url": None,
         "value": None,
-        "sell_value": None,
-        "is_sellable": True,
-        "is_tradeable": True,
     }
