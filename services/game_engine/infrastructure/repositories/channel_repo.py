@@ -209,14 +209,12 @@ class ChannelRepository:
         definition.type = item_type
         definition.slot = normalized_slot or None
         definition.rarity = rarity
-        definition.durability = None
         definition.max_durability = (
             int(max_durability) if max_durability is not None else None
         )
         definition.break_policy = break_policy
         definition.stack_size = max(int(stack_size or 1), 1)
         definition.image_url = image_url
-        definition.base_stats = {}
         definition.effects = effects or []
         definition.schema_version = schema_version
         definition.value = value

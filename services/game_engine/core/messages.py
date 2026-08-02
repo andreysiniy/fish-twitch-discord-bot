@@ -58,7 +58,6 @@ class MsgKey(str, Enum):
 
     # --- Economy (Selling) ---
     SELL_SUCCESS = "sell_success"
-    SELL_FAIL_NOT_SELLABLE = "sell_fail_not_sellable"
     SELL_NOTHING = "sell_nothing"
 
     # --- Economy (Mass Exchange) ---
@@ -164,7 +163,6 @@ DEFAULT_MESSAGES = {
     MsgKey.FISHEVENT_ENABLED_TIMED: "Event enabled: [{event_id}] {event_title} for {duration}.",
     MsgKey.FISHEVENT_DISABLED: "Event disabled: [{event_id}] {event_title}.",
     MsgKey.SELL_SUCCESS: "Sold {item_name} x{quantity} for {amount} points.",
-    MsgKey.SELL_FAIL_NOT_SELLABLE: "You cannot sell {item_name}, it's priceless!",
     MsgKey.SELL_NOTHING: "You have nothing to sell.",
     MsgKey.SELL_MASS_SUCCESS: "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg).",
     MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",
