@@ -10,6 +10,7 @@ from domain.schemas.discord_admin import (
     DiscordEventStartRequest,
     LocationCreateRequest,
     LocationPatchRequest,
+    MessageTemplatePatchRequest,
     RewardCreateRequest,
     RewardPatchRequest,
 )
@@ -44,6 +45,26 @@ def get_config(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.get_config(context, channel_twitch_id)
+
+
+@router.get("/channels/{channel_twitch_id}/messages")
+def list_messages(
+    channel_twitch_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_messages(context, channel_twitch_id)
+
+
+@router.patch("/channels/{channel_twitch_id}/messages/{message_key}")
+def patch_message(
+    channel_twitch_id: str,
+    message_key: str,
+    data: MessageTemplatePatchRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.patch_message(context, channel_twitch_id, message_key, data)
 
 
 @router.patch("/channels/{channel_twitch_id}/config")
@@ -254,4 +275,6 @@ def delete_event(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.delete_event(context, channel_twitch_id, event_id, expected_version)
+
+
 # ruff: noqa: B008

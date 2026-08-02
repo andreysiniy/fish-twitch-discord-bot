@@ -100,9 +100,19 @@ def placeholder_help_embeds(
             title=f"Message placeholders: {normalized}",
             color=discord.Color.blurple(),
         )
+        if item.get("default_message"):
+            embed.add_field(
+                name="Default message",
+                value=item["default_message"][:1024],
+                inline=False,
+            )
         placeholders = item["placeholders"]
         if not placeholders:
-            embed.description = "This message does not use placeholders."
+            embed.add_field(
+                name="Placeholders",
+                value="This message does not use placeholders.",
+                inline=False,
+            )
         for placeholder in placeholders:
             embed.add_field(
                 name=f"{{{placeholder['name']}}}",
@@ -116,7 +126,7 @@ def placeholder_help_embeds(
         embed = discord.Embed(
             title="Message placeholder reference",
             description=(
-                "Use `/fish placeholders message_key:<key>` for descriptions. "
+                "Use `/fish placeholders show message_key:<key>` for descriptions. "
                 "Placeholders that are not listed for a message are left unchanged."
             ),
             color=discord.Color.blurple(),

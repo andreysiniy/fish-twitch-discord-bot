@@ -9,6 +9,7 @@ from domain.schemas.discord_admin import (
     DiscordEventCreateRequest,
     DiscordEventStartRequest,
     LocationCreateRequest,
+    MessageTemplatePatchRequest,
     RewardCreateRequest,
 )
 from infrastructure.database import SessionLocal
@@ -92,6 +93,22 @@ def test_versioned_discord_admin_workflow_is_atomic_and_audited() -> None:
             )
         assert conflict.value.code == "CONFIG_VERSION_CONFLICT"
 
+        messages = service.get_messages(_context("messages-list"), "9001")
+        assert messages["version"] == 2
+        updated_message = service.patch_message(
+            _context("message"),
+            "9001",
+            "robbery_no_target",
+            MessageTemplatePatchRequest(
+                expected_version=messages["version"],
+                template="No available target for {attacker}.",
+            ),
+        )
+        assert updated_message["version"] == 3
+        assert channel.config["messages"]["robbery_no_target"] == (
+            "No available target for {attacker}."
+        )
+
         location = service.create_location(
             _context("location"),
             "9001",
@@ -132,6 +149,7 @@ def test_versioned_discord_admin_workflow_is_atomic_and_audited() -> None:
         actions = {row.action for row in db.query(AdminAuditLog).all()}
         assert {
             "config.patch",
+            "message.patch",
             "location.create",
             "reward.create",
             "event.create",

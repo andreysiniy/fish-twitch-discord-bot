@@ -8,7 +8,13 @@ from app.api.admin import AdminApi
 from app.api.errors import EngineError, localize_error
 from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
-from app.interactions.modals import ConfigModal, EventModal, LocationModal, create_reward_modal
+from app.interactions.modals import (
+    ConfigModal,
+    EventModal,
+    LocationModal,
+    MessageTemplateModal,
+    create_reward_modal,
+)
 from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
     config_embed,
@@ -45,6 +51,11 @@ def register_commands(
     )
     reward = app_commands.Group(name="reward", description="Manage location rewards", parent=fish)
     event = app_commands.Group(name="event", description="Manage channel events", parent=fish)
+    placeholders = app_commands.Group(
+        name="placeholders",
+        description="View and edit custom message templates",
+        parent=fish,
+    )
 
     @fish.command(name="help", description="Show available Fisher Bot commands")
     async def help_command(interaction: discord.Interaction) -> None:
@@ -61,19 +72,61 @@ def register_commands(
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @fish.command(name="placeholders", description="Show placeholders for custom messages")
-    async def placeholders(
-        interaction: discord.Interaction,
-        message_key: str | None = None,
-    ) -> None:
+    @placeholders.command(name="list", description="List placeholders for all messages")
+    async def placeholders_list(interaction: discord.Interaction) -> None:
         async def operation() -> None:
             result = await api.message_placeholders(interaction)
-            try:
-                embeds = placeholder_help_embeds(result["items"], message_key)
-            except ValueError as error:
-                await interaction.followup.send(str(error), ephemeral=True)
-                return
+            embeds = placeholder_help_embeds(result["items"])
             await interaction.followup.send(embeds=embeds, ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @placeholders.command(name="show", description="Show one message and its placeholders")
+    async def placeholders_show(interaction: discord.Interaction, message_key: str) -> None:
+        async def operation() -> None:
+            result = await api.message_placeholders(interaction)
+            embeds = placeholder_help_embeds(result["items"], message_key)
+            await interaction.followup.send(embeds=embeds, ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @placeholders.command(name="edit", description="Edit a custom channel message")
+    async def placeholders_edit(interaction: discord.Interaction, message_key: str) -> None:
+        async def operation() -> None:
+            current = await api.messages(interaction)
+            normalized_key = message_key.strip().lower()
+            item = next(
+                (entry for entry in current["items"] if entry["message_key"] == normalized_key),
+                None,
+            )
+            if item is None:
+                raise ValueError(f"Unknown message key: {message_key}")
+
+            async def save(
+                modal_interaction: discord.Interaction,
+                template: str | None,
+            ) -> None:
+                await _mutation_response(
+                    modal_interaction,
+                    lambda: api.patch_message(
+                        modal_interaction,
+                        normalized_key,
+                        current["version"],
+                        template,
+                    ),
+                    "Custom message updated." if template else "Custom message reset.",
+                )
+
+            view = ModalLauncherView(
+                interaction.user.id,
+                lambda: MessageTemplateModal(item, save),
+                label="Edit message",
+            )
+            await interaction.followup.send(
+                f"Editing `{normalized_key}`. Clear the template to restore its default.",
+                view=view,
+                ephemeral=True,
+            )
 
         await _deferred(interaction, operation)
 
@@ -555,6 +608,21 @@ def register_commands(
             danger=True,
         )
 
+    async def message_key_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        try:
+            result = await api.message_placeholders(interaction)
+        except EngineError:
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(name=item["message_key"][:100], value=item["message_key"])
+            for item in result["items"]
+            if needle in item["message_key"].casefold()
+        ][:25]
+
     async def location_autocomplete(
         interaction: discord.Interaction,
         current: str,
@@ -621,6 +689,8 @@ def register_commands(
         command.autocomplete("reward_id")(reward_autocomplete)
     for command in (event_show, event_edit, event_start, event_delete):
         command.autocomplete("event_id")(event_autocomplete)
+    for command in (placeholders_show, placeholders_edit):
+        command.autocomplete("message_key")(message_key_autocomplete)
 
     tree.add_command(fish)
 

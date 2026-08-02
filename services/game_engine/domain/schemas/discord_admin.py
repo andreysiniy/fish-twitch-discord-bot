@@ -34,6 +34,11 @@ class ConfigResetRequest(StrictDTO):
     section: str
 
 
+class MessageTemplatePatchRequest(StrictDTO):
+    expected_version: int = Field(..., ge=1)
+    template: str | None = Field(None, max_length=500)
+
+
 class LocationCreateRequest(StrictDTO):
     location_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$")
     location_name: str = Field(..., min_length=1, max_length=80)

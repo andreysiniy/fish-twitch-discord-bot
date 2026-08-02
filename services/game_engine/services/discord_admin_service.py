@@ -8,6 +8,7 @@ from anyio import to_thread
 from api.discord_dependencies import DiscordServiceContext
 from core.api_errors import ApiProblem
 from core.config import settings
+from core.messages import message_placeholder_catalog, validate_custom_message_template
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
 from domain.schemas.admin import ChannelCreateDTO
@@ -20,6 +21,7 @@ from domain.schemas.discord_admin import (
     GuildBindRequest,
     LocationCreateRequest,
     LocationPatchRequest,
+    MessageTemplatePatchRequest,
     RewardCreateRequest,
     RewardPatchRequest,
 )
@@ -329,6 +331,91 @@ class DiscordAdminService:
             "effective": effective,
             "updated_at": channel.config_updated_at.isoformat(),
         }
+
+    def get_messages(self, context, channel_twitch_id: str) -> dict[str, Any]:
+        channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
+        custom_messages = dict((channel.config or {}).get("messages") or {})
+        items = []
+        for entry in message_placeholder_catalog():
+            message_key = entry["message_key"]
+            custom_message = custom_messages.get(message_key)
+            items.append(
+                {
+                    **entry,
+                    "custom_message": custom_message,
+                    "effective_message": custom_message or entry["default_message"],
+                }
+            )
+        return {"version": channel.config_version, "items": items}
+
+    def patch_message(
+        self,
+        context,
+        channel_twitch_id: str,
+        message_key: str,
+        data: MessageTemplatePatchRequest,
+    ) -> dict[str, Any]:
+        normalized_template = data.template.strip() if data.template else None
+        try:
+            validate_custom_message_template(message_key, normalized_template or "")
+        except ValueError as error:
+            raise ApiProblem(422, "VALIDATION_ERROR", str(error)) from error
+
+        payload = {
+            "expected_version": data.expected_version,
+            "message_key": message_key,
+            "template": normalized_template,
+        }
+
+        def mutation() -> dict[str, Any]:
+            channel, link = self._authorize(
+                context,
+                ChannelPermission.CONFIG_WRITE,
+                channel_twitch_id,
+                for_update=True,
+            )
+            self._check_version(channel.config_version, data.expected_version, context)
+            config = dict(channel.config or {})
+            messages = dict(config.get("messages") or {})
+            before = messages.get(message_key)
+            if normalized_template:
+                messages[message_key] = normalized_template
+            else:
+                messages.pop(message_key, None)
+            if before == messages.get(message_key):
+                return {
+                    "version": channel.config_version,
+                    "message_key": message_key,
+                    "custom_message": before,
+                }
+            config["messages"] = messages
+            channel.config = config
+            channel.config_version += 1
+            channel.config_updated_at = datetime.now(timezone.utc)
+            self.db.flush()
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "message.patch",
+                "message",
+                message_key,
+                {"template": before},
+                {"template": normalized_template},
+            )
+            return {
+                "version": channel.config_version,
+                "message_key": message_key,
+                "custom_message": normalized_template,
+            }
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "message.patch",
+            payload,
+            context.request_id,
+            mutation,
+        )
 
     def patch_config(
         self,

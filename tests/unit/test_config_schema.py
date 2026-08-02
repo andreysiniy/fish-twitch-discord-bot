@@ -1,5 +1,10 @@
 import pytest
-from core.messages import DEFAULT_MESSAGES, MsgKey, message_placeholder_catalog
+from core.messages import (
+    DEFAULT_MESSAGES,
+    MsgKey,
+    message_placeholder_catalog,
+    validate_custom_message_template,
+)
 from domain.config_schema import GameConfig, RewardDefinition
 from pydantic import TypeAdapter, ValidationError
 
@@ -53,3 +58,13 @@ def test_message_placeholder_catalog_matches_default_templates() -> None:
         "victim_mass",
     }
     assert "{attacker_mass}" in DEFAULT_MESSAGES[MsgKey.ROBBERY_SUCCESS]
+
+
+def test_custom_message_templates_only_allow_placeholders_for_the_message_key() -> None:
+    assert validate_custom_message_template(
+        "robbery_no_target", "No target was available for {attacker}."
+    ) == {"attacker"}
+    with pytest.raises(ValueError, match="Unsupported placeholders"):
+        validate_custom_message_template("robbery_no_target", "Unknown: {victim}")
+    with pytest.raises(ValueError, match="invalid braces"):
+        validate_custom_message_template("robbery_no_target", "Broken: {attacker")

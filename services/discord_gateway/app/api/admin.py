@@ -79,6 +79,30 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/config/schema",
         )
 
+    async def messages(self, interaction: discord.Interaction) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/messages",
+        )
+
+    async def patch_message(
+        self,
+        interaction: discord.Interaction,
+        message_key: str,
+        version: int,
+        template: str | None,
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PATCH",
+            f"/v1/admin/channels/{channel}/messages/{message_key}",
+            json={"expected_version": version, "template": template},
+            idempotency_key=interaction_key(interaction.id, "message.patch"),
+        )
+
     async def patch_config(self, interaction, version: int, changes: dict[str, Any]):
         channel = await self.channel_id(interaction)
         return await self.client.request(
