@@ -13,6 +13,7 @@ class FishRequest(BaseModel):
     user_input: Optional[str] = None  # Например !fish <bet>
     is_mod: bool = False
     is_sub: bool = False
+    bypass_cooldown: bool = False
 
 
 class FishCooldownRequest(BaseModel):

@@ -16,6 +16,7 @@ from domain.logic.mass import to_decimal
 from domain.schemas.actions import (
     AddItemAction,
     AddMassAction,
+    DupeAction,
     GameAction,
     LevelUpAction,
     SendBaseMessageAction,
@@ -51,6 +52,9 @@ class FishingPresenter:
 
         elif catch_type == ActionType.RUSSIAN_ROULETTE:
             actions.extend(self._present_roulette(user, result, channel_conf))
+
+        elif catch_type == ActionType.DUPE:
+            actions.extend(self._present_dupe(user, result, channel_conf))
 
         if result.item_drop:
             item_actions = self._present_item_drop(user, result.item_drop, channel_conf)
@@ -233,6 +237,21 @@ class FishingPresenter:
 
         return [action]
 
+    def _present_dupe(
+        self, user: UserProgress, result: FishingResult, config: Dict
+    ) -> List[GameAction]:
+        amount = int(result.loot.get("amount", 1))
+        delay = int(result.loot.get("delay", 0))
+        base_message = self._present_basic_msg(
+            user,
+            result,
+            config,
+            username=user.username,
+            amount=amount,
+            delay=delay,
+        )
+        return [base_message, DupeAction(amount=amount, delay=delay)]
+
     def _present_robbery(
         self, user: UserProgress, result: FishingResult, config: Dict
     ) -> List[GameAction]:
@@ -264,9 +283,10 @@ class FishingPresenter:
             attacker_mass_fmt = format_large_number_mass(user.current_mass)
             victim_mass_fmt = format_large_number_mass(robbery_result.victim_new_mass)
 
+            success_template = result.loot.get("success_message") or MsgKey.ROBBERY_SUCCESS
             msg_text = resolve_message(
                 config,
-                MsgKey.ROBBERY_SUCCESS,
+                success_template,
                 attacker=user.username,
                 attacker_mass=attacker_mass_fmt,
                 victim=robbery_result.victim_name,

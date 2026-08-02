@@ -1,7 +1,9 @@
+import json
 from decimal import Decimal
+from typing import Any
 
 from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictDTO(BaseModel):
@@ -61,6 +63,19 @@ class RewardCreateRequest(StrictDTO):
 class RewardPatchRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
     reward: RewardDefinition
+
+
+class LegacyRewardImportRequest(StrictDTO):
+    expected_version: int = Field(..., ge=1)
+    payload: dict[str, Any]
+    replace_existing: bool = False
+    dry_run: bool = False
+
+    @model_validator(mode="after")
+    def validate_payload_size(self):
+        if len(json.dumps(self.payload, ensure_ascii=False).encode("utf-8")) > 1_048_576:
+            raise ValueError("Legacy reward JSON must not exceed 1 MiB")
+        return self
 
 
 class VersionedDeleteRequest(StrictDTO):

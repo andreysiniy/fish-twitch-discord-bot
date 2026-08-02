@@ -87,6 +87,7 @@ def test_openapi_exposes_versioned_discord_admin_contract() -> None:
         "/v1/admin/channels/{channel_twitch_id}/messages/{message_key}",
         "/v1/admin/channels/{channel_twitch_id}/locations",
         "/v1/admin/channels/{channel_twitch_id}/locations/{location_id}/rewards",
+        "/v1/admin/channels/{channel_twitch_id}/locations/{location_id}/rewards/import-legacy",
         "/v1/admin/channels/{channel_twitch_id}/events/{event_id}/start",
         "/v1/admin/channels/{channel_twitch_id}/events/stop",
     }

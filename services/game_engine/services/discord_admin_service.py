@@ -21,6 +21,7 @@ from domain.schemas.discord_admin import (
     GuildBindRequest,
     LocationCreateRequest,
     LocationPatchRequest,
+    LegacyRewardImportRequest,
     MessageTemplatePatchRequest,
     RewardCreateRequest,
     RewardPatchRequest,
@@ -40,6 +41,7 @@ from pydantic import TypeAdapter, ValidationError
 from services.auth_service import AuthService
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.idempotency_service import IdempotencyService
+from services.legacy_rewards import convert_legacy_rewards
 from sqlalchemy.orm.attributes import flag_modified
 
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
@@ -708,6 +710,81 @@ class DiscordAdminService:
             context, channel_twitch_id, location_id, data, "patch", reward_id
         )
 
+    def import_legacy_rewards(
+        self,
+        context,
+        channel_twitch_id: str,
+        location_id: str,
+        data: LegacyRewardImportRequest,
+    ) -> dict[str, Any]:
+        if data.dry_run:
+            pool, _channel, _link = self._resolve_pool(
+                context, channel_twitch_id, location_id, ChannelPermission.CONFIG_READ
+            )
+            self._check_version(pool.version, data.expected_version, context)
+            current = self._normalized_rewards(pool)
+            try:
+                result = convert_legacy_rewards(data.payload)
+            except ValueError as error:
+                raise ApiProblem(422, "LEGACY_IMPORT_INVALID", str(error)) from error
+            final_count = len(result.rewards) if data.replace_existing else len(current) + len(
+                result.rewards
+            )
+            if final_count > 100:
+                raise ApiProblem(422, "VALIDATION_ERROR", "Reward limit would be exceeded")
+            return self._legacy_import_response(pool.version, final_count, result, True)
+
+        payload = data.model_dump(mode="json")
+
+        def mutation() -> dict[str, Any]:
+            pool, _channel, link = self._resolve_pool(
+                context,
+                channel_twitch_id,
+                location_id,
+                ChannelPermission.REWARDS_WRITE,
+                for_update=True,
+            )
+            self._check_version(pool.version, data.expected_version, context)
+            current = self._normalized_rewards(pool)
+            try:
+                result = convert_legacy_rewards(data.payload)
+            except ValueError as error:
+                raise ApiProblem(422, "LEGACY_IMPORT_INVALID", str(error)) from error
+            rewards = result.rewards if data.replace_existing else [*current, *result.rewards]
+            if len(rewards) > 100:
+                raise ApiProblem(422, "VALIDATION_ERROR", "Reward limit would be exceeded")
+            if len({item["reward_id"] for item in rewards}) != len(rewards):
+                raise ApiProblem(409, "REWARD_ID_CONFLICT", "Imported reward ID already exists")
+            before_count = len(current)
+            pool.rewards_data = rewards
+            pool.version += 1
+            flag_modified(pool, "rewards_data")
+            self.db.flush()
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "reward.import_legacy",
+                "reward_pool",
+                str(pool.id),
+                {"reward_count": before_count},
+                {
+                    "reward_count": len(rewards),
+                    "imported_count": len(result.rewards),
+                    "source_counts": result.source_counts,
+                    "target_counts": result.target_counts,
+                },
+            )
+            return self._legacy_import_response(pool.version, len(rewards), result, False)
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "reward.import_legacy",
+            payload,
+            context.request_id,
+            mutation,
+        )
+
     def delete_reward(
         self, context, channel_twitch_id, location_id, reward_id, expected_version: int
     ):
@@ -1086,6 +1163,18 @@ class DiscordAdminService:
             flag_modified(pool, "rewards_data")
             self.db.flush()
         return normalized
+
+    @staticmethod
+    def _legacy_import_response(version, final_count, result, dry_run):
+        return {
+            "dry_run": dry_run,
+            "version": version,
+            "imported_count": len(result.rewards),
+            "final_count": final_count,
+            "source_counts": result.source_counts,
+            "target_counts": result.target_counts,
+            "warnings": result.warnings,
+        }
 
     def _serialize_location(self, pool, include_rewards=False):
         data = {

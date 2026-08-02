@@ -181,6 +181,7 @@ def create_reward_modal(
         "timeout": lambda: TimeoutRewardModal(on_save, defaults),
         "robbery": lambda: RobberyRewardModal(on_save, defaults),
         "russian_roulette": lambda: RouletteSettingsModal(on_save, defaults),
+        "dupe": lambda: DupeRewardModal(on_save, defaults),
         "nothing": lambda: RewardModal("nothing", {}, on_save, defaults),
     }
     try:
@@ -257,7 +258,7 @@ class FishRewardModal(discord.ui.Modal):
         self.fixed_mass = _optional_input(
             "Fixed mass",
             defaults.get("fixed_mass"),
-            "Use only this field for a fixed mass",
+            "Use only this field; negative mass is allowed",
         )
         self.min_mass = _optional_input(
             "Minimum mass",
@@ -272,7 +273,7 @@ class FishRewardModal(discord.ui.Modal):
         self.percentage = _optional_input(
             "Percentage",
             defaults.get("percentage"),
-            "Decimal from 0 to 1, for example: 0.15",
+            "Decimal from -1 to 1, for example: -0.15",
         )
         for item in (self.fixed_mass, self.min_mass, self.max_mass, self.percentage):
             self.add_item(item)
@@ -322,6 +323,36 @@ class TimeoutRewardModal(discord.ui.Modal):
         )
 
 
+class DupeRewardModal(discord.ui.Modal):
+    def __init__(self, on_save, defaults: dict[str, Any]):
+        super().__init__(title="Repeat fishing settings")
+        self.on_save = on_save
+        self.defaults = defaults
+        self.amount = discord.ui.TextInput(
+            label="Repeat count",
+            default=str(defaults.get("amount", 1)),
+            placeholder="Additional casts from 1 to 20",
+            max_length=2,
+        )
+        self.delay = discord.ui.TextInput(
+            label="Delay between casts",
+            default=str(defaults.get("delay", 0)),
+            placeholder="Seconds from 0 to 60",
+            max_length=2,
+        )
+        self.add_item(self.amount)
+        self.add_item(self.delay)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _continue_to_reward_details(
+            interaction,
+            "dupe",
+            {"amount": self.amount.value, "delay": self.delay.value},
+            self.on_save,
+            self.defaults,
+        )
+
+
 class RobberyRewardModal(discord.ui.Modal):
     def __init__(self, on_save, defaults: dict[str, Any]):
         super().__init__(title="Robbery reward settings")
@@ -343,7 +374,14 @@ class RobberyRewardModal(discord.ui.Modal):
             placeholder="Number of nearby users from 1 to 100",
             max_length=3,
         )
-        for item in (self.mass, self.percentage, self.search_range):
+        self.success_message = _optional_input(
+            "Success message",
+            defaults.get("success_message"),
+            "Optional; use {attacker}, {victim}, {attacker_gain}",
+            max_length=300,
+            paragraph=True,
+        )
+        for item in (self.mass, self.percentage, self.search_range, self.success_message):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
@@ -354,6 +392,7 @@ class RobberyRewardModal(discord.ui.Modal):
                 "mass": self.mass.value,
                 "percentage": self.percentage.value,
                 "range": self.search_range.value,
+                "success_message": self.success_message.value,
             },
             self.on_save,
             self.defaults,
@@ -445,12 +484,12 @@ class RouletteOutcomeModal(discord.ui.Modal):
         self.mass = _optional_input(
             "Mass",
             outcome_defaults.get("mass"),
-            "Used only for add_mass",
+            "Used only for add_mass; negatives are allowed",
         )
         self.percentage = _optional_input(
             "Percentage",
             outcome_defaults.get("percentage"),
-            "Decimal from 0 to 1 for add_percentage_mass",
+            "Decimal from -1 to 1 for add_percentage_mass",
         )
         self.duration = _optional_input(
             "Timeout duration",

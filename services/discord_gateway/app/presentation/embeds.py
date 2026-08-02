@@ -62,6 +62,36 @@ def reward_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     return title, _entity_details(item, order, probability_key="probability")
 
 
+def legacy_import_embed(result: dict[str, Any], replace_existing: bool) -> discord.Embed:
+    embed = discord.Embed(
+        title="Legacy reward import preview",
+        description=(
+            f"Mode: `{'replace' if replace_existing else 'append'}`\n"
+            f"Rewards to import: `{result['imported_count']}`\n"
+            f"Final reward count: `{result['final_count']}`"
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.add_field(
+        name="Legacy types",
+        value=_count_lines(result.get("source_counts", {})),
+        inline=True,
+    )
+    embed.add_field(
+        name="Converted types",
+        value=_count_lines(result.get("target_counts", {})),
+        inline=True,
+    )
+    warnings = result.get("warnings") or []
+    if warnings:
+        embed.add_field(
+            name="Warnings",
+            value="\n".join(f"- {warning}" for warning in warnings)[:1024],
+            inline=False,
+        )
+    return embed
+
+
 def location_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     order = (
         "location_id",
@@ -162,3 +192,7 @@ def _entity_details(
             rendered = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         lines.append(f"{key}: {rendered}")
     return "\n".join(lines)
+
+
+def _count_lines(counts: dict[str, Any]) -> str:
+    return "\n".join(f"`{key}`: {value}" for key, value in counts.items()) or "None"

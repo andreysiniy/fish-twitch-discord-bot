@@ -41,6 +41,7 @@ class FishingService:
         channel_id: str,
         is_mod: bool = False,
         is_sub: bool = False,
+        bypass_cooldown: bool = False,
     ):
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
@@ -49,7 +50,11 @@ class FishingService:
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
         strategy_ctx = self.strategy_resolver.resolve(user.channel_id)
-        cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
+        cooldown_duration = (
+            0
+            if bypass_cooldown
+            else self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
+        )
         cooldown_duration = max(int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0)
 
         if cooldown_duration > 0:

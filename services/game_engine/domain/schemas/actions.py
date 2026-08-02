@@ -46,6 +46,12 @@ class LevelUpAction(BaseAction):
     new_level: int
 
 
+class DupeAction(BaseAction):
+    type: Literal[ActionType.DUPE] = ActionType.DUPE
+    amount: int
+    delay: int = 0
+
+
 GameAction = Union[
     TimeoutAction,
     StreamElementsPointsAction,
@@ -53,4 +59,5 @@ GameAction = Union[
     SendBaseMessageAction,
     AddItemAction,
     LevelUpAction,
+    DupeAction,
 ]

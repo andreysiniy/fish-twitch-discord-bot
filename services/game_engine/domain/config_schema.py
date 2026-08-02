@@ -47,10 +47,10 @@ class RewardBase(StrictModel):
 
 class FishReward(RewardBase):
     type: Literal["fish"]
-    min_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    max_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    fixed_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    percentage: Decimal | None = Field(None, ge=0, le=1)
+    min_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    max_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    fixed_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    percentage: Decimal | None = Field(None, ge=-1, le=1)
 
     @model_validator(mode="after")
     def validate_mass_mode(self):
@@ -82,6 +82,7 @@ class RobberyReward(RewardBase):
     percentage: Decimal | None = Field(None, ge=0, le=1)
     mass: Decimal | None = Field(None, ge=0, le=1_000_000)
     range: int = Field(3, ge=1, le=100)
+    success_message: str = Field("", max_length=300)
 
     @model_validator(mode="after")
     def validate_robbery_mode(self):
@@ -92,12 +93,12 @@ class RobberyReward(RewardBase):
 
 class AddMassOutcome(StrictModel):
     type: Literal["add_mass"]
-    mass: Decimal = Field(..., ge=0, le=1_000_000)
+    mass: Decimal = Field(..., ge=-1_000_000, le=1_000_000)
 
 
 class AddPercentageMassOutcome(StrictModel):
     type: Literal["add_percentage_mass"]
-    percentage: Decimal = Field(..., ge=0, le=1)
+    percentage: Decimal = Field(..., ge=-1, le=1)
 
 
 class TimeoutOutcome(StrictModel):
@@ -132,12 +133,19 @@ class NothingReward(RewardBase):
     type: Literal["nothing"]
 
 
+class DupeReward(RewardBase):
+    type: Literal["dupe"]
+    amount: int = Field(..., ge=1, le=20)
+    delay: int = Field(0, ge=0, le=60)
+
+
 RewardDefinition = Annotated[
     FishReward
     | TimeoutReward
     | PointsReward
     | RobberyReward
     | RussianRouletteReward
+    | DupeReward
     | NothingReward,
     Field(discriminator="type"),
 ]

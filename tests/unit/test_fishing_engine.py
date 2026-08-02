@@ -82,6 +82,37 @@ def test_presenter_shows_effective_percentage_after_all_mass_modifiers() -> None
     assert "Gain: +37.5%" in response.chat_message
 
 
+def test_dupe_reward_creates_bounded_repeat_action() -> None:
+    user = make_user(
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("10.00"),
+        total_mass_stat=Decimal("10.00"),
+    )
+    result = FishingResult(
+        loot={
+            "type": "dupe",
+            "amount": 3,
+            "delay": 2,
+            "message": "{username} fishes {amount} more times.",
+        },
+        item_drop=None,
+        username=user.username,
+        xp_gained=0,
+        mass_gained=Decimal("0"),
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+        luck_used=1.0,
+    )
+
+    response = FishingPresenter().build_response(user, result)
+
+    assert response.actions[0].action_message.endswith("angler fishes 3 more times.")
+    assert response.actions[1].type.value == "dupe"
+    assert response.actions[1].amount == 3
+    assert response.actions[1].delay == 2
+
+
 def test_points_bonus_is_applied_to_points_reward() -> None:
     rod = SimpleNamespace(
         slot_id=1,
@@ -191,6 +222,42 @@ def test_robbery_mass_uses_decimal_arithmetic(monkeypatch) -> None:
     assert result.amount_stolen == Decimal("4.55")
     assert result.victim_new_mass == Decimal("5.45")
     assert isinstance(result.amount_stolen, Decimal)
+
+
+def test_robbery_uses_reward_specific_success_message() -> None:
+    user = make_user(
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("12.00"),
+        total_mass_stat=Decimal("12.00"),
+    )
+    result = FishingResult(
+        loot={
+            "type": "robbery",
+            "mass": "2",
+            "success_message": "{attacker} took {attacker_gain} from {victim}.",
+        },
+        item_drop=None,
+        username=user.username,
+        xp_gained=0,
+        mass_gained=Decimal("0"),
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+        luck_used=1.0,
+        robbery_result={
+            "is_success": True,
+            "victim_found": True,
+            "amount_stolen": "2",
+            "victim_name": "victim",
+            "victim_twitch_id": "2",
+            "victim_new_mass": "8",
+            "chance_used": 1.0,
+        },
+    )
+
+    response = FishingPresenter().build_response(user, result)
+
+    assert response.actions[1].action_message == "angler took +2kg from victim."
 
 
 def test_fishing_service_persists_decimal_mass() -> None:

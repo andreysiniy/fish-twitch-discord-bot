@@ -13,3 +13,4 @@ class ActionType(str, Enum):
     LEVEL_UP = "level_up"
     ROBBERY = "robbery"
     RUSSIAN_ROULETTE = "russian_roulette"
+    DUPE = "dupe"
