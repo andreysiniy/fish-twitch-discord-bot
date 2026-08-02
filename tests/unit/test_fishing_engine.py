@@ -52,27 +52,34 @@ def test_percentage_mass_uses_decimal_arithmetic() -> None:
     assert isinstance(result, Decimal)
 
 
-def test_presenter_accepts_string_percentage_from_stored_reward() -> None:
+def test_presenter_shows_effective_percentage_after_all_mass_modifiers() -> None:
+    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+    mass_gained = strategy.calculate(
+        {"percentage": "0.1"},
+        luck_modifier=1.5,
+        user_balance=Decimal("100.00"),
+    )
     user = make_user(
         channel=SimpleNamespace(config={}),
-        current_mass=Decimal("12.50"),
-        total_mass_stat=Decimal("20.00"),
+        current_mass=Decimal("100.00") + mass_gained,
+        total_mass_stat=Decimal("200.00") + mass_gained,
     )
     result = FishingResult(
-        loot={"type": "fish", "percentage": "0.5", "message": "Gain: {percentage}"},
+        loot={"type": "fish", "percentage": "0.1", "message": "Gain: {percentage}"},
         item_drop=None,
         username=user.username,
         xp_gained=0,
-        mass_gained=Decimal("5.00"),
+        mass_gained=mass_gained,
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=2.0,
+        luck_used=1.5,
     )
 
     response = FishingPresenter().build_response(user, result)
 
-    assert "Gain: +100%" in response.chat_message
+    assert mass_gained == Decimal("37.50")
+    assert "Gain: +37.5%" in response.chat_message
 
 
 def test_points_bonus_is_applied_to_points_reward() -> None:
