@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -8,8 +9,9 @@ from core.game_limits import (
     MIN_COOLDOWN_SECONDS,
     MIN_EVENT_DURATION_SECONDS,
 )
-from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
 from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
+from domain.item_schema import ItemDefinitionData
+from domain.schemas.rpg import InventoryDTO, InventoryItemDTO
 
 ALLOWED_CHANNEL_ROLES = {"editor", "moderator"}
 
@@ -154,64 +156,16 @@ class FishCooldownSetResponseDTO(BaseModel):
     updated_scope: str
 
 
-class ItemDefinitionCreateDTO(BaseModel):
-    item_id: str
-    title: str
-    description: Optional[str] = None
-    type: str = "equipment"
-    slot: str | None = None
-    rarity: str = "common"
-    durability: int | None = None
-    stack_size: int = Field(1, ge=1)
-    image_url: Optional[str] = None
-    base_stats: Dict[str, Any] = Field(default_factory=dict)
-    is_sellable: bool = True
-    is_tradeable: bool = True
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_payload(cls, values: Any) -> Any:
-        if not isinstance(values, dict):
-            return values
-
-        normalized = dict(values)
-        raw_item_id = normalized.get("item_id") or normalized.get("id")
-        if raw_item_id is not None:
-            normalized["item_id"] = str(raw_item_id)
-
-        raw_title = normalized.get("title")
-        if raw_title is not None:
-            normalized["title"] = str(raw_title)
-
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_required(self):
-        self.item_id = self.item_id.strip()
-        if not self.item_id:
-            raise ValueError("item_id is required")
-
-        self.title = self.title.strip()
-        if not self.title:
-            raise ValueError("title is required")
-
-        return self
+class ItemDefinitionCreateDTO(ItemDefinitionData):
+    expected_version: int | None = Field(None, ge=1)
 
 
-class ItemDefinitionResponseDTO(BaseModel):
-    item_id: str
+class ItemDefinitionResponseDTO(ItemDefinitionData):
     channel_twitch_id: str
-    title: str
-    description: Optional[str] = None
-    type: str
-    slot: str | None = None
-    rarity: str
-    durability: int | None = None
-    stack_size: int = 1
-    image_url: Optional[str] = None
-    base_stats: Dict[str, Any] = Field(default_factory=dict)
-    is_sellable: bool
-    is_tradeable: bool
+    version: int
+    is_active: bool
+    archived_at: datetime | None = None
+    updated_at: datetime
 
 
 class GrantItemRequestDTO(BaseModel):

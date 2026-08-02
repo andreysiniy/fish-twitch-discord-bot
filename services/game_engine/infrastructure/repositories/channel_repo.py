@@ -181,12 +181,18 @@ class ChannelRepository:
         item_type: str = "equipment",
         slot: str | None = None,
         rarity: str = "common",
-        durability: int | None = None,
+        max_durability: int | None = None,
+        break_policy: str = "indestructible",
         stack_size: int = 1,
         image_url: str | None = None,
-        base_stats: dict | None = None,
+        effects: list | None = None,
+        schema_version: int = 1,
+        value=None,
+        sell_value=None,
         is_sellable: bool = True,
-        is_tradeable: bool = True
+        is_tradeable: bool = True,
+        expected_version: int | None = None,
+        updated_by: str | None = None,
     ) -> ItemDefinition:
         normalized_channel_twitch_id = str(channel_twitch_id or "").strip()
         if not normalized_channel_twitch_id:
@@ -211,6 +217,12 @@ class ChannelRepository:
                 item_id=normalized_item_id,
             )
             self.db.add(definition)
+        else:
+            if expected_version is None:
+                raise ValueError("expected_version is required when updating an item")
+            if definition.version != expected_version:
+                raise ValueError("Item definition version conflict")
+            definition.version += 1
 
         normalized_slot = str(slot).strip() if slot is not None else ""
         definition.channel_id = channel.id
@@ -220,10 +232,21 @@ class ChannelRepository:
         definition.type = item_type
         definition.slot = normalized_slot or None
         definition.rarity = rarity
-        definition.durability = int(durability) if durability is not None else None
+        definition.durability = None
+        definition.max_durability = (
+            int(max_durability) if max_durability is not None else None
+        )
+        definition.break_policy = break_policy
         definition.stack_size = max(int(stack_size or 1), 1)
         definition.image_url = image_url
-        definition.base_stats = base_stats or {}
+        definition.base_stats = {}
+        definition.effects = effects or []
+        definition.schema_version = schema_version
+        definition.value = value
+        definition.sell_value = sell_value
+        definition.is_active = True
+        definition.archived_at = None
+        definition.updated_by = updated_by
         definition.is_sellable = is_sellable
         definition.is_tradeable = is_tradeable
         self.db.flush()
