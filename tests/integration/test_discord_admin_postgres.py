@@ -13,9 +13,9 @@ from domain.schemas.discord_admin import (
     ItemDropUpsertRequest,
     LocationCreateRequest,
     MessageTemplatePatchRequest,
-    PlayerModifierSetRequest,
     PlayerItemGrantRequest,
     PlayerItemRevokeRequest,
+    PlayerModifierSetRequest,
     RewardCreateRequest,
 )
 from infrastructure.database import SessionLocal
@@ -27,7 +27,12 @@ from infrastructure.models import (
     RewardPool,
     UserProgress,
 )
+from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.config_repo import ConfigRepository
+from infrastructure.repositories.cooldown_repo import CooldownRepository
+from infrastructure.repositories.user_repo import UserRepository
 from services.discord_admin_service import DiscordAdminService
+from services.fishing_service import FishingService
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_INTEGRATION_TESTS") != "1",
@@ -223,6 +228,31 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
         stat = explained["stats"]["positive_mass_bonus_pct"]
         assert stat["value"] == "0.25000000"
         assert stat["contributions"][0]["label"] == "Weekly promotion"
+
+        service.set_player_modifier(
+            _context("modifier-profile-luck"),
+            channel.twitch_id,
+            player.user_twitch_id,
+            PlayerModifierSetRequest(
+                stat_key="loot_luck_pct",
+                operation="add",
+                value="0.10",
+                scope="fishing",
+                source_key="profile.weekly",
+                reason="Profile display check",
+            ),
+        )
+        profile = FishingService(
+            UserRepository(db),
+            ConfigRepository(db),
+            CooldownRepository(None),
+            ChannelRepository(db),
+        ).get_profile_stats(
+            player.user_twitch_id,
+            channel.twitch_id,
+            player.username,
+        )
+        assert profile.stats.luck_bonus == pytest.approx(0.1)
 
         actions = {row.action for row in db.query(AdminAuditLog).all()}
         assert "player_modifier.set" in actions
