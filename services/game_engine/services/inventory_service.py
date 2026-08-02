@@ -1,45 +1,73 @@
-from sqlalchemy.orm.attributes import flag_modified
-
-from domain.logic.inventory_utils import find_equipped_rod
-from domain.schemas.rpg import EquipRequestDTO, EquipResponseDTO, InventoryResponseDTO
+from domain.schemas.rpg import (
+    EquipRequestDTO,
+    EquipResponseDTO,
+    InventoryResponseDTO,
+    RepairRequestDTO,
+    UnequipRequestDTO,
+    UseItemRequestDTO,
+    UseItemResponseDTO,
+)
+from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
 
 
 class InventoryService:
     def __init__(self, user_repo: UserRepository):
         self.user_repo = user_repo
+        self.inventory_repo = InventoryRepository(user_repo.db)
 
     def equip_item(self, data: EquipRequestDTO) -> EquipResponseDTO:
         user = self.user_repo.get_progress(data.user_id, data.channel_id)
         if not user:
-            return EquipResponseDTO(success=False, message="Try fishing first! You have no inventory.")
-
-        inventory = dict(user.inventory or {})
-        db_items = self.user_repo.get_user_inventory_items(user.id)
-        target_item = next((item for item in db_items if item.slot_id == data.slot_id), None)
-
-        if not target_item:
-            return EquipResponseDTO(success=False, message=f"Slot {data.slot_id} is empty! Check your inventory (!fishbag).")
-
-        definition = target_item.definition
-        item_title = self._display_title(definition, target_item.item_id)
-
-        item_type = str(getattr(definition, "type", "") or "").strip().lower()
-        item_slot = str(getattr(definition, "slot", "") or "").strip().lower()
-        is_rod = item_type == "rod" or item_slot == "rod"
-
-        if not definition or not is_rod:
-            return EquipResponseDTO(success=False, message=f"{item_title} is not a rod!")
-
-        inventory["equipped_rod_slot"] = target_item.slot_id
-        user.inventory = inventory
-        flag_modified(user, "inventory")
-        self.user_repo.save_progress(user)
-
+            return EquipResponseDTO(success=False, message="You have no inventory.")
+        try:
+            equipped = self.inventory_repo.equip(
+                user.id,
+                data.slot_id,
+                data.equipment_slot.value if data.equipment_slot else None,
+            )
+        except ValueError as error:
+            return EquipResponseDTO(success=False, message=str(error))
+        title = equipped.inventory_item.definition.title
         return EquipResponseDTO(
             success=True,
-            message=f"Equipped [{target_item.slot_id}] {item_title}.",
-            equipped_item_name=item_title,
+            message=f"Equipped [{data.slot_id}] {title} in {equipped.slot}.",
+            equipped_item_name=title,
+        )
+
+    def unequip_item(self, data: UnequipRequestDTO) -> EquipResponseDTO:
+        user = self.user_repo.get_progress(data.user_id, data.channel_id)
+        if not user:
+            return EquipResponseDTO(success=False, message="You have no inventory.")
+        self.inventory_repo.unequip(user.id, data.equipment_slot.value)
+        return EquipResponseDTO(
+            success=True,
+            message=f"Unequipped {data.equipment_slot.value}.",
+        )
+
+    def repair_item(self, data: RepairRequestDTO) -> EquipResponseDTO:
+        user = self.user_repo.get_progress(data.user_id, data.channel_id)
+        if not user:
+            return EquipResponseDTO(success=False, message="You have no inventory.")
+        try:
+            item = self.inventory_repo.repair(user.id, data.slot_id)
+        except ValueError as error:
+            return EquipResponseDTO(success=False, message=str(error))
+        return EquipResponseDTO(
+            success=True,
+            message=(
+                f"Repaired [{item.slot_id}] {item.definition.title} to "
+                f"{item.current_durability} durability."
+            ),
+            equipped_item_name=item.definition.title,
+        )
+
+    def use_item(self, data: UseItemRequestDTO) -> UseItemResponseDTO:
+        user = self.user_repo.get_progress(data.user_id, data.channel_id)
+        if not user:
+            raise ValueError("You have no inventory")
+        return UseItemResponseDTO.model_validate(
+            self.inventory_repo.use_item(user, data.slot_id, data.idempotency_key)
         )
 
     def get_inventory_msg(self, user_id: str, channel_id: str) -> InventoryResponseDTO:
@@ -49,26 +77,43 @@ class InventoryService:
 
         inventory_data = dict(user.inventory or {})
         db_items = self.user_repo.get_user_inventory_items(user.id)
+        equipped = self.inventory_repo.get_equipped(user.id)
+        equipped_slots = {
+            row.slot: row.inventory_item.slot_id
+            for row in equipped
+            if row.inventory_item is not None
+        }
         items = [self._to_inventory_dto(item) for item in db_items]
-        equipped_rod = find_equipped_rod(inventory_data, db_items)
-        equipped_rod_slot = equipped_rod.get("slot_id") if equipped_rod else None
 
-        message = f"Inventory: {len(items)} items."
-        if equipped_rod:
-            message += f" Equipped rod: [{equipped_rod_slot}] {equipped_rod.get('title')}."
-
+        message = f"Inventory: {len(items)} occupied slots."
+        if equipped_slots:
+            equipment_text = ", ".join(
+                f"{slot}=[{inventory_slot}]"
+                for slot, inventory_slot in sorted(equipped_slots.items())
+            )
+            message += f" Equipped: {equipment_text}."
         for item in items:
-            message += f"\n[{item.get('slot_id')}] {item.get('title')} x{item.get('quantity', 1)}"
+            durability = (
+                f" durability {item['current_durability']}/{item['max_durability']}"
+                if item["max_durability"] is not None
+                else ""
+            )
+            message += (
+                f"\n[{item['slot_id']}] {item['title']} x{item['quantity']}"
+                f" ({item['item_type']}, {item['rarity']}){durability}"
+            )
 
         return InventoryResponseDTO(
             success=True,
             message=message,
             items=items,
-            equipped_rod_slot=equipped_rod_slot,
-            max_slots=inventory_data.get("max_slots", 20),
+            equipped_slots=equipped_slots,
+            equipped_rod_slot=equipped_slots.get("rod"),
+            max_slots=max(int(inventory_data.get("max_slots", 20)), 1),
         )
 
-    def _display_title(self, definition, fallback_item_id: str) -> str:
+    @staticmethod
+    def _display_title(definition, fallback_item_id: str) -> str:
         if definition and getattr(definition, "title", None):
             return str(definition.title)
         if definition and getattr(definition, "item_id", None):
@@ -77,21 +122,22 @@ class InventoryService:
 
     def _to_inventory_dto(self, item) -> dict:
         definition = item.definition
+        if not definition:
+            raise ValueError(f"Inventory item {item.id} has no definition")
         meta = item.meta or {}
-        logical_item_id = definition.item_id if definition else item.item_id
-        title = self._display_title(definition, logical_item_id)
-        stats = definition.base_stats if definition else {}
         return {
-            "item_id": logical_item_id,
-            "title": title,
-            "description": definition.description if definition else None,
-            "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "equipment",
-            "slot": definition.slot if definition else None,
-            "durability": definition.durability if definition else None,
-            "stack_size": definition.stack_size if definition else 1,
-            "image_url": definition.image_url if definition else None,
-            "base_stats": stats,
+            "item_id": definition.item_id,
+            "title": self._display_title(definition, definition.item_id),
+            "description": definition.description,
+            "rarity": definition.rarity,
+            "item_type": definition.type,
+            "equipment_slot": definition.slot,
+            "max_durability": definition.max_durability,
+            "break_policy": definition.break_policy,
+            "stack_size": definition.stack_size,
+            "image_url": definition.image_url,
+            "effects": definition.effects or [],
+            "definition_version": item.definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

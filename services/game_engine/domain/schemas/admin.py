@@ -60,12 +60,14 @@ class LocationItemResponseDTO(LocationItemUpdateDTO):
     title: str
     description: Optional[str] = None
     rarity: str = "common"
-    type: str = "equipment"
-    slot: str | None = None
-    durability: int | None = None
+    item_type: str = "collectible"
+    equipment_slot: str | None = None
+    max_durability: int | None = None
+    break_policy: str = "indestructible"
     stack_size: int = 1
     image_url: Optional[str] = None
-    base_stats: Dict[str, Any] = Field(default_factory=dict)
+    effects: List[Dict[str, Any]] = Field(default_factory=list)
+    definition_version: int = 1
 
 
 class RewardPoolUpdateDTO(BaseModel):

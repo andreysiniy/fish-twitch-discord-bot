@@ -47,25 +47,35 @@ class ConfigRepository:
         items = [self._serialize_location_item(item) for item in db_items]
         return rewards, items, pool_obj.items_drop_rate
 
-    def consume_location_item_stock(self, location_item_id: int, amount: int = 1) -> None:
+    def consume_location_item_stock(self, location_item_id: int, amount: int = 1) -> bool:
         if amount <= 0:
-            return
+            return True
 
-        db_item = self.db.query(LocationItem).filter(LocationItem.id == location_item_id).first()
+        db_item = (
+            self.db.query(LocationItem)
+            .filter(LocationItem.id == location_item_id)
+            .with_for_update(of=LocationItem)
+            .first()
+        )
         if not db_item:
-            return
+            return False
 
         if db_item.quantity is None:
-            return
+            return True
 
-        db_item.quantity = max(int(db_item.quantity) - amount, 0)
+        if int(db_item.quantity) < amount:
+            return False
+        db_item.quantity = int(db_item.quantity) - amount
+        db_item.version += 1
         self.db.flush()
+        return True
 
     def _serialize_location_item(self, item: LocationItem) -> dict:
         definition = item.definition
         logical_item_id = definition.item_id if definition else item.item_id
         title = definition.title if definition else logical_item_id
-        stats = definition.base_stats if definition else {}
+        if not definition:
+            raise ValueError(f"Location item {item.id} has no definition")
 
         return {
             "db_id": item.id,
@@ -74,13 +84,15 @@ class ConfigRepository:
             "description": definition.description if definition else None,
             "image_url": definition.image_url if definition else None,
             "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "equipment",
-            "slot": definition.slot if definition else None,
-            "durability": definition.durability if definition else None,
+            "item_type": definition.type,
+            "equipment_slot": definition.slot,
+            "max_durability": definition.max_durability,
+            "break_policy": definition.break_policy,
             "stack_size": definition.stack_size if definition else 1,
             "weight": item.weight,
             "xp_gain": item.xp_gain,
             "quantity": item.quantity,
             "message": item.message,
-            "base_stats": stats,
+            "effects": definition.effects or [],
+            "definition_version": definition.version,
         }

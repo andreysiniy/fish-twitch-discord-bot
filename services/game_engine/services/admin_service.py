@@ -2,6 +2,7 @@ from typing import Any, List
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.user_repo import UserRepository
+from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.se_client import SEApiClient
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
@@ -326,9 +327,14 @@ class AdminService:
 
         inventory_meta = dict(user.inventory or {})
         items = [self._serialize_inventory_item(item) for item in self.user_repo.get_user_inventory_items(user.id)]
+        equipped_slots = {
+            equipped.slot: equipped.inventory_item.slot_id
+            for equipped in InventoryRepository(self.user_repo.db).get_equipped(user.id)
+        }
         return {
             "items": items,
-            "equipped_rod_slot": inventory_meta.get("equipped_rod_slot"),
+            "equipped_slots": equipped_slots,
+            "equipped_rod_slot": equipped_slots.get("rod"),
             "max_slots": inventory_meta.get("max_slots", 20)
         }
 
@@ -336,18 +342,21 @@ class AdminService:
         definition = item.definition
         logical_item_id = definition.item_id if definition else item.item_id
         title = definition.title if definition else logical_item_id
-        stats = definition.base_stats if definition else {}
+        if not definition:
+            raise ValueError(f"Inventory item {item.id} has no definition")
         return {
             "item_id": logical_item_id,
             "title": title,
             "description": definition.description if definition else None,
             "rarity": definition.rarity if definition else "common",
-            "type": definition.type if definition else "equipment",
-            "slot": definition.slot if definition else None,
-            "durability": definition.durability if definition else None,
+            "item_type": definition.type,
+            "equipment_slot": definition.slot,
+            "max_durability": definition.max_durability,
+            "break_policy": definition.break_policy,
             "stack_size": definition.stack_size if definition else 1,
             "image_url": definition.image_url if definition else None,
-            "base_stats": stats,
+            "effects": definition.effects or [],
+            "definition_version": item.definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
