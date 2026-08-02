@@ -62,6 +62,10 @@ def test_permission_matrix_limits_moderator_and_editor_access() -> None:
     assert ChannelPermission.REWARDS_WRITE not in ROLE_PERMISSIONS["moderator"]
     assert ChannelPermission.REWARDS_WRITE in ROLE_PERMISSIONS["editor"]
     assert ChannelPermission.INTEGRATIONS_WRITE not in ROLE_PERMISSIONS["editor"]
+    assert ChannelPermission.ITEM_DROPS_WRITE in ROLE_PERMISSIONS["editor"]
+    assert ChannelPermission.PLAYER_INVENTORY_READ in ROLE_PERMISSIONS["moderator"]
+    assert ChannelPermission.PLAYER_ITEMS_GRANT not in ROLE_PERMISSIONS["moderator"]
+    assert ChannelPermission.PLAYER_MODIFIERS_WRITE not in ROLE_PERMISSIONS["editor"]
     assert ROLE_PERMISSIONS["owner"] == set(ChannelPermission)
 
 

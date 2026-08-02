@@ -1,7 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 
-from services.admin_service import AdminService
 from api.dependencies import get_admin_service, get_current_user_id, verify_security
 from domain.schemas.admin import (
     ChannelAccessListRequestDTO,
@@ -9,29 +7,31 @@ from domain.schemas.admin import (
     ChannelAccessRemoveRequestDTO,
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
+    ChannelCreateDTO,
+    ChannelResponseDTO,
+    FishCooldownSetRequestDTO,
+    FishCooldownSetResponseDTO,
     FishingEventCreateRequestDTO,
     FishingEventDeleteRequestDTO,
-    FishingEventListResponseDTO,
     FishingEventListRequestDTO,
+    FishingEventListResponseDTO,
     FishingEventResponseDTO,
     FishingEventToggleRequestDTO,
     FishingEventToggleResponseDTO,
     FishingEventUpdateRequestDTO,
-    FishCooldownSetRequestDTO,
-    FishCooldownSetResponseDTO,
-    ChannelCreateDTO, 
-    ChannelResponseDTO, 
-    StreamElementsIntegrationResponseDTO,
-    StreamElementsIntegrationUpsertDTO,
-    ItemDefinitionCreateDTO,
-    ItemDefinitionResponseDTO,
     GrantItemRequestDTO,
     GrantItemResponseDTO,
-    RewardPoolUpdateDTO,
+    ItemDefinitionCreateDTO,
+    ItemDefinitionResponseDTO,
+    PlayerListResponse,
     RewardPoolResponseDTO,
-    PlayerListResponse
+    RewardPoolUpdateDTO,
+    StreamElementsIntegrationResponseDTO,
+    StreamElementsIntegrationUpsertDTO,
 )
 from domain.schemas.rpg import InventoryDTO
+from fastapi import APIRouter, Depends, HTTPException
+from services.admin_service import AdminService
 
 router = APIRouter()
 
@@ -343,6 +343,7 @@ def grant_item_to_player(
         definition = item.definition
         logical_item_id = definition.item_id if definition else item.item_id
         response_item = {
+            "id": item.id,
             "item_id": logical_item_id,
             "title": definition.title if definition else logical_item_id,
             "description": definition.description if definition else None,
@@ -358,7 +359,9 @@ def grant_item_to_player(
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
-            "obtained_at": (item.meta or {}).get("obtained_at")
+            "obtained_at": (item.meta or {}).get("obtained_at"),
+            "version": item.version,
+            "meta": item.meta or {},
         }
         return {
             "success": True,

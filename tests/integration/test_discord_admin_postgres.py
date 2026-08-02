@@ -9,9 +9,13 @@ from domain.schemas.discord_admin import (
     ConfigPatchRequest,
     DiscordEventCreateRequest,
     DiscordEventStartRequest,
+    DiscordItemUpsertRequest,
+    ItemDropUpsertRequest,
     LocationCreateRequest,
     MessageTemplatePatchRequest,
     PlayerModifierSetRequest,
+    PlayerItemGrantRequest,
+    PlayerItemRevokeRequest,
     RewardCreateRequest,
 )
 from infrastructure.database import SessionLocal
@@ -222,6 +226,105 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
 
         actions = {row.action for row in db.query(AdminAuditLog).all()}
         assert "player_modifier.set" in actions
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_item_drop_and_player_inventory_admin_workflow() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(twitch_id="item-channel", name="item_channel", config={})
+        db.add(channel)
+        db.flush()
+        player = UserProgress(
+            user_twitch_id="item-player",
+            username="item_player",
+            channel_id=channel.id,
+        )
+        db.add_all(
+            [
+                player,
+                RewardPool(
+                    channel_id=channel.id,
+                    location_id="default",
+                    location_name="Default",
+                    rewards_data=[],
+                    requirements={},
+                ),
+                DiscordAccountLink(
+                    discord_user_id="1001",
+                    twitch_user_id="item-channel",
+                    twitch_login="item_channel",
+                    verified_at=now,
+                    last_verified_at=now,
+                ),
+                DiscordGuildBinding(
+                    discord_guild_id="2001",
+                    channel_id=channel.id,
+                    configured_by_discord_id="1001",
+                ),
+            ]
+        )
+        db.flush()
+        service = DiscordAdminService(db)
+
+        item = service.upsert_item(
+            _context("item-create"),
+            channel.twitch_id,
+            DiscordItemUpsertRequest(
+                item_id="discord_rod",
+                title="Discord Rod",
+                item_type="equipment",
+                equipment_slot="rod",
+                max_durability=5,
+                break_policy="destroy_at_zero",
+                effects=[
+                    {
+                        "type": "stat_add",
+                        "stat": "loot_luck_pct",
+                        "value": "0.10",
+                    }
+                ],
+            ),
+        )
+        assert item["version"] == 1
+
+        drop = service.upsert_item_drop(
+            _context("item-drop"),
+            channel.twitch_id,
+            "default",
+            ItemDropUpsertRequest(item_id="discord_rod", weight=25, quantity=2),
+        )
+        assert drop["quantity"] == 2
+
+        grant = service.grant_player_item(
+            _context("item-grant"),
+            channel.twitch_id,
+            player.user_twitch_id,
+            PlayerItemGrantRequest(item_id="discord_rod"),
+        )
+        inventory_item = grant["items"][0]
+        assert inventory_item["current_durability"] == 5
+
+        revoked = service.revoke_player_item(
+            _context("item-revoke"),
+            channel.twitch_id,
+            player.user_twitch_id,
+            inventory_item["id"],
+            PlayerItemRevokeRequest(quantity=1, expected_version=1),
+        )
+        assert revoked["remaining"] == 0
+
+        archived = service.archive_item(
+            _context("item-archive"),
+            channel.twitch_id,
+            "discord_rod",
+            item["version"],
+        )
+        assert archived["is_active"] is False
     finally:
         db.rollback()
         db.close()

@@ -19,6 +19,8 @@ from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
     config_embed,
     event_list_entry,
+    item_drop_list_entry,
+    item_list_entry,
     legacy_import_embed,
     location_list_entry,
     placeholder_help_embeds,
@@ -35,6 +37,62 @@ SECTION_CHOICES = [
 REWARD_CHOICES = [
     app_commands.Choice(name=value.replace("_", " ").title(), value=value)
     for value in ("fish", "timeout", "robbery", "russian_roulette", "dupe", "nothing")
+]
+ITEM_TYPE_CHOICES = [
+    app_commands.Choice(name=value.title(), value=value)
+    for value in (
+        "equipment",
+        "consumable",
+        "lootbox",
+        "material",
+        "quest",
+        "currency",
+        "collectible",
+    )
+]
+RARITY_CHOICES = [
+    app_commands.Choice(name=value.title(), value=value)
+    for value in ("common", "rare", "epic", "legendary")
+]
+EQUIPMENT_SLOT_CHOICES = [
+    app_commands.Choice(name=value.replace("_", " ").title(), value=value)
+    for value in ("rod", "bait", "defense", "storage", "charm_1", "charm_2")
+]
+BREAK_POLICY_CHOICES = [
+    app_commands.Choice(name=value.replace("_", " ").title(), value=value)
+    for value in ("indestructible", "retain_broken", "unequip_broken", "destroy_at_zero")
+]
+MODIFIER_OPERATION_CHOICES = [
+    app_commands.Choice(name=value.title(), value=value)
+    for value in ("add", "multiply", "override", "min", "max")
+]
+MODIFIER_SCOPE_CHOICES = [
+    app_commands.Choice(name=value.title(), value=value)
+    for value in ("fishing", "robbery", "economy", "inventory", "all")
+]
+STAT_KEY_CHOICES = [
+    app_commands.Choice(name=value.replace("_", " ").title(), value=value)
+    for value in (
+        "loot_luck_pct",
+        "positive_mass_bonus_pct",
+        "negative_mass_reduction_pct",
+        "xp_gain_bonus_pct",
+        "points_flat_bonus",
+        "item_drop_chance_add",
+        "item_rarity_luck_pct",
+        "cooldown_reduction_pct",
+        "empty_catch_reroll_chance_pct",
+        "robbery_protection_pct",
+        "robbery_evasion_pct",
+        "protected_mass_flat",
+        "robbery_counter_chance_pct",
+        "robbery_attack_chance_add",
+        "robbery_amount_bonus_pct",
+        "inventory_slots_add",
+        "sell_rate_bonus_pct",
+        "buy_discount_pct",
+        "repair_cost_reduction_pct",
+    )
 ]
 
 
@@ -56,6 +114,19 @@ def register_commands(
         name="placeholders",
         description="View and edit custom message templates",
         parent=fish,
+    )
+    item = app_commands.Group(name="item", description="Manage typed item definitions", parent=fish)
+    item_drop = app_commands.Group(
+        name="item-drop", description="Manage location item drops", parent=fish
+    )
+    player = app_commands.Group(
+        name="player", description="Manage player inventories", parent=fish
+    )
+    player_modifier = app_commands.Group(
+        name="player-modifier", description="Manage player stat modifiers", parent=fish
+    )
+    player_stats = app_commands.Group(
+        name="player-stats", description="Explain resolved player stats", parent=fish
     )
 
     @fish.command(name="help", description="Show available Fisher Bot commands")
@@ -663,6 +734,477 @@ def register_commands(
             danger=True,
         )
 
+    @item.command(name="list", description="List typed item definitions")
+    async def item_list(
+        interaction: discord.Interaction, include_archived: bool = False
+    ) -> None:
+        async def operation() -> None:
+            result = await api.items(interaction, include_archived)
+            view = PagedEmbedView(
+                interaction.user.id,
+                "Item definitions",
+                result["items"],
+                item_list_entry,
+                page_size=1,
+            )
+            await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @item.command(name="show", description="Show every field of one item definition")
+    async def item_show(interaction: discord.Interaction, item_id: str) -> None:
+        async def operation() -> None:
+            result = await api.item(interaction, item_id)
+            await interaction.followup.send(
+                embed=_json_embed("Item definition", result), ephemeral=True
+            )
+
+        await _deferred(interaction, operation)
+
+    @item.command(name="create", description="Create a strict typed item definition")
+    @app_commands.choices(
+        item_type=ITEM_TYPE_CHOICES,
+        rarity=RARITY_CHOICES,
+        equipment_slot=EQUIPMENT_SLOT_CHOICES,
+        break_policy=BREAK_POLICY_CHOICES,
+    )
+    @app_commands.describe(
+        item_id="Stable lowercase ID, for example carbon_rod",
+        title="Display name",
+        item_type="Item behavior category",
+        rarity="Rarity used by item-drop luck",
+        equipment_slot="Required only for equipment",
+        stack_size="Maximum quantity in one inventory slot; equipment must use 1",
+        max_durability="Required for breakable items",
+        break_policy="Behavior when durability reaches zero",
+        effects_json="Strict JSON array of typed effects; omit for no effects",
+        description="Optional item description",
+    )
+    async def item_create(
+        interaction: discord.Interaction,
+        item_id: str,
+        title: str,
+        item_type: app_commands.Choice[str],
+        rarity: app_commands.Choice[str],
+        equipment_slot: app_commands.Choice[str] | None = None,
+        stack_size: app_commands.Range[int, 1, 1_000_000] = 1,
+        max_durability: app_commands.Range[int, 1, 1_000_000] | None = None,
+        break_policy: app_commands.Choice[str] | None = None,
+        effects_json: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        try:
+            payload = _item_payload(
+                item_id=item_id,
+                title=title,
+                item_type=item_type.value,
+                rarity=rarity.value,
+                equipment_slot=equipment_slot.value if equipment_slot else None,
+                stack_size=stack_size,
+                max_durability=max_durability,
+                break_policy=(
+                    break_policy.value if break_policy else "indestructible"
+                ),
+                effects=_parse_effects(effects_json),
+                description=description,
+            )
+        except ValueError as error:
+            await _send_error(interaction, error)
+            return
+        await _simple_mutation(
+            interaction,
+            lambda: api.upsert_item(interaction, payload),
+            "Item definition created.",
+        )
+
+    @item.command(name="edit", description="Replace a versioned typed item definition")
+    @app_commands.choices(
+        item_type=ITEM_TYPE_CHOICES,
+        rarity=RARITY_CHOICES,
+        equipment_slot=EQUIPMENT_SLOT_CHOICES,
+        break_policy=BREAK_POLICY_CHOICES,
+    )
+    @app_commands.describe(
+        item_id="Existing stable item ID",
+        effects_json="Strict JSON effect array; omit to preserve current effects",
+        max_durability="Set the new maximum durability",
+    )
+    async def item_edit(
+        interaction: discord.Interaction,
+        item_id: str,
+        title: str | None = None,
+        item_type: app_commands.Choice[str] | None = None,
+        rarity: app_commands.Choice[str] | None = None,
+        equipment_slot: app_commands.Choice[str] | None = None,
+        stack_size: app_commands.Range[int, 1, 1_000_000] | None = None,
+        max_durability: app_commands.Range[int, 1, 1_000_000] | None = None,
+        break_policy: app_commands.Choice[str] | None = None,
+        effects_json: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        async def operation() -> None:
+            current = await api.item(interaction, item_id)
+            resolved_type = item_type.value if item_type else current["item_type"]
+            payload = _item_payload(
+                item_id=item_id,
+                title=title or current["title"],
+                item_type=resolved_type,
+                rarity=rarity.value if rarity else current["rarity"],
+                equipment_slot=(
+                    equipment_slot.value
+                    if equipment_slot
+                    else current.get("equipment_slot")
+                    if resolved_type == "equipment"
+                    else None
+                ),
+                stack_size=stack_size or current["stack_size"],
+                max_durability=(
+                    max_durability
+                    if max_durability is not None
+                    else current.get("max_durability")
+                ),
+                break_policy=(
+                    break_policy.value if break_policy else current["break_policy"]
+                ),
+                effects=(
+                    _parse_effects(effects_json)
+                    if effects_json is not None
+                    else current["effects"]
+                ),
+                description=description if description is not None else current.get("description"),
+            )
+            payload.update(
+                {
+                    "expected_version": current["version"],
+                    "schema_version": current["schema_version"],
+                    "image_url": current.get("image_url"),
+                    "value": current.get("value"),
+                    "sell_value": current.get("sell_value"),
+                    "is_sellable": current["is_sellable"],
+                    "is_tradeable": current["is_tradeable"],
+                }
+            )
+            await api.upsert_item(interaction, payload)
+            await interaction.followup.send("Item definition updated.", ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @item.command(name="archive", description="Archive an item without deleting history")
+    async def item_archive(interaction: discord.Interaction, item_id: str) -> None:
+        try:
+            current = await api.item(interaction, item_id)
+        except EngineError as error:
+            await _send_error(interaction, error)
+            return
+        await _confirmation(
+            interaction,
+            f"Archive item `{item_id}`? Existing inventory rows are preserved.",
+            lambda confirmed: api.archive_item(
+                confirmed, item_id, current["version"]
+            ),
+            "Item archived.",
+            danger=True,
+        )
+
+    @item_drop.command(name="list", description="List item drops for a location")
+    async def item_drop_list(interaction: discord.Interaction, location_id: str) -> None:
+        async def operation() -> None:
+            result = await api.item_drops(interaction, location_id)
+            view = PagedEmbedView(
+                interaction.user.id,
+                f"Item drops — {location_id}",
+                result["items"],
+                item_drop_list_entry,
+                page_size=1,
+            )
+            await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @item_drop.command(name="add", description="Add an item drop to a location")
+    @app_commands.describe(
+        quantity="Finite channel stock; omit for unlimited stock",
+        weight="Relative item selection weight",
+        xp_gain="Extra XP awarded with this item",
+        message="Chat message; {name} is the item title",
+    )
+    async def item_drop_add(
+        interaction: discord.Interaction,
+        location_id: str,
+        item_id: str,
+        weight: app_commands.Range[int, 1, 1_000_000] = 100,
+        xp_gain: app_commands.Range[int, 0, 1_000_000] = 0,
+        quantity: app_commands.Range[int, 0, 1_000_000_000] | None = None,
+        message: str = "You caught {name}!",
+    ) -> None:
+        await _simple_mutation(
+            interaction,
+            lambda: api.upsert_item_drop(
+                interaction,
+                location_id,
+                {
+                    "item_id": item_id,
+                    "weight": weight,
+                    "xp_gain": xp_gain,
+                    "quantity": quantity,
+                    "message": message,
+                },
+            ),
+            "Item drop created.",
+        )
+
+    @item_drop.command(name="edit", description="Edit a versioned item drop")
+    @app_commands.describe(
+        unlimited_stock="Set true to remove the finite stock limit",
+        quantity="New finite stock; omit to preserve the current value",
+    )
+    async def item_drop_edit(
+        interaction: discord.Interaction,
+        location_id: str,
+        item_id: str,
+        weight: app_commands.Range[int, 1, 1_000_000] | None = None,
+        xp_gain: app_commands.Range[int, 0, 1_000_000] | None = None,
+        quantity: app_commands.Range[int, 0, 1_000_000_000] | None = None,
+        message: str | None = None,
+        unlimited_stock: bool = False,
+    ) -> None:
+        async def operation() -> None:
+            current = await api.item_drops(interaction, location_id)
+            row = next(
+                (entry for entry in current["items"] if entry["item_id"] == item_id),
+                None,
+            )
+            if not row:
+                raise ValueError(f"Item drop not found: {item_id}")
+            await api.upsert_item_drop(
+                interaction,
+                location_id,
+                {
+                    "item_id": item_id,
+                    "weight": weight if weight is not None else row["weight"],
+                    "xp_gain": xp_gain if xp_gain is not None else row["xp_gain"],
+                    "quantity": (
+                        None
+                        if unlimited_stock
+                        else quantity if quantity is not None else row["quantity"]
+                    ),
+                    "message": message if message is not None else row["message"],
+                    "expected_version": row["version"],
+                },
+            )
+            await interaction.followup.send("Item drop updated.", ephemeral=True)
+
+        await _deferred(interaction, operation)
+
+    @item_drop.command(name="remove", description="Remove an item drop from a location")
+    async def item_drop_remove(
+        interaction: discord.Interaction, location_id: str, item_id: str
+    ) -> None:
+        try:
+            current = await api.item_drops(interaction, location_id)
+            row = next(
+                (entry for entry in current["items"] if entry["item_id"] == item_id),
+                None,
+            )
+            if not row:
+                raise ValueError(f"Item drop not found: {item_id}")
+        except (EngineError, ValueError) as error:
+            await _send_error(interaction, error)
+            return
+        await _confirmation(
+            interaction,
+            f"Remove item `{item_id}` from location `{location_id}`?",
+            lambda confirmed: api.remove_item_drop(
+                confirmed, location_id, item_id, row["version"]
+            ),
+            "Item drop removed.",
+            danger=True,
+        )
+
+    @player.command(name="inventory", description="Show every player inventory field")
+    async def player_inventory(
+        interaction: discord.Interaction, user_twitch_id: str
+    ) -> None:
+        async def operation() -> None:
+            result = await api.player_inventory(interaction, user_twitch_id)
+            await interaction.followup.send(
+                embed=_json_embed("Player inventory", result), ephemeral=True
+            )
+
+        await _deferred(interaction, operation)
+
+    @player.command(name="item-grant", description="Grant a typed item atomically")
+    async def player_item_grant(
+        interaction: discord.Interaction,
+        user_twitch_id: str,
+        item_id: str,
+        quantity: app_commands.Range[int, 1, 1_000_000] = 1,
+        slot_id: app_commands.Range[int, 1, 1_000_000] | None = None,
+        current_durability: app_commands.Range[int, 0, 1_000_000] | None = None,
+    ) -> None:
+        await _simple_mutation(
+            interaction,
+            lambda: api.grant_player_item(
+                interaction,
+                user_twitch_id,
+                {
+                    "item_id": item_id,
+                    "quantity": quantity,
+                    "slot_id": slot_id,
+                    "current_durability": current_durability,
+                    "meta": {},
+                },
+            ),
+            "Item granted.",
+        )
+
+    @player.command(name="item-revoke", description="Revoke a versioned inventory quantity")
+    async def player_item_revoke(
+        interaction: discord.Interaction,
+        user_twitch_id: str,
+        inventory_item_id: int,
+        quantity: app_commands.Range[int, 1, 1_000_000] = 1,
+    ) -> None:
+        try:
+            inventory = await api.player_inventory(interaction, user_twitch_id)
+            row = next(
+                (entry for entry in inventory["items"] if entry["id"] == inventory_item_id),
+                None,
+            )
+            if not row:
+                raise ValueError(f"Inventory item not found: {inventory_item_id}")
+        except (EngineError, ValueError) as error:
+            await _send_error(interaction, error)
+            return
+        await _confirmation(
+            interaction,
+            f"Revoke {quantity} from inventory item `{inventory_item_id}`?",
+            lambda confirmed: api.revoke_player_item(
+                confirmed,
+                user_twitch_id,
+                inventory_item_id,
+                quantity,
+                row["version"],
+            ),
+            "Inventory item revoked.",
+            danger=True,
+        )
+
+    @player_modifier.command(name="list", description="List player modifier sources")
+    async def player_modifier_list(
+        interaction: discord.Interaction, user_twitch_id: str
+    ) -> None:
+        async def operation() -> None:
+            result = await api.player_modifiers(interaction, user_twitch_id)
+            await interaction.followup.send(
+                embed=_json_embed("Player modifiers", result), ephemeral=True
+            )
+
+        await _deferred(interaction, operation)
+
+    @player_modifier.command(name="set", description="Create or update a player modifier")
+    @app_commands.choices(
+        stat_key=STAT_KEY_CHOICES,
+        operation=MODIFIER_OPERATION_CHOICES,
+        scope=MODIFIER_SCOPE_CHOICES,
+    )
+    @app_commands.describe(
+        value="Decimal value; add/override uses the stat cap, multiply uses 0 to 100",
+        source_key="Stable source ID, for example promotion.weekly",
+        reason="Human-readable reason shown by stats explain",
+        expected_version="Required only when updating an existing source",
+    )
+    async def player_modifier_set(
+        interaction: discord.Interaction,
+        user_twitch_id: str,
+        stat_key: app_commands.Choice[str],
+        operation: app_commands.Choice[str],
+        scope: app_commands.Choice[str],
+        value: str,
+        source_key: str,
+        reason: str,
+        expected_version: app_commands.Range[int, 1] | None = None,
+    ) -> None:
+        payload = {
+            "stat_key": stat_key.value,
+            "operation": operation.value,
+            "scope": scope.value,
+            "value": value,
+            "source_key": source_key,
+            "reason": reason,
+            "expected_version": expected_version,
+        }
+        await _simple_mutation(
+            interaction,
+            lambda: api.set_player_modifier(interaction, user_twitch_id, payload),
+            "Player modifier saved.",
+        )
+
+    @player_modifier.command(name="disable", description="Disable a player modifier")
+    async def player_modifier_disable(
+        interaction: discord.Interaction, user_twitch_id: str, modifier_id: str
+    ) -> None:
+        try:
+            current = await api.player_modifiers(interaction, user_twitch_id)
+            row = next(
+                (entry for entry in current["items"] if entry["id"] == modifier_id),
+                None,
+            )
+            if not row:
+                raise ValueError(f"Player modifier not found: {modifier_id}")
+        except (EngineError, ValueError) as error:
+            await _send_error(interaction, error)
+            return
+        await _simple_mutation(
+            interaction,
+            lambda: api.set_player_modifier_state(
+                interaction, user_twitch_id, modifier_id, row["version"], False
+            ),
+            "Player modifier disabled.",
+        )
+
+    @player_modifier.command(name="remove", description="Delete a player modifier")
+    async def player_modifier_remove(
+        interaction: discord.Interaction, user_twitch_id: str, modifier_id: str
+    ) -> None:
+        try:
+            current = await api.player_modifiers(interaction, user_twitch_id)
+            row = next(
+                (entry for entry in current["items"] if entry["id"] == modifier_id),
+                None,
+            )
+            if not row:
+                raise ValueError(f"Player modifier not found: {modifier_id}")
+        except (EngineError, ValueError) as error:
+            await _send_error(interaction, error)
+            return
+        await _confirmation(
+            interaction,
+            f"Delete player modifier `{modifier_id}`?",
+            lambda confirmed: api.remove_player_modifier(
+                confirmed, user_twitch_id, modifier_id, row["version"]
+            ),
+            "Player modifier removed.",
+            danger=True,
+        )
+
+    @player_stats.command(name="explain", description="Explain every resolved stat source")
+    @app_commands.choices(scope=MODIFIER_SCOPE_CHOICES[:-1])
+    async def player_stats_explain(
+        interaction: discord.Interaction,
+        user_twitch_id: str,
+        scope: app_commands.Choice[str],
+    ) -> None:
+        async def operation() -> None:
+            result = await api.explain_player_stats(
+                interaction, user_twitch_id, scope.value
+            )
+            await interaction.followup.send(
+                embed=_json_embed("Resolved player stats", result), ephemeral=True
+            )
+
+        await _deferred(interaction, operation)
+
     async def message_key_autocomplete(
         interaction: discord.Interaction,
         current: str,
@@ -737,6 +1279,25 @@ def register_commands(
             if needle in str(item["id"]).casefold() or needle in item["event_title"].casefold()
         ][:25]
 
+    async def item_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        try:
+            result = await api.items(interaction, include_archived=True)
+        except EngineError:
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(
+                name=f"{entry['title']} ({entry['item_id']})"[:100],
+                value=entry["item_id"],
+            )
+            for entry in result["items"]
+            if needle in entry["item_id"].casefold()
+            or needle in entry["title"].casefold()
+        ][:25]
+
     for command in (
         location_show,
         location_edit,
@@ -753,6 +1314,12 @@ def register_commands(
         command.autocomplete("event_id")(event_autocomplete)
     for command in (placeholders_show, placeholders_edit):
         command.autocomplete("message_key")(message_key_autocomplete)
+    for command in (item_show, item_edit, item_archive):
+        command.autocomplete("item_id")(item_autocomplete)
+    for command in (item_drop_list, item_drop_add, item_drop_edit, item_drop_remove):
+        command.autocomplete("location_id")(location_autocomplete)
+    for command in (item_drop_add, item_drop_edit, item_drop_remove, player_item_grant):
+        command.autocomplete("item_id")(item_autocomplete)
 
     tree.add_command(fish)
 
@@ -826,3 +1393,56 @@ async def _session(
     if state is None:
         raise ValueError("This form expired. Run the command again.")
     return state
+
+
+def _parse_effects(raw: str | None) -> list[dict[str, Any]]:
+    if raw is None or not raw.strip():
+        return []
+    try:
+        effects = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Effects must be valid JSON: {error.msg}") from error
+    if not isinstance(effects, list) or not all(isinstance(item, dict) for item in effects):
+        raise ValueError("Effects must be a JSON array of objects")
+    return effects
+
+
+def _item_payload(
+    *,
+    item_id: str,
+    title: str,
+    item_type: str,
+    rarity: str,
+    equipment_slot: str | None,
+    stack_size: int,
+    max_durability: int | None,
+    break_policy: str,
+    effects: list[dict[str, Any]],
+    description: str | None,
+) -> dict[str, Any]:
+    if item_type == "equipment" and not equipment_slot:
+        raise ValueError("Equipment slot is required for equipment")
+    if item_type != "equipment" and equipment_slot:
+        raise ValueError("Equipment slot is only available for equipment")
+    if item_type == "equipment" and stack_size != 1:
+        raise ValueError("Equipment must use stack size 1")
+    if break_policy != "indestructible" and max_durability is None:
+        raise ValueError("Maximum durability is required for breakable items")
+    return {
+        "item_id": item_id.strip().lower(),
+        "title": title.strip(),
+        "description": description.strip() if description else None,
+        "item_type": item_type,
+        "equipment_slot": equipment_slot,
+        "rarity": rarity,
+        "stack_size": stack_size,
+        "max_durability": max_durability,
+        "break_policy": break_policy,
+        "schema_version": 1,
+        "effects": effects,
+        "image_url": None,
+        "value": None,
+        "sell_value": None,
+        "is_sellable": True,
+        "is_tradeable": True,
+    }

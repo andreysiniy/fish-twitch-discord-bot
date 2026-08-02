@@ -291,3 +291,164 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/events/{event_id}?expected_version={version}",
             idempotency_key=interaction_key(interaction.id, "event.delete"),
         )
+
+    async def items(self, interaction, include_archived: bool = False):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/items?include_archived={str(include_archived).lower()}",
+        )
+
+    async def item(self, interaction, item_id: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction, "GET", f"/v1/admin/channels/{channel}/items/{item_id}"
+        )
+
+    async def upsert_item(self, interaction, payload: dict[str, Any]):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PUT",
+            f"/v1/admin/channels/{channel}/items",
+            json=payload,
+            idempotency_key=interaction_key(interaction.id, "item.upsert"),
+        )
+
+    async def archive_item(self, interaction, item_id: str, version: int):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/admin/channels/{channel}/items/{item_id}/archive"
+            f"?expected_version={version}",
+            idempotency_key=interaction_key(interaction.id, "item.archive"),
+        )
+
+    async def item_drops(self, interaction, location_id: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops",
+        )
+
+    async def upsert_item_drop(self, interaction, location_id: str, payload: dict[str, Any]):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PUT",
+            f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops",
+            json=payload,
+            idempotency_key=interaction_key(interaction.id, "item_drop.upsert"),
+        )
+
+    async def remove_item_drop(
+        self, interaction, location_id: str, item_id: str, version: int
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "DELETE",
+            f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops/{item_id}"
+            f"?expected_version={version}",
+            idempotency_key=interaction_key(interaction.id, "item_drop.remove"),
+        )
+
+    async def player_inventory(self, interaction, user_twitch_id: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/inventory",
+        )
+
+    async def grant_player_item(self, interaction, user_twitch_id: str, payload: dict[str, Any]):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/items",
+            json=payload,
+            idempotency_key=interaction_key(interaction.id, "player.item_grant"),
+        )
+
+    async def revoke_player_item(
+        self,
+        interaction,
+        user_twitch_id: str,
+        inventory_item_id: int,
+        quantity: int,
+        version: int,
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/items/"
+            f"{inventory_item_id}/revoke",
+            json={"quantity": quantity, "expected_version": version},
+            idempotency_key=interaction_key(interaction.id, "player.item_revoke"),
+        )
+
+    async def player_modifiers(self, interaction, user_twitch_id: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers",
+        )
+
+    async def set_player_modifier(
+        self, interaction, user_twitch_id: str, payload: dict[str, Any]
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PUT",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers",
+            json=payload,
+            idempotency_key=interaction_key(interaction.id, "player_modifier.set"),
+        )
+
+    async def set_player_modifier_state(
+        self,
+        interaction,
+        user_twitch_id: str,
+        modifier_id: str,
+        version: int,
+        is_enabled: bool,
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PATCH",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers/"
+            f"{modifier_id}/state",
+            json={"expected_version": version, "is_enabled": is_enabled},
+            idempotency_key=interaction_key(interaction.id, "player_modifier.state"),
+        )
+
+    async def remove_player_modifier(
+        self, interaction, user_twitch_id: str, modifier_id: str, version: int
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "DELETE",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers/"
+            f"{modifier_id}?expected_version={version}",
+            idempotency_key=interaction_key(interaction.id, "player_modifier.remove"),
+        )
+
+    async def explain_player_stats(
+        self, interaction, user_twitch_id: str, scope: str = "fishing"
+    ):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/stats/explain"
+            f"?scope={scope}",
+        )

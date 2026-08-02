@@ -4,7 +4,13 @@ from decimal import Decimal
 from typing import Any
 
 from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
-from domain.item_schema import STAT_REGISTRY, ModifierOperation, ModifierScope, StatKey
+from domain.item_schema import (
+    STAT_REGISTRY,
+    ItemDefinitionData,
+    ModifierOperation,
+    ModifierScope,
+    StatKey,
+)
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -149,3 +155,29 @@ class PlayerModifierSetRequest(StrictDTO):
 class VersionedStateRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
     is_enabled: bool
+
+
+class DiscordItemUpsertRequest(ItemDefinitionData):
+    expected_version: int | None = Field(None, ge=1)
+
+
+class ItemDropUpsertRequest(StrictDTO):
+    item_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
+    weight: int = Field(100, ge=1, le=1_000_000)
+    xp_gain: int = Field(0, ge=0, le=1_000_000)
+    quantity: int | None = Field(None, ge=0, le=1_000_000_000)
+    message: str = Field("You caught {name}!", max_length=300)
+    expected_version: int | None = Field(None, ge=1)
+
+
+class PlayerItemGrantRequest(StrictDTO):
+    item_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
+    quantity: int = Field(1, ge=1, le=1_000_000)
+    slot_id: int | None = Field(None, ge=1)
+    current_durability: int | None = Field(None, ge=0)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlayerItemRevokeRequest(StrictDTO):
+    quantity: int = Field(1, ge=1, le=1_000_000)
+    expected_version: int = Field(..., ge=1)

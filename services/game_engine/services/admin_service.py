@@ -1,13 +1,8 @@
 from typing import Any, List
-from infrastructure.repositories.channel_repo import ChannelRepository
-from infrastructure.repositories.config_repo import ConfigRepository
-from infrastructure.repositories.user_repo import UserRepository
-from infrastructure.repositories.inventory_repo import InventoryRepository
-from infrastructure.se_client import SEApiClient
-from core.game_params import DEFAULT_GAME_PARAMS, GParam
+
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
-from core.messages import MsgKey, resolve_message, format_time
-from services.eventing.event_lifecycle_service import FishingEventLifecycleService
+from core.game_params import DEFAULT_GAME_PARAMS, GParam
+from core.messages import MsgKey, format_time, resolve_message
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
     ChannelAccessResponseDTO,
@@ -19,11 +14,18 @@ from domain.schemas.admin import (
     FishingEventResponseDTO,
     FishingEventToggleResponseDTO,
     FishingEventUpdateRequestDTO,
+    GrantItemRequestDTO,
+    ItemDefinitionCreateDTO,
     PlayerListResponse,
     RewardPoolUpdateDTO,
-    ItemDefinitionCreateDTO,
-    GrantItemRequestDTO,
 )
+from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.config_repo import ConfigRepository
+from infrastructure.repositories.inventory_repo import InventoryRepository
+from infrastructure.repositories.user_repo import UserRepository
+from infrastructure.se_client import SEApiClient
+from services.eventing.event_lifecycle_service import FishingEventLifecycleService
+
 
 class AdminService:
     def __init__(
@@ -345,6 +347,7 @@ class AdminService:
         if not definition:
             raise ValueError(f"Inventory item {item.id} has no definition")
         return {
+            "id": item.id,
             "item_id": logical_item_id,
             "title": title,
             "description": definition.description if definition else None,
@@ -360,7 +363,9 @@ class AdminService:
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
-            "obtained_at": (item.meta or {}).get("obtained_at")
+            "obtained_at": (item.meta or {}).get("obtained_at"),
+            "version": item.version,
+            "meta": item.meta or {},
         }
 
     def _serialize_item_definition(self, definition) -> dict:
