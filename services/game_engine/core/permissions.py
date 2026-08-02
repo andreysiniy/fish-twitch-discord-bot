@@ -13,8 +13,11 @@ class ChannelPermission(str, Enum):
     ACCESS_WRITE = "channel.access.write"
     ITEMS_READ = "channel.items.read"
     ITEMS_WRITE = "channel.items.write"
-    PLAYERS_READ = "channel.players.read"
-    PLAYERS_WRITE = "channel.players.write"
+    ITEM_DROPS_WRITE = "channel.item_drops.write"
+    PLAYER_INVENTORY_READ = "channel.player_inventory.read"
+    PLAYER_ITEMS_GRANT = "channel.player_items.grant"
+    PLAYER_MODIFIERS_READ = "channel.player_modifiers.read"
+    PLAYER_MODIFIERS_WRITE = "channel.player_modifiers.write"
 
 
 ROLE_PERMISSIONS = {
@@ -29,14 +32,13 @@ ROLE_PERMISSIONS = {
         ChannelPermission.COOLDOWN_WRITE,
         ChannelPermission.ITEMS_READ,
         ChannelPermission.ITEMS_WRITE,
-        ChannelPermission.PLAYERS_READ,
-        ChannelPermission.PLAYERS_WRITE,
+        ChannelPermission.ITEM_DROPS_WRITE,
     },
     "moderator": {
         ChannelPermission.CONFIG_READ,
         ChannelPermission.EVENTS_TOGGLE,
         ChannelPermission.COOLDOWN_WRITE,
         ChannelPermission.ITEMS_READ,
-        ChannelPermission.PLAYERS_READ,
+        ChannelPermission.PLAYER_INVENTORY_READ,
     },
 }

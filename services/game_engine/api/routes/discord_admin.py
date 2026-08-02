@@ -9,10 +9,14 @@ from domain.schemas.discord_admin import (
     DiscordEventCreateRequest,
     DiscordEventPatchRequest,
     DiscordEventStartRequest,
+    DiscordItemUpsertRequest,
+    ItemDropUpsertRequest,
     LegacyRewardImportRequest,
     LocationCreateRequest,
     LocationPatchRequest,
     MessageTemplatePatchRequest,
+    PlayerItemGrantRequest,
+    PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
     RewardCreateRequest,
     RewardPatchRequest,
@@ -22,6 +26,125 @@ from fastapi import APIRouter, Depends, Query
 from services.discord_admin_service import CONFIG_SECTIONS, DiscordAdminService
 
 router = APIRouter()
+
+
+@router.get("/channels/{channel_twitch_id}/items")
+def list_items(
+    channel_twitch_id: str,
+    include_archived: bool = False,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_items(context, channel_twitch_id, include_archived)
+
+
+@router.get("/channels/{channel_twitch_id}/items/{item_id}")
+def get_item(
+    channel_twitch_id: str,
+    item_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_item(context, channel_twitch_id, item_id)
+
+
+@router.put("/channels/{channel_twitch_id}/items")
+def upsert_item(
+    channel_twitch_id: str,
+    data: DiscordItemUpsertRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.upsert_item(context, channel_twitch_id, data)
+
+
+@router.post("/channels/{channel_twitch_id}/items/{item_id}/archive")
+def archive_item(
+    channel_twitch_id: str,
+    item_id: str,
+    expected_version: int = Query(..., ge=1),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.archive_item(context, channel_twitch_id, item_id, expected_version)
+
+
+@router.get("/channels/{channel_twitch_id}/locations/{location_id}/item-drops")
+def list_item_drops(
+    channel_twitch_id: str,
+    location_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_item_drops(context, channel_twitch_id, location_id)
+
+
+@router.put("/channels/{channel_twitch_id}/locations/{location_id}/item-drops")
+def upsert_item_drop(
+    channel_twitch_id: str,
+    location_id: str,
+    data: ItemDropUpsertRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.upsert_item_drop(context, channel_twitch_id, location_id, data)
+
+
+@router.delete(
+    "/channels/{channel_twitch_id}/locations/{location_id}/item-drops/{item_id}"
+)
+def remove_item_drop(
+    channel_twitch_id: str,
+    location_id: str,
+    item_id: str,
+    expected_version: int = Query(..., ge=1),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.remove_item_drop(
+        context, channel_twitch_id, location_id, item_id, expected_version
+    )
+
+
+@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/inventory")
+def get_player_inventory(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_player_inventory_admin(context, channel_twitch_id, user_twitch_id)
+
+
+@router.post("/channels/{channel_twitch_id}/players/{user_twitch_id}/items")
+def grant_player_item(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    data: PlayerItemGrantRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.grant_player_item(context, channel_twitch_id, user_twitch_id, data)
+
+
+@router.post(
+    "/channels/{channel_twitch_id}/players/{user_twitch_id}/items/{inventory_item_id}/revoke"
+)
+def revoke_player_item(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    inventory_item_id: int,
+    data: PlayerItemRevokeRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.revoke_player_item(
+        context,
+        channel_twitch_id,
+        user_twitch_id,
+        inventory_item_id,
+        data,
+    )
 
 
 @router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers")

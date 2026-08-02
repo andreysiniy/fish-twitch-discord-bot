@@ -117,6 +117,40 @@ def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     return item["event_title"], _entity_details(item, order)
 
 
+def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
+    order = (
+        "item_id",
+        "item_type",
+        "equipment_slot",
+        "rarity",
+        "stack_size",
+        "max_durability",
+        "break_policy",
+        "effects",
+        "value",
+        "sell_value",
+        "is_sellable",
+        "is_tradeable",
+        "is_active",
+        "version",
+    )
+    return item["title"], _entity_details(item, order)
+
+
+def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
+    order = (
+        "id",
+        "item_id",
+        "title",
+        "weight",
+        "xp_gain",
+        "quantity",
+        "message",
+        "version",
+    )
+    return item["title"], _entity_details(item, order)
+
+
 def placeholder_help_embeds(
     items: list[dict[str, Any]],
     message_key: str | None = None,

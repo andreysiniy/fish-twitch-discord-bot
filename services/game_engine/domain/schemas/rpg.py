@@ -1,8 +1,8 @@
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from domain.schemas.common import Rarity
 from domain.item_schema import BreakPolicy, EquipmentSlot, ItemEffect, ItemType
+from domain.schemas.common import Rarity
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -31,10 +31,13 @@ class DropItemDTO(BaseItemDTO):
 
 
 class InventoryItemDTO(BaseItemDTO):
+    id: int
     quantity: int = 1
     slot_id: int
     current_durability: int | None = None
     obtained_at: str | None = None
+    version: int = 1
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class InventoryDTO(BaseModel):

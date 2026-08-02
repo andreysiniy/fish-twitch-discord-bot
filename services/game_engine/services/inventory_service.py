@@ -126,6 +126,7 @@ class InventoryService:
             raise ValueError(f"Inventory item {item.id} has no definition")
         meta = item.meta or {}
         return {
+            "id": item.id,
             "item_id": definition.item_id,
             "title": self._display_title(definition, definition.item_id),
             "description": definition.description,
@@ -142,4 +143,6 @@ class InventoryService:
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
             "obtained_at": meta.get("obtained_at"),
+            "version": item.version,
+            "meta": meta,
         }

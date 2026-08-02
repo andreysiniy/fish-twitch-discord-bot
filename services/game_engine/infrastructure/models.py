@@ -117,7 +117,8 @@ class ItemDefinition(Base):
             name="ck_item_definitions_max_durability_positive",
         ),
         CheckConstraint(
-            "type IN ('equipment','consumable','lootbox','material','quest','currency','collectible')",
+            "type IN ('equipment','consumable','lootbox','material','quest',"
+            "'currency','collectible')",
             name="ck_item_definitions_type",
         ),
         CheckConstraint(
@@ -263,6 +264,11 @@ class RewardPool(Base):
 
 class LocationItem(Base):
     __tablename__ = "location_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "reward_pool_id", "item_id", name="uq_location_items_pool_item"
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     reward_pool_id = Column(Integer, ForeignKey("reward_pools.id"), nullable=False)
@@ -445,7 +451,11 @@ class LootTableEntry(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    loot_table_id = Column(Integer, ForeignKey("loot_tables.id", ondelete="CASCADE"), nullable=False)
+    loot_table_id = Column(
+        Integer,
+        ForeignKey("loot_tables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     item_definition_id = Column(
         Integer, ForeignKey("item_definitions.id", ondelete="RESTRICT"), nullable=False
     )
@@ -514,7 +524,11 @@ class AdminAuditLog(Base):
     __tablename__ = "admin_audit_log"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
     request_id = Column(String, nullable=False, index=True)
     idempotency_key = Column(String, nullable=True, index=True)
     channel_twitch_id = Column(String, nullable=False, index=True)

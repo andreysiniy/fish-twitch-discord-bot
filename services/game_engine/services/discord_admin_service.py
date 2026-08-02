@@ -20,11 +20,15 @@ from domain.schemas.discord_admin import (
     DiscordEventCreateRequest,
     DiscordEventPatchRequest,
     DiscordEventStartRequest,
+    DiscordItemUpsertRequest,
     GuildBindRequest,
+    ItemDropUpsertRequest,
     LegacyRewardImportRequest,
     LocationCreateRequest,
     LocationPatchRequest,
     MessageTemplatePatchRequest,
+    PlayerItemGrantRequest,
+    PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
     RewardCreateRequest,
     RewardPatchRequest,
@@ -36,16 +40,22 @@ from infrastructure.models import (
     DiscordAccountLink,
     DiscordGuildBinding,
     FishingEvent,
+    InventoryItem,
+    ItemDefinition,
+    LocationItem,
     PlayerModifier,
     RewardPool,
     UserProgress,
 )
 from infrastructure.redis_client import RedisClient
 from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.inventory_repo import InventoryRepository
+from infrastructure.repositories.user_repo import UserRepository
 from pydantic import TypeAdapter, ValidationError
 from services.auth_service import AuthService
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.idempotency_service import IdempotencyService
+from services.inventory_service import InventoryService
 from services.legacy_rewards import convert_legacy_rewards
 from services.player_modifier_service import PlayerModifierService
 from sqlalchemy.orm.attributes import flag_modified
@@ -330,7 +340,7 @@ class DiscordAdminService:
         self, context, channel_twitch_id: str, user_twitch_id: str
     ) -> dict[str, Any]:
         channel, _ = self._authorize(
-            context, ChannelPermission.PLAYERS_READ, channel_twitch_id
+            context, ChannelPermission.PLAYER_MODIFIERS_READ, channel_twitch_id
         )
         user = self._find_player(channel.id, user_twitch_id)
         rows = (
@@ -357,7 +367,7 @@ class DiscordAdminService:
         def mutation() -> dict[str, Any]:
             channel, link = self._authorize(
                 context,
-                ChannelPermission.PLAYERS_WRITE,
+                ChannelPermission.PLAYER_MODIFIERS_WRITE,
                 channel_twitch_id,
                 for_update=True,
             )
@@ -440,7 +450,7 @@ class DiscordAdminService:
     ) -> dict[str, Any]:
         def mutation() -> dict[str, Any]:
             channel, link = self._authorize(
-                context, ChannelPermission.PLAYERS_WRITE, channel_twitch_id
+                context, ChannelPermission.PLAYER_MODIFIERS_WRITE, channel_twitch_id
             )
             user = self._find_player(channel.id, user_twitch_id)
             row = self._find_player_modifier(user.id, modifier_id, for_update=True)
@@ -480,7 +490,7 @@ class DiscordAdminService:
     ) -> dict[str, Any]:
         def mutation() -> dict[str, Any]:
             channel, link = self._authorize(
-                context, ChannelPermission.PLAYERS_WRITE, channel_twitch_id
+                context, ChannelPermission.PLAYER_MODIFIERS_WRITE, channel_twitch_id
             )
             user = self._find_player(channel.id, user_twitch_id)
             row = self._find_player_modifier(user.id, modifier_id, for_update=True)
@@ -516,7 +526,7 @@ class DiscordAdminService:
         scope: ModifierScope,
     ) -> dict[str, Any]:
         channel, _ = self._authorize(
-            context, ChannelPermission.PLAYERS_READ, channel_twitch_id
+            context, ChannelPermission.PLAYER_MODIFIERS_READ, channel_twitch_id
         )
         user = self._find_player(channel.id, user_twitch_id)
         resolved = PlayerModifierService(self.db).resolve(user, scope)
@@ -527,6 +537,359 @@ class DiscordAdminService:
             "stats": resolved.explain(),
             "behavioral_effects": list(resolved.effects),
         }
+
+    def list_items(self, context, channel_twitch_id: str, include_archived: bool) -> dict:
+        channel, _ = self._authorize(context, ChannelPermission.ITEMS_READ, channel_twitch_id)
+        query = self.db.query(ItemDefinition).filter(ItemDefinition.channel_id == channel.id)
+        if not include_archived:
+            query = query.filter(ItemDefinition.is_active.is_(True))
+        rows = query.order_by(ItemDefinition.item_id.asc()).all()
+        return {"items": [self._serialize_item_definition(row, channel) for row in rows]}
+
+    def get_item(self, context, channel_twitch_id: str, item_id: str) -> dict:
+        channel, _ = self._authorize(context, ChannelPermission.ITEMS_READ, channel_twitch_id)
+        row = self._find_item_definition(channel.id, item_id)
+        return self._serialize_item_definition(row, channel)
+
+    def upsert_item(
+        self,
+        context,
+        channel_twitch_id: str,
+        data: DiscordItemUpsertRequest,
+    ) -> dict:
+        def mutation() -> dict:
+            channel, link = self._authorize(
+                context, ChannelPermission.ITEMS_WRITE, channel_twitch_id, for_update=True
+            )
+            existing = (
+                self.db.query(ItemDefinition)
+                .filter(
+                    ItemDefinition.channel_id == channel.id,
+                    ItemDefinition.item_id == data.item_id,
+                )
+                .with_for_update(of=ItemDefinition)
+                .first()
+            )
+            before = self._serialize_item_definition(existing, channel) if existing else {}
+            row = self.channel_repo.upsert_item_definition(
+                channel_twitch_id=channel.twitch_id,
+                item_id=data.item_id,
+                title=data.title,
+                item_type=data.item_type.value,
+                slot=data.equipment_slot.value if data.equipment_slot else None,
+                description=data.description,
+                rarity=data.rarity.value,
+                max_durability=data.max_durability,
+                break_policy=data.break_policy.value,
+                stack_size=data.stack_size,
+                image_url=data.image_url,
+                effects=[effect.model_dump(mode="json") for effect in data.effects],
+                schema_version=data.schema_version,
+                value=data.value,
+                sell_value=data.sell_value,
+                expected_version=data.expected_version,
+                updated_by=link.twitch_user_id,
+                is_sellable=data.is_sellable,
+                is_tradeable=data.is_tradeable,
+            )
+            after = self._serialize_item_definition(row, channel)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "item.upsert",
+                "item_definition",
+                row.id,
+                before,
+                after,
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "item.upsert",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
+
+    def archive_item(
+        self, context, channel_twitch_id: str, item_id: str, expected_version: int
+    ) -> dict:
+        def mutation() -> dict:
+            channel, link = self._authorize(
+                context, ChannelPermission.ITEMS_WRITE, channel_twitch_id
+            )
+            row = self._find_item_definition(
+                channel.id, item_id, for_update=True
+            )
+            self._check_version(row.version, expected_version, context)
+            before = self._serialize_item_definition(row, channel)
+            row.is_active = False
+            row.archived_at = datetime.now(timezone.utc)
+            row.updated_by = link.twitch_user_id
+            row.version += 1
+            self.db.flush()
+            after = self._serialize_item_definition(row, channel)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "item.archive",
+                "item_definition",
+                row.id,
+                before,
+                after,
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "item.archive",
+            {"item_id": item_id, "expected_version": expected_version},
+            context.request_id,
+            mutation,
+        )
+
+    def list_item_drops(
+        self, context, channel_twitch_id: str, location_id: str
+    ) -> dict:
+        pool, _, _ = self._resolve_pool(
+            context, channel_twitch_id, location_id, ChannelPermission.ITEMS_READ
+        )
+        rows = (
+            self.db.query(LocationItem)
+            .filter(LocationItem.reward_pool_id == pool.id)
+            .order_by(LocationItem.id.asc())
+            .all()
+        )
+        return {
+            "location_id": pool.location_id,
+            "items": [self._serialize_item_drop(row) for row in rows],
+        }
+
+    def upsert_item_drop(
+        self,
+        context,
+        channel_twitch_id: str,
+        location_id: str,
+        data: ItemDropUpsertRequest,
+    ) -> dict:
+        def mutation() -> dict:
+            pool, channel, link = self._resolve_pool(
+                context,
+                channel_twitch_id,
+                location_id,
+                ChannelPermission.ITEM_DROPS_WRITE,
+                for_update=True,
+            )
+            definition = self._find_item_definition(channel.id, data.item_id)
+            if not definition.is_active:
+                raise ApiProblem(422, "VALIDATION_ERROR", "Archived items cannot be dropped")
+            row = (
+                self.db.query(LocationItem)
+                .filter(
+                    LocationItem.reward_pool_id == pool.id,
+                    LocationItem.item_id == definition.id,
+                )
+                .with_for_update(of=LocationItem)
+                .first()
+            )
+            before = self._serialize_item_drop(row) if row else {}
+            if row:
+                if data.expected_version is None:
+                    raise ApiProblem(
+                        409,
+                        "CONFIG_VERSION_CONFLICT",
+                        "expected_version is required when editing an item drop",
+                    )
+                self._check_version(row.version, data.expected_version, context)
+                row.version += 1
+            else:
+                if data.expected_version is not None:
+                    raise ApiProblem(409, "CONFIG_VERSION_CONFLICT", "Item drop does not exist")
+                row = LocationItem(reward_pool_id=pool.id, item_id=definition.id)
+                self.db.add(row)
+            row.weight = data.weight
+            row.xp_gain = data.xp_gain
+            row.quantity = data.quantity
+            row.message = data.message
+            self.db.flush()
+            after = self._serialize_item_drop(row)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "item_drop.upsert",
+                "location_item",
+                row.id,
+                before,
+                {**after, "channel_twitch_id": channel.twitch_id},
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "item_drop.upsert",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
+
+    def remove_item_drop(
+        self,
+        context,
+        channel_twitch_id: str,
+        location_id: str,
+        item_id: str,
+        expected_version: int,
+    ) -> dict:
+        def mutation() -> dict:
+            pool, channel, link = self._resolve_pool(
+                context,
+                channel_twitch_id,
+                location_id,
+                ChannelPermission.ITEM_DROPS_WRITE,
+            )
+            definition = self._find_item_definition(channel.id, item_id)
+            row = (
+                self.db.query(LocationItem)
+                .filter(
+                    LocationItem.reward_pool_id == pool.id,
+                    LocationItem.item_id == definition.id,
+                )
+                .with_for_update(of=LocationItem)
+                .first()
+            )
+            if not row:
+                raise ApiProblem(404, "ITEM_DROP_NOT_FOUND", "Item drop not found")
+            self._check_version(row.version, expected_version, context)
+            before = self._serialize_item_drop(row)
+            self.db.delete(row)
+            self.db.flush()
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "item_drop.remove",
+                "location_item",
+                row.id,
+                {**before, "channel_twitch_id": channel.twitch_id},
+                {},
+            )
+            return {"status": "removed", "item_id": item_id}
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "item_drop.remove",
+            {"item_id": item_id, "expected_version": expected_version},
+            context.request_id,
+            mutation,
+        )
+
+    def get_player_inventory_admin(
+        self, context, channel_twitch_id: str, user_twitch_id: str
+    ) -> dict:
+        channel, _ = self._authorize(
+            context, ChannelPermission.PLAYER_INVENTORY_READ, channel_twitch_id
+        )
+        user = self._find_player(channel.id, user_twitch_id)
+        response = InventoryService(UserRepository(self.db)).get_inventory_msg(
+            user.user_twitch_id, channel.twitch_id
+        )
+        return response.model_dump(mode="json")
+
+    def grant_player_item(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        data: PlayerItemGrantRequest,
+    ) -> dict:
+        def mutation() -> dict:
+            channel, link = self._authorize(
+                context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
+            )
+            user = self._find_player(channel.id, user_twitch_id)
+            items = InventoryRepository(self.db).grant_many(
+                user, [data.model_dump(mode="python")]
+            )
+            after = [self._serialize_inventory_item(row) for row in items]
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "player.item_grant",
+                "inventory_item",
+                ",".join(str(row.id) for row in items),
+                {},
+                {"channel_twitch_id": channel.twitch_id, "items": after},
+            )
+            return {"items": after}
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player.item_grant",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
+
+    def revoke_player_item(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        inventory_item_id: int,
+        data: PlayerItemRevokeRequest,
+    ) -> dict:
+        def mutation() -> dict:
+            channel, link = self._authorize(
+                context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
+            )
+            user = self._find_player(channel.id, user_twitch_id)
+            row = (
+                self.db.query(InventoryItem)
+                .filter(
+                    InventoryItem.id == inventory_item_id,
+                    InventoryItem.user_id == user.id,
+                )
+                .with_for_update(of=InventoryItem)
+                .first()
+            )
+            if not row:
+                raise ApiProblem(404, "INVENTORY_ITEM_NOT_FOUND", "Inventory item not found")
+            self._check_version(row.version, data.expected_version, context)
+            before = self._serialize_inventory_item(row)
+            if data.quantity > row.quantity:
+                raise ApiProblem(422, "VALIDATION_ERROR", "Revoke quantity exceeds inventory")
+            row.quantity -= data.quantity
+            if row.quantity == 0:
+                self.db.delete(row)
+                after = {}
+            else:
+                row.version += 1
+                after = self._serialize_inventory_item(row)
+            self.db.flush()
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "player.item_revoke",
+                "inventory_item",
+                inventory_item_id,
+                {**before, "channel_twitch_id": channel.twitch_id},
+                after,
+            )
+            return {"status": "revoked", "remaining": row.quantity if after else 0}
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player.item_revoke",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
 
     def get_config(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
@@ -1270,6 +1633,77 @@ class DiscordAdminService:
             context.request_id,
             mutation,
         )
+
+    def _find_item_definition(
+        self, channel_id: int, item_id: str, *, for_update: bool = False
+    ) -> ItemDefinition:
+        query = self.db.query(ItemDefinition).filter(
+            ItemDefinition.channel_id == channel_id,
+            ItemDefinition.item_id == item_id,
+        )
+        if for_update:
+            query = query.with_for_update(of=ItemDefinition)
+        row = query.first()
+        if not row:
+            raise ApiProblem(404, "ITEM_NOT_FOUND", "Item definition not found")
+        return row
+
+    @staticmethod
+    def _serialize_item_definition(row: ItemDefinition, channel: Channel) -> dict:
+        return {
+            "channel_twitch_id": channel.twitch_id,
+            "id": row.id,
+            "item_id": row.item_id,
+            "title": row.title,
+            "description": row.description,
+            "item_type": row.type,
+            "equipment_slot": row.slot,
+            "rarity": row.rarity,
+            "stack_size": row.stack_size,
+            "max_durability": row.max_durability,
+            "break_policy": row.break_policy,
+            "effects": row.effects or [],
+            "schema_version": row.schema_version,
+            "image_url": row.image_url,
+            "value": str(row.value) if row.value is not None else None,
+            "sell_value": str(row.sell_value) if row.sell_value is not None else None,
+            "is_sellable": row.is_sellable,
+            "is_tradeable": row.is_tradeable,
+            "is_active": row.is_active,
+            "version": row.version,
+            "archived_at": row.archived_at.isoformat() if row.archived_at else None,
+            "updated_at": row.updated_at.isoformat(),
+            "updated_by": row.updated_by,
+        }
+
+    @staticmethod
+    def _serialize_item_drop(row: LocationItem) -> dict:
+        return {
+            "id": row.id,
+            "item_id": row.definition.item_id,
+            "title": row.definition.title,
+            "weight": row.weight,
+            "xp_gain": row.xp_gain,
+            "quantity": row.quantity,
+            "message": row.message,
+            "version": row.version,
+            "updated_at": row.updated_at.isoformat(),
+        }
+
+    @staticmethod
+    def _serialize_inventory_item(row: InventoryItem) -> dict:
+        return {
+            "id": row.id,
+            "item_id": row.definition.item_id,
+            "title": row.definition.title,
+            "slot_id": row.slot_id,
+            "quantity": row.quantity,
+            "current_durability": row.current_durability,
+            "max_durability": row.definition.max_durability,
+            "definition_version": row.definition_version,
+            "version": row.version,
+            "meta": row.meta or {},
+        }
 
     def _find_player(
         self, channel_id: int, user_twitch_id: str, *, for_update: bool = False

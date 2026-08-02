@@ -303,9 +303,14 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "config",
         "event",
         "help",
+        "item",
+        "item-drop",
         "link",
         "location",
         "placeholders",
+        "player",
+        "player-modifier",
+        "player-stats",
         "reward",
         "setup",
         "status",
@@ -317,6 +322,34 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
     rewards = fish.get_command("reward")
     assert rewards is not None
     assert "import-legacy" in {command.name for command in rewards.commands}
+    items = fish.get_command("item")
+    assert {command.name for command in items.commands} == {
+        "archive",
+        "create",
+        "edit",
+        "list",
+        "show",
+    }
+    item_drops = fish.get_command("item-drop")
+    assert {command.name for command in item_drops.commands} == {
+        "add",
+        "edit",
+        "list",
+        "remove",
+    }
+    player = fish.get_command("player")
+    assert {command.name for command in player.commands} == {
+        "inventory",
+        "item-grant",
+        "item-revoke",
+    }
+    modifiers = fish.get_command("player-modifier")
+    assert {command.name for command in modifiers.commands} == {
+        "disable",
+        "list",
+        "remove",
+        "set",
+    }
     assert gateway_settings.DEV_GUILD_ID is None
     assert bot.intents.guilds is True
     assert bot.intents.message_content is False
