@@ -10,6 +10,9 @@ from infrastructure.repositories.inventory_repo import (
     InventoryCapacityError,
     InventoryRepository,
 )
+from infrastructure.repositories.user_repo import UserRepository
+from services.inventory_service import InventoryService
+from services.player_modifier_service import PlayerModifierService
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_INTEGRATION_TESTS") != "1",
@@ -173,6 +176,66 @@ def test_consumable_use_is_atomic_and_idempotent() -> None:
             (1, "box_reward")
         ]
         assert user.current_mass == Decimal("2.50")
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_equipped_storage_expands_effective_inventory_capacity() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"storage-{suffix}", name="Storage test", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="storage_user",
+            channel_id=channel.id,
+            inventory={"max_slots": 1, "equipped_rod_slot": None},
+        )
+        storage = ItemDefinition(
+            channel_id=channel.id,
+            item_id="test_storage",
+            title="Test Storage",
+            type="equipment",
+            slot="storage",
+            stack_size=1,
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "inventory_slots_add",
+                    "value": "2",
+                }
+            ],
+        )
+        material = ItemDefinition(
+            channel_id=channel.id,
+            item_id="storage_material",
+            title="Storage Material",
+            type="material",
+            stack_size=1,
+            effects=[],
+        )
+        db.add_all([user, storage, material])
+        db.flush()
+
+        base_repository = InventoryRepository(db)
+        storage_item = base_repository.grant_many(user, [{"item_id": "test_storage"}])[0]
+        base_repository.equip(user.id, storage_item.slot_id)
+        slot_bonus = PlayerModifierService(db).inventory_slot_bonus(user)
+        assert slot_bonus == 2
+
+        expanded_repository = InventoryRepository(db, max_slots_add=slot_bonus)
+        expanded_repository.grant_many(
+            user, [{"item_id": "storage_material", "quantity": 2}]
+        )
+        assert [row.slot_id for row in expanded_repository._lock_items(user.id)] == [1, 2, 3]
+        response = InventoryService(UserRepository(db)).get_inventory_msg(
+            user.user_twitch_id, channel.twitch_id
+        )
+        assert response.max_slots == 3
     finally:
         db.rollback()
         db.close()

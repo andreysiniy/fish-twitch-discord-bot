@@ -23,9 +23,15 @@ class InventoryCapacityError(ValueError):
 
 
 class InventoryRepository:
-    def __init__(self, db: Session, rng: random.Random | None = None):
+    def __init__(
+        self,
+        db: Session,
+        rng: random.Random | None = None,
+        max_slots_add: int = 0,
+    ):
         self.db = db
         self.rng = rng or random.SystemRandom()
+        self.max_slots_add = int(max_slots_add)
 
     def grant_many(self, user: UserProgress, grants: list[dict[str, Any]]) -> list[InventoryItem]:
         with self.db.begin_nested():
@@ -469,6 +475,6 @@ class InventoryRepository:
             .all()
         )
 
-    @staticmethod
-    def _max_slots(user: UserProgress) -> int:
-        return max(int((user.inventory or {}).get("max_slots", 20)), 1)
+    def _max_slots(self, user: UserProgress) -> int:
+        base_slots = int((user.inventory or {}).get("max_slots", 20))
+        return max(base_slots + self.max_slots_add, 1)

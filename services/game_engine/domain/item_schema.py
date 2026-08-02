@@ -80,6 +80,7 @@ class StatKey(str, Enum):
 
 
 class StatDefinition(StrictItemModel):
+    value_type: Literal["decimal", "integer"] = "decimal"
     minimum: Decimal
     maximum: Decimal
     default_operation: ModifierOperation
@@ -101,8 +102,10 @@ def _stat(
     scopes: set[ModifierScope],
     description: str,
     operation: ModifierOperation = ModifierOperation.ADD,
+    value_type: Literal["decimal", "integer"] = "decimal",
 ) -> StatDefinition:
     return StatDefinition(
+        value_type=value_type,
         minimum=Decimal(minimum),
         maximum=Decimal(maximum),
         default_operation=operation,
@@ -124,7 +127,11 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
         "-0.95", "10", {ModifierScope.FISHING}, "Fishing XP gain bonus."
     ),
     StatKey.POINTS_FLAT_BONUS: _stat(
-        "-1000000", "1000000", {ModifierScope.FISHING}, "Flat points reward adjustment."
+        "-1000000",
+        "1000000",
+        {ModifierScope.FISHING},
+        "Flat points reward adjustment.",
+        value_type="integer",
     ),
     StatKey.ITEM_DROP_CHANCE_ADD: _stat(
         "-1", "1", {ModifierScope.FISHING}, "Additive item-drop probability."
@@ -158,7 +165,11 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
         "-0.95", "10", {ModifierScope.ROBBERY}, "Robbery amount bonus."
     ),
     StatKey.INVENTORY_SLOTS_ADD: _stat(
-        "-100", "1000", {ModifierScope.INVENTORY}, "Additional inventory slots."
+        "-100",
+        "1000",
+        {ModifierScope.INVENTORY},
+        "Additional inventory slots.",
+        value_type="integer",
     ),
     StatKey.SELL_RATE_BONUS_PCT: _stat(
         "-0.95", "10", {ModifierScope.ECONOMY}, "Fish selling rate bonus."
@@ -172,11 +183,20 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
 class StatEffectBase(StrictItemModel):
     stat: StatKey
     value: Decimal
-    trigger: str = Field("passive", min_length=1, max_length=64)
+    trigger: Literal["passive"] = "passive"
 
     @model_validator(mode="after")
     def validate_value(self):
         definition = STAT_REGISTRY[self.stat]
+        if getattr(self, "type", None) == "stat_multiply":
+            if self.value < 0 or self.value > 100:
+                raise ValueError("Multiplier must be between 0 and 100")
+            return self
+        if (
+            definition.value_type == "integer"
+            and self.value != self.value.to_integral_value()
+        ):
+            raise ValueError(f"{self.stat.value} must be an integer")
         if not definition.minimum <= self.value <= definition.maximum:
             raise ValueError(
                 f"{self.stat.value} must be between {definition.minimum} and {definition.maximum}"
@@ -202,7 +222,7 @@ class RerollRewardEffect(StrictItemModel):
 
 class BlockActionEffect(StrictItemModel):
     type: Literal["block_action"]
-    trigger: str = Field(..., min_length=1, max_length=64)
+    trigger: Literal["after_reward_roll", "on_robbery_attempt"]
     target_action_types: list[str] = Field(min_length=1, max_length=20)
     chance: Decimal = Field(Decimal(1), ge=0, le=1)
     durability_cost: int = Field(0, ge=0, le=1000)
@@ -274,7 +294,7 @@ class LootTableRollEffect(StrictItemModel):
 
 class ConsumeChargeEffect(StrictItemModel):
     type: Literal["consume_charge"]
-    trigger: str = Field(..., min_length=1, max_length=64)
+    trigger: Literal["after_cast", "after_successful_cast", "after_item_drop"]
     amount: int = Field(1, ge=1, le=1000)
 
 
@@ -326,6 +346,8 @@ class ItemDefinitionData(StrictItemModel):
 
 def validate_stat_value(stat: StatKey, value: Decimal) -> Decimal:
     definition = STAT_REGISTRY[stat]
+    if definition.value_type == "integer" and value != value.to_integral_value():
+        raise ValueError(f"{stat.value} must be an integer")
     if not definition.minimum <= value <= definition.maximum:
         raise ValueError(
             f"{stat.value} must be between {definition.minimum} and {definition.maximum}"

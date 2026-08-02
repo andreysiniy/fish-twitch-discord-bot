@@ -446,3 +446,86 @@ def test_fishing_service_persists_decimal_mass() -> None:
     assert user.total_mass_stat == Decimal("2.41")
     assert isinstance(user.current_mass, Decimal)
     user_repo.save_progress.assert_called_once_with(user)
+
+
+def test_empty_catch_stat_rerolls_once(monkeypatch) -> None:
+    rolls = iter(
+        [
+            {"type": "nothing", "weight": 1, "xp": 0},
+            {"type": "fish", "weight": 1, "fixed_mass": "2", "xp": 0},
+        ]
+    )
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.roll_loot",
+        lambda *_args, **_kwargs: next(rolls),
+    )
+    monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0.25)
+
+    result = FishingEngine().calculate_result(
+        user=make_user(current_mass=Decimal("0")),
+        loot_pool=[],
+        item_pool=[],
+        items_drop_rate=0,
+        custom_params={},
+        modifier_values={"empty_catch_reroll_chance_pct": Decimal("0.50")},
+    )
+
+    assert result.loot["type"] == "fish"
+    assert result.mass_gained == Decimal("2.00")
+
+
+def test_block_action_rerolls_matching_reward_and_tracks_durability(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.roll_loot",
+        lambda *_args, **_kwargs: {"type": "fish", "fixed_mass": "1"},
+    )
+    monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0)
+    effect = {
+        "type": "block_action",
+        "trigger": "after_reward_roll",
+        "target_action_types": ["nothing"],
+        "chance": "1",
+        "durability_cost": 1,
+    }
+
+    result = FishingEngine._reroll_reward_effects(
+        {"type": "nothing"},
+        [],
+        1.0,
+        [effect],
+    )
+
+    assert result["type"] == "fish"
+    assert effect["_trigger_count"] == 1
+
+
+def test_counter_stat_adds_to_item_counter_chance(monkeypatch) -> None:
+    service = object.__new__(FishingService)
+    service.user_repo = SimpleNamespace(db=Mock())
+    monkeypatch.setattr("services.fishing_service.random.random", lambda: 0.10)
+    attacker = SimpleNamespace(current_mass=Decimal("10"))
+    victim = SimpleNamespace(id=2, current_mass=Decimal("10"))
+
+    actions, absorbed = service._apply_robbery_defenses(
+        attacker,
+        victim,
+        [
+            {
+                "type": "robbery_counter",
+                "chance": "0",
+                "durability_cost": 0,
+                "action": {"type": "timeout", "duration_seconds": 30},
+            }
+        ],
+        counter_chance_bonus=Decimal("0.20"),
+    )
+
+    assert absorbed is False
+    assert actions == [
+        {
+            "type": "timeout",
+            "duration_seconds": 30,
+            "reason": "Robbery counter",
+            "message": "",
+        }
+    ]

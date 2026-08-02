@@ -8,11 +8,13 @@ from core.messages import (
     resolve_message,
 )
 from core.security import decrypt_token
+from domain.item_schema import ModifierScope, StatKey
 from domain.schemas.fishing import FishResponse
 from infrastructure.models import EconomyOperation, OutboxEvent
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.se_client import SEApiClient
+from services.player_modifier_service import PlayerModifierService
 
 MASS_QUANTUM = Decimal("0.01")
 
@@ -28,6 +30,7 @@ class EconomyService:
         self.channel_repo = channel_repo
         self.se_client = se_client
         self.db = user_repo.db
+        self.modifier_service = PlayerModifierService(self.db)
 
     def sell_fish(
         self,
@@ -59,6 +62,7 @@ class EconomyService:
 
         custom_params = channel_config.get("custom_params", {})
         sell_rate = Decimal(str(resolve_param(custom_params, GParam.SELL_RATE)))
+        sell_rate = self._effective_rate(user, sell_rate, StatKey.SELL_RATE_BONUS_PCT)
         points = int((mass_to_sell * sell_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         if points <= 0:
             return self._response(channel_config, MsgKey.SELL_MASS_INVALID_AMOUNT)
@@ -125,6 +129,7 @@ class EconomyService:
 
         custom_params = channel_config.get("custom_params", {})
         buy_rate = Decimal(str(resolve_param(custom_params, GParam.BUY_RATE)))
+        buy_rate = self._effective_rate(user, buy_rate, StatKey.BUY_DISCOUNT_PCT)
         cost = int((mass_to_buy * buy_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         if cost <= 0:
             return self._response(channel_config, MsgKey.BUY_INVALID_AMOUNT)
@@ -247,6 +252,12 @@ class EconomyService:
 
     def _decimal(self, value: object) -> Decimal:
         return Decimal(str(value or 0)).quantize(MASS_QUANTUM, rounding=ROUND_HALF_UP)
+
+    def _effective_rate(self, user, base_rate: Decimal, stat: StatKey) -> Decimal:
+        modifier = self.modifier_service.resolve(user, ModifierScope.ECONOMY).value(stat)
+        if stat == StatKey.BUY_DISCOUNT_PCT:
+            return base_rate * (Decimal("1") - modifier)
+        return base_rate * (Decimal("1") + modifier)
 
     def _format_rate(self, rate: Decimal) -> str:
         normalized = rate.quantize(MASS_QUANTUM).normalize()

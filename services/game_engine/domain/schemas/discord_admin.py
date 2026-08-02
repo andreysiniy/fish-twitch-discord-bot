@@ -142,11 +142,17 @@ class PlayerModifierSetRequest(StrictDTO):
         if self.operation == ModifierOperation.MULTIPLY:
             if self.value < 0 or self.value > 100:
                 raise ValueError("Multiplier must be between 0 and 100")
-        elif not definition.minimum <= self.value <= definition.maximum:
-            raise ValueError(
-                f"{self.stat_key.value} must be between "
-                f"{definition.minimum} and {definition.maximum}"
-            )
+        else:
+            if (
+                definition.value_type == "integer"
+                and self.value != self.value.to_integral_value()
+            ):
+                raise ValueError(f"{self.stat_key.value} must be an integer")
+            if not definition.minimum <= self.value <= definition.maximum:
+                raise ValueError(
+                    f"{self.stat_key.value} must be between "
+                    f"{definition.minimum} and {definition.maximum}"
+                )
         if self.starts_at and self.expires_at and self.expires_at <= self.starts_at:
             raise ValueError("expires_at must be later than starts_at")
         return self

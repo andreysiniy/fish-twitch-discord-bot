@@ -60,6 +60,10 @@ class PlayerModifierService:
         stats = self.resolver.resolve(contributions, scope)
         return ResolvedPlayerModifiers(scope=scope, stats=stats, effects=tuple(effects))
 
+    def inventory_slot_bonus(self, user: UserProgress) -> int:
+        resolved = self.resolve(user, ModifierScope.INVENTORY)
+        return int(resolved.value(StatKey.INVENTORY_SLOTS_ADD))
+
     def _equipment_contributions(
         self,
         user_id: int,
