@@ -81,7 +81,11 @@ class EventLootStrategy(DefaultLootStrategy):
         mass_delta = self._apply_luck(raw_mass, float(max(effective_luck, ZERO_MASS)))
 
         if self._bonus_mass != ZERO_MASS:
-            mass_delta = quantize_mass(mass_delta * (Decimal("1") + self._bonus_mass))
+            bonus_factor = Decimal("1") + self._bonus_mass
+            if mass_delta < ZERO_MASS:
+                mass_delta = quantize_mass(mass_delta / bonus_factor)
+            else:
+                mass_delta = quantize_mass(mass_delta * bonus_factor)
         return mass_delta
 
     def adjust_xp_gain(self, xp_gain: int) -> int:
