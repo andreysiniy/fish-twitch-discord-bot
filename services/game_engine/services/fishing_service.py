@@ -330,6 +330,12 @@ class FishingService:
             )
 
         stats = calculate_player_stats(user)
+        resolved = self.modifier_service.resolve(user, ModifierScope.FISHING)
+        stats["luck_bonus"] = float(resolved.value(StatKey.LOOT_LUCK_PCT))
+        stats["resist_bonus"] = float(
+            resolved.value(StatKey.NEGATIVE_MASS_REDUCTION_PCT)
+        )
+        stats["xp_bonus_pct"] = float(resolved.value(StatKey.XP_GAIN_BONUS_PCT))
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
         xp_base = int(resolve_param(custom_params, GParam.XP_BASE))
