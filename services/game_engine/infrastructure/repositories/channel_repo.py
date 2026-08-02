@@ -1,6 +1,12 @@
 from sqlalchemy.orm import Session
-from infrastructure.models import Channel, RewardPool, LocationItem, ChannelAccessRole, ItemDefinition, FishingEvent
-from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO, LocationItemUpdateDTO
+from infrastructure.models import (
+    Channel,
+    ChannelAccessRole,
+    FishingEvent,
+    ItemDefinition,
+    RewardPool,
+)
+from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
 from core.security import encrypt_token
 
 UNSET = object()
@@ -108,7 +114,6 @@ class ChannelRepository:
         channel_id: int,
         location_id: str,
         rewards: list,
-        items: list[LocationItemUpdateDTO],
         items_drop_rate: float,
         requirements: dict | None = None,
         location_name: str | None = None
@@ -137,31 +142,6 @@ class ChannelRepository:
         if requirements is not None:
             pool.requirements = requirements
 
-        channel = self.db.query(Channel).filter(Channel.id == channel_id).first()
-        if not channel:
-            raise ValueError("Channel not found")
-
-        self.db.query(LocationItem).filter(LocationItem.reward_pool_id == pool.id).delete()
-        for item_dto in items:
-            item_id = item_dto.item_id.strip()
-            if not item_id:
-                continue
-
-            definition = self.get_item_definition(channel.twitch_id, item_id)
-            if not definition:
-                raise ValueError(f"ItemDefinition '{item_id}' not found for channel {channel.twitch_id}")
-
-            db_item = LocationItem(
-                reward_pool_id=pool.id,
-                item_id=definition.id,
-                weight=item_dto.weight,
-                xp_gain=item_dto.xp_gain,
-                quantity=item_dto.quantity,
-                message=item_dto.message,
-            )
-            self.db.add(db_item)
-
-        
         self.db.flush()
         self.db.refresh(pool)
         return pool
