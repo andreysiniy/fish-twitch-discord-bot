@@ -38,10 +38,16 @@ def complete_reward_payload(
     reward_type = payload["type"]
 
     if reward_type == "fish":
-        fixed_mass = _optional_decimal(values.get("fixed_mass"), "Fixed mass", 0, 1_000_000)
-        min_mass = _optional_decimal(values.get("min_mass"), "Minimum mass", 0, 1_000_000)
-        max_mass = _optional_decimal(values.get("max_mass"), "Maximum mass", 0, 1_000_000)
-        percentage = _optional_decimal(values.get("percentage"), "Percentage", 0, 1)
+        fixed_mass = _optional_decimal(
+            values.get("fixed_mass"), "Fixed mass", -1_000_000, 1_000_000
+        )
+        min_mass = _optional_decimal(
+            values.get("min_mass"), "Minimum mass", -1_000_000, 1_000_000
+        )
+        max_mass = _optional_decimal(
+            values.get("max_mass"), "Maximum mass", -1_000_000, 1_000_000
+        )
+        percentage = _optional_decimal(values.get("percentage"), "Percentage", -1, 1)
         has_range = min_mass is not None or max_mass is not None
         if sum((fixed_mass is not None, has_range, percentage is not None)) != 1:
             raise ValueError("Choose exactly one fish mass mode: fixed, range, or percentage")
@@ -117,11 +123,14 @@ def build_roulette_outcome(
     if normalized_type not in OUTCOME_TYPES:
         raise ValueError("Effect type must be add_mass, add_percentage_mass, timeout, or none")
     if normalized_type == "add_mass":
-        return {"type": normalized_type, "mass": _required_decimal(mass, "Mass", 0, 1_000_000)}
+        return {
+            "type": normalized_type,
+            "mass": _required_decimal(mass, "Mass", -1_000_000, 1_000_000),
+        }
     if normalized_type == "add_percentage_mass":
         return {
             "type": normalized_type,
-            "percentage": _required_decimal(percentage, "Percentage", 0, 1),
+            "percentage": _required_decimal(percentage, "Percentage", -1, 1),
         }
     return {
         "type": normalized_type,

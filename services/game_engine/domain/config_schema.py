@@ -47,10 +47,10 @@ class RewardBase(StrictModel):
 
 class FishReward(RewardBase):
     type: Literal["fish"]
-    min_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    max_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    fixed_mass: Decimal | None = Field(None, ge=0, le=1_000_000)
-    percentage: Decimal | None = Field(None, ge=0, le=1)
+    min_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    max_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    fixed_mass: Decimal | None = Field(None, ge=-1_000_000, le=1_000_000)
+    percentage: Decimal | None = Field(None, ge=-1, le=1)
 
     @model_validator(mode="after")
     def validate_mass_mode(self):
@@ -92,12 +92,12 @@ class RobberyReward(RewardBase):
 
 class AddMassOutcome(StrictModel):
     type: Literal["add_mass"]
-    mass: Decimal = Field(..., ge=0, le=1_000_000)
+    mass: Decimal = Field(..., ge=-1_000_000, le=1_000_000)
 
 
 class AddPercentageMassOutcome(StrictModel):
     type: Literal["add_percentage_mass"]
-    percentage: Decimal = Field(..., ge=0, le=1)
+    percentage: Decimal = Field(..., ge=-1, le=1)
 
 
 class TimeoutOutcome(StrictModel):

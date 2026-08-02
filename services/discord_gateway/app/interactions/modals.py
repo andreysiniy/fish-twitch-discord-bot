@@ -257,7 +257,7 @@ class FishRewardModal(discord.ui.Modal):
         self.fixed_mass = _optional_input(
             "Fixed mass",
             defaults.get("fixed_mass"),
-            "Use only this field for a fixed mass",
+            "Use only this field; negative mass is allowed",
         )
         self.min_mass = _optional_input(
             "Minimum mass",
@@ -272,7 +272,7 @@ class FishRewardModal(discord.ui.Modal):
         self.percentage = _optional_input(
             "Percentage",
             defaults.get("percentage"),
-            "Decimal from 0 to 1, for example: 0.15",
+            "Decimal from -1 to 1, for example: -0.15",
         )
         for item in (self.fixed_mass, self.min_mass, self.max_mass, self.percentage):
             self.add_item(item)
@@ -445,12 +445,12 @@ class RouletteOutcomeModal(discord.ui.Modal):
         self.mass = _optional_input(
             "Mass",
             outcome_defaults.get("mass"),
-            "Used only for add_mass",
+            "Used only for add_mass; negatives are allowed",
         )
         self.percentage = _optional_input(
             "Percentage",
             outcome_defaults.get("percentage"),
-            "Decimal from 0 to 1 for add_percentage_mass",
+            "Decimal from -1 to 1 for add_percentage_mass",
         )
         self.duration = _optional_input(
             "Timeout duration",

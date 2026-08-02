@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from core.messages import (
     DEFAULT_MESSAGES,
     MsgKey,
@@ -43,6 +44,25 @@ def test_roulette_rejects_more_bullets_than_chambers() -> None:
         reward_adapter.validate_python(
             {"type": "russian_roulette", "weight": 1, "bullets": 5, "chambers": 4}
         )
+
+
+def test_fish_reward_accepts_negative_mass_and_percentage() -> None:
+    fixed = reward_adapter.validate_python({"type": "fish", "fixed_mass": "-1.25"})
+    percentage = reward_adapter.validate_python({"type": "fish", "percentage": "-0.15"})
+
+    assert fixed.fixed_mass == Decimal("-1.25")
+    assert percentage.percentage == Decimal("-0.15")
+
+
+def test_roulette_accepts_negative_mass_effects() -> None:
+    reward = reward_adapter.validate_python(
+        {
+            "type": "russian_roulette",
+            "penalty": {"type": "add_percentage_mass", "percentage": "-0.2"},
+        }
+    )
+
+    assert reward.penalty.percentage == Decimal("-0.2")
 
 
 def test_message_placeholder_catalog_matches_default_templates() -> None:
