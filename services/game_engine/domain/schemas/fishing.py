@@ -82,6 +82,7 @@ class FishResponse(BaseModel):
 
 class RobberyResultDTO(BaseModel):
     is_success: bool
+    victim_found: bool = True
     amount_stolen: Decimal
     victim_name: str
     victim_twitch_id: str

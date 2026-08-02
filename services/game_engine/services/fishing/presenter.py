@@ -253,6 +253,11 @@ class FishingPresenter:
             actions.append(SendBaseMessageAction(action_message=msg))
             return actions
 
+        if not robbery_result.victim_found:
+            msg = resolve_message(config, MsgKey.ROBBERY_NO_TARGET, attacker=user.username)
+            actions.append(SendBaseMessageAction(action_message=msg))
+            return actions
+
         if robbery_result.is_success:
             amount_gain_fmt = format_large_number_mass_signed(robbery_result.amount_stolen)
             amount_lost_fmt = format_large_number_mass_signed(0 - robbery_result.amount_stolen)
