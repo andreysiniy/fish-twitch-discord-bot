@@ -374,7 +374,14 @@ class RobberyRewardModal(discord.ui.Modal):
             placeholder="Number of nearby users from 1 to 100",
             max_length=3,
         )
-        for item in (self.mass, self.percentage, self.search_range):
+        self.success_message = _optional_input(
+            "Success message",
+            defaults.get("success_message"),
+            "Optional; use {attacker}, {victim}, {attacker_gain}",
+            max_length=300,
+            paragraph=True,
+        )
+        for item in (self.mass, self.percentage, self.search_range, self.success_message):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
@@ -385,6 +392,7 @@ class RobberyRewardModal(discord.ui.Modal):
                 "mass": self.mass.value,
                 "percentage": self.percentage.value,
                 "range": self.search_range.value,
+                "success_message": self.success_message.value,
             },
             self.on_save,
             self.defaults,

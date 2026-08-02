@@ -283,9 +283,10 @@ class FishingPresenter:
             attacker_mass_fmt = format_large_number_mass(user.current_mass)
             victim_mass_fmt = format_large_number_mass(robbery_result.victim_new_mass)
 
+            success_template = result.loot.get("success_message") or MsgKey.ROBBERY_SUCCESS
             msg_text = resolve_message(
                 config,
-                MsgKey.ROBBERY_SUCCESS,
+                success_template,
                 attacker=user.username,
                 attacker_mass=attacker_mass_fmt,
                 victim=robbery_result.victim_name,

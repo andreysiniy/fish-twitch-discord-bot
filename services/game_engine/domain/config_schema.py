@@ -82,6 +82,7 @@ class RobberyReward(RewardBase):
     percentage: Decimal | None = Field(None, ge=0, le=1)
     mass: Decimal | None = Field(None, ge=0, le=1_000_000)
     range: int = Field(3, ge=1, le=100)
+    success_message: str = Field("", max_length=300)
 
     @model_validator(mode="after")
     def validate_robbery_mode(self):

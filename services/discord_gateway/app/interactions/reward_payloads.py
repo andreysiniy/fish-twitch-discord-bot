@@ -76,6 +76,7 @@ def complete_reward_payload(
         payload["range"] = _bounded_int(
             str(values.get("range") or "3"), "Victim search range", 1, 100
         )
+        payload["success_message"] = str(values.get("success_message") or "").strip()
     elif reward_type == "russian_roulette":
         bullets = _bounded_int(str(values.get("bullets") or "1"), "Bullets", 1, 6)
         chambers = _bounded_int(str(values.get("chambers") or "6"), "Chambers", 1, 100)

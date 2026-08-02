@@ -173,7 +173,7 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
     assert first_step_labels == {
         "fish": {"Fixed mass", "Minimum mass", "Maximum mass", "Percentage"},
         "timeout": {"Duration", "Reason"},
-        "robbery": {"Fixed mass", "Percentage", "Victim search range"},
+        "robbery": {"Fixed mass", "Percentage", "Victim search range", "Success message"},
         "russian_roulette": {"Bullets", "Chambers", "Safe message", "Shot message"},
         "dupe": {"Repeat count", "Delay between casts"},
     }

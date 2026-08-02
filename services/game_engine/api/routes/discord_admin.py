@@ -10,6 +10,7 @@ from domain.schemas.discord_admin import (
     DiscordEventStartRequest,
     LocationCreateRequest,
     LocationPatchRequest,
+    LegacyRewardImportRequest,
     MessageTemplatePatchRequest,
     RewardCreateRequest,
     RewardPatchRequest,
@@ -156,6 +157,17 @@ def create_reward(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.create_reward(context, channel_twitch_id, location_id, data)
+
+
+@router.post("/channels/{channel_twitch_id}/locations/{location_id}/rewards/import-legacy")
+def import_legacy_rewards(
+    channel_twitch_id: str,
+    location_id: str,
+    data: LegacyRewardImportRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.import_legacy_rewards(context, channel_twitch_id, location_id, data)
 
 
 @router.get("/channels/{channel_twitch_id}/locations/{location_id}/rewards/{reward_id}")
