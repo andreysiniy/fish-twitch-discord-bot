@@ -273,12 +273,44 @@ def message_placeholder_catalog() -> list[dict[str, Any]]:
         catalog.append(
             {
                 "message_key": key.value,
+                "default_message": DEFAULT_MESSAGES[key],
                 "placeholders": [
                     {"name": name, "description": PLACEHOLDER_DESCRIPTIONS[name]} for name in names
                 ],
             }
         )
     return catalog
+
+
+def validate_custom_message_template(message_key: str, template: str) -> set[str]:
+    try:
+        key = MsgKey(message_key)
+    except ValueError as error:
+        raise ValueError(f"Unknown message key: {message_key}") from error
+
+    allowed = _extract_message_placeholders(DEFAULT_MESSAGES[key])
+    used = _extract_message_placeholders(template)
+    unknown = used - allowed
+    if unknown:
+        names = ", ".join(f"{{{name}}}" for name in sorted(unknown))
+        raise ValueError(f"Unsupported placeholders for {message_key}: {names}")
+    return used
+
+
+def _extract_message_placeholders(template: str) -> set[str]:
+    try:
+        parsed = list(string.Formatter().parse(template))
+    except ValueError as error:
+        raise ValueError("Message template contains invalid braces") from error
+
+    names = set()
+    for _literal, field_name, format_spec, conversion in parsed:
+        if not field_name:
+            continue
+        if not field_name.isidentifier() or format_spec or conversion:
+            raise ValueError(f"Invalid message placeholder: {{{field_name}}}")
+        names.add(field_name)
+    return names
 
 
 class SafeFormatter(string.Formatter):

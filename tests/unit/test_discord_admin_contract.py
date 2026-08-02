@@ -83,6 +83,8 @@ def test_openapi_exposes_versioned_discord_admin_contract() -> None:
         "/v1/integrations/discord/guilds/{guild_id}/bind",
         "/v1/admin/channels/{channel_twitch_id}/config",
         "/v1/admin/channels/{channel_twitch_id}/config/schema",
+        "/v1/admin/channels/{channel_twitch_id}/messages",
+        "/v1/admin/channels/{channel_twitch_id}/messages/{message_key}",
         "/v1/admin/channels/{channel_twitch_id}/locations",
         "/v1/admin/channels/{channel_twitch_id}/locations/{location_id}/rewards",
         "/v1/admin/channels/{channel_twitch_id}/events/{event_id}/start",
