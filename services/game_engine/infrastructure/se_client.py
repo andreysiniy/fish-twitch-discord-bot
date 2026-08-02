@@ -1,6 +1,10 @@
 import httpx
 
 
+class SETransientError(RuntimeError):
+    pass
+
+
 class SEApiClient:
     BASE_URL = "https://api.streamelements.com/kappa/v2/points"
     CHANNELS_ME_URL = "https://api.streamelements.com/kappa/v2/channels/me"
@@ -16,6 +20,8 @@ class SEApiClient:
             return 0
         if response.status_code in {401, 403}:
             raise PermissionError("Invalid Token")
+        if response.status_code == 429:
+            raise SETransientError("StreamElements rate limit reached")
         if response.status_code >= 400:
             raise ValueError("SE API Error")
 
@@ -31,7 +37,13 @@ class SEApiClient:
         self._raise_for_points_error(response)
         return int(response.json().get("points", 0) or 0)
 
-    async def add_points(self, se_channel_id: str, plain_token: str, username: str, amount: int) -> None:
+    async def add_points(
+        self,
+        se_channel_id: str,
+        plain_token: str,
+        username: str,
+        amount: int,
+    ) -> None:
         url = f"{self.BASE_URL}/{se_channel_id}/{username}/{int(amount)}"
         headers = self._build_headers(plain_token)
 
@@ -58,6 +70,8 @@ class SEApiClient:
     def _raise_for_points_error(self, response: httpx.Response) -> None:
         if response.status_code in {401, 403}:
             raise PermissionError("Invalid Token")
+        if response.status_code == 429:
+            raise SETransientError("StreamElements rate limit reached")
         if response.status_code >= 400:
             raise ValueError("SE API Error")
 

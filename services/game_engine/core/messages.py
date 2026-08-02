@@ -66,6 +66,7 @@ class MsgKey(str, Enum):
     SELL_MASS_EMPTY = "sell_mass_empty"
     SELL_MASS_DISABLED = "sell_mass_disabled"
     SELL_MASS_INVALID_AMOUNT = "sell_mass_invalid_amount"
+    SELL_MASS_FAILED = "sell_mass_failed"
     BUY_SUCCESS = "buy_success"
     BUY_FAIL_FUNDS = "buy_fail_funds"
     BUY_INVALID_AMOUNT = "buy_invalid_amount"
@@ -169,6 +170,7 @@ DEFAULT_MESSAGES = {
     MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",
     MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",
     MsgKey.SELL_MASS_INVALID_AMOUNT: "Invalid amount. Use !fishsell <kg> or !fishsell all.",
+    MsgKey.SELL_MASS_FAILED: "The sale failed. Your catch mass was restored.",
     MsgKey.BUY_SUCCESS: "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg).",
     MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
     MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg>.",
