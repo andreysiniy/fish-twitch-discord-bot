@@ -2,6 +2,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from domain.schemas.fishing import FishingResult
 from services.fishing.engine import EventLootStrategy, FishingEngine
 from services.fishing.presenter import FishingPresenter
@@ -39,6 +40,88 @@ def test_event_luck_multiplier_can_reduce_positive_mass() -> None:
 
     assert result == Decimal("5.00")
     assert isinstance(result, Decimal)
+
+
+def test_positive_luck_and_mass_bonus_reduce_negative_percentage_penalty() -> None:
+    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+
+    result = strategy.calculate(
+        {"percentage": "-0.3"},
+        luck_modifier=1.5,
+        user_balance=Decimal("100"),
+    )
+
+    assert result == Decimal("-8.00")
+
+
+def test_positive_luck_and_mass_bonus_reduce_negative_fixed_mass_penalty() -> None:
+    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+
+    result = strategy.calculate(
+        {"fixed_mass": "-30"},
+        luck_modifier=1.5,
+        user_balance=Decimal("100"),
+    )
+
+    assert result == Decimal("-8.00")
+
+
+@pytest.mark.parametrize(
+    "penalty",
+    [
+        {"type": "add_mass", "mass": "-30"},
+        {"type": "add_percentage_mass", "percentage": "-0.3"},
+    ],
+)
+def test_roulette_negative_mass_effects_are_reduced_by_positive_modifiers(
+    monkeypatch, penalty
+) -> None:
+    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
+    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+
+    result = FishingEngine().calculate_russian_roulette(
+        user=make_user(current_mass=Decimal("100")),
+        catch={
+            "type": "russian_roulette",
+            "bullets": 1,
+            "chambers": 6,
+            "penalty": penalty,
+        },
+        luck_modifier=1.5,
+        calculation_strategy=strategy,
+    )
+
+    assert result.is_hit is True
+    assert result.mass_delta == Decimal("-8.00")
+
+
+def test_presenter_shows_reduced_effective_negative_percentage() -> None:
+    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+    mass_gained = strategy.calculate(
+        {"percentage": "-0.3"},
+        luck_modifier=1.5,
+        user_balance=Decimal("100"),
+    )
+    user = make_user(
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("100") + mass_gained,
+        total_mass_stat=Decimal("200"),
+    )
+    result = FishingResult(
+        loot={"type": "fish", "percentage": "-0.3", "message": "Penalty: {percentage}"},
+        item_drop=None,
+        username=user.username,
+        xp_gained=0,
+        mass_gained=mass_gained,
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+        luck_used=1.5,
+    )
+
+    response = FishingPresenter().build_response(user, result)
+
+    assert response.chat_message.endswith("Penalty: -8%")
 
 
 def test_percentage_mass_uses_decimal_arithmetic() -> None:
