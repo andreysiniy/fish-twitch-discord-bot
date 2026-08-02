@@ -19,6 +19,7 @@ from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
     config_embed,
     event_list_entry,
+    legacy_import_embed,
     location_list_entry,
     placeholder_help_embeds,
     reward_list_entry,
@@ -504,6 +505,60 @@ def register_commands(
             danger=True,
         )
 
+    @reward.command(name="import-legacy", description="Import rewards from a legacy JSON file")
+    async def reward_import_legacy(
+        interaction: discord.Interaction,
+        location_id: str,
+        file: discord.Attachment,
+        replace_existing: bool = False,
+    ) -> None:
+        async def operation() -> None:
+            if not file.filename.lower().endswith(".json"):
+                raise ValueError("The uploaded file must use the .json extension.")
+            if file.size > 1_048_576:
+                raise ValueError("The legacy reward file must not exceed 1 MiB.")
+            raw = await file.read()
+            if len(raw) > 1_048_576:
+                raise ValueError("The legacy reward file must not exceed 1 MiB.")
+            try:
+                payload = json.loads(raw.decode("utf-8-sig"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ValueError("The uploaded file is not valid UTF-8 JSON.") from error
+            if not isinstance(payload, dict):
+                raise ValueError("The legacy JSON root must be an object.")
+
+            current = await api.rewards(interaction, location_id)
+            preview = await api.import_legacy_rewards(
+                interaction,
+                location_id,
+                current["version"],
+                payload,
+                replace_existing,
+                dry_run=True,
+            )
+
+            async def confirm(confirmed: discord.Interaction) -> None:
+                await _mutation_response(
+                    confirmed,
+                    lambda: api.import_legacy_rewards(
+                        confirmed,
+                        location_id,
+                        current["version"],
+                        payload,
+                        replace_existing,
+                        dry_run=False,
+                    ),
+                    f"Imported {preview['imported_count']} legacy rewards.",
+                )
+
+            await interaction.followup.send(
+                embed=legacy_import_embed(preview, replace_existing),
+                view=ConfirmView(interaction.user.id, confirm, danger=replace_existing),
+                ephemeral=True,
+            )
+
+        await _deferred(interaction, operation)
+
     @event.command(name="list", description="List configured channel events")
     async def event_list(interaction: discord.Interaction) -> None:
         async def operation() -> None:
@@ -682,7 +737,14 @@ def register_commands(
             if needle in str(item["id"]).casefold() or needle in item["event_title"].casefold()
         ][:25]
 
-    for command in (location_show, location_edit, location_delete, reward_list, reward_add):
+    for command in (
+        location_show,
+        location_edit,
+        location_delete,
+        reward_list,
+        reward_add,
+        reward_import_legacy,
+    ):
         command.autocomplete("location_id")(location_autocomplete)
     for command in (reward_show, reward_edit, reward_delete):
         command.autocomplete("location_id")(location_autocomplete)

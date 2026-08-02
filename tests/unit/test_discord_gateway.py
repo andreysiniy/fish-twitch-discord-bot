@@ -8,9 +8,9 @@ from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.config import DiscordSettings
 from app.interactions.modals import (
+    DupeRewardModal,
     EventBonusModal,
     EventModal,
-    DupeRewardModal,
     FishRewardModal,
     MessageTemplateModal,
     RewardModal,
@@ -22,7 +22,12 @@ from app.interactions.modals import (
 )
 from app.interactions.reward_payloads import build_reward_payload, build_roulette_outcome
 from app.interactions.sessions import WizardSessionStore
-from app.presentation.embeds import event_list_entry, location_list_entry, reward_list_entry
+from app.presentation.embeds import (
+    event_list_entry,
+    legacy_import_embed,
+    location_list_entry,
+    reward_list_entry,
+)
 from app.presentation.formatting import diff_lines, parse_decimal, parse_duration
 from app.presentation.pagination import PagedEmbedView
 
@@ -241,6 +246,25 @@ def test_entity_list_entries_include_all_parameters_without_truncation() -> None
     assert all(f"{key}:" in event_list_entry(event)[1] for key in event)
 
 
+def test_legacy_import_preview_lists_source_and_converted_types() -> None:
+    embed = legacy_import_embed(
+        {
+            "imported_count": 4,
+            "final_count": 6,
+            "source_counts": {"misc": 2, "points": 2},
+            "target_counts": {"nothing": 2, "fish": 2},
+            "warnings": ["Unsupported legacy fields were ignored: locked"],
+        },
+        replace_existing=False,
+    )
+
+    rendered = "\n".join(field.value for field in embed.fields)
+    assert "Mode: `append`" in embed.description
+    assert "`misc`: 2" in rendered
+    assert "`nothing`: 2" in rendered
+    assert "locked" in rendered
+
+
 def test_error_mapping_includes_request_id() -> None:
     message = localize_error(
         EngineError(409, "CONFIG_VERSION_CONFLICT", "conflict", request_id="request-42")
@@ -290,6 +314,9 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
     placeholders = fish.get_command("placeholders")
     assert placeholders is not None
     assert {command.name for command in placeholders.commands} == {"edit", "list", "show"}
+    rewards = fish.get_command("reward")
+    assert rewards is not None
+    assert "import-legacy" in {command.name for command in rewards.commands}
     assert gateway_settings.DEV_GUILD_ID is None
     assert bot.intents.guilds is True
     assert bot.intents.message_content is False

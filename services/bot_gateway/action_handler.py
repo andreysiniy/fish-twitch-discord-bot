@@ -4,9 +4,7 @@ import uuid
 from typing import Any, Dict
 
 import aiohttp
-
 from heplers.context_tool import get_channel_id
-
 
 logger = logging.getLogger(__name__)
 

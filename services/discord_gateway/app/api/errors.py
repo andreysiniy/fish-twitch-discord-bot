@@ -28,6 +28,8 @@ ERROR_MESSAGES = {
     "LOCATION_NOT_FOUND": "Location not found.",
     "LOCATION_IN_USE": "This location is in use and cannot be deleted.",
     "REWARD_NOT_FOUND": "Reward not found.",
+    "LEGACY_IMPORT_INVALID": "The legacy reward file is invalid.",
+    "REWARD_ID_CONFLICT": "An imported reward ID already exists.",
     "EVENT_NOT_FOUND": "Event not found.",
     "EVENT_ALREADY_ACTIVE": "Another event is already active.",
     "IDEMPOTENCY_CONFLICT": "This operation was already submitted with different data.",

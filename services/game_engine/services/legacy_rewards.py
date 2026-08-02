@@ -6,7 +6,6 @@ from typing import Any
 from domain.config_schema import RewardDefinition
 from pydantic import TypeAdapter, ValidationError
 
-
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
 
 
@@ -176,7 +175,7 @@ def _base_reward(raw: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
 
 
 def _mass_from_points(value: Any) -> Decimal:
-    return _decimal(value) / Decimal("1000")
+    return _decimal(value) / Decimal(1000)
 
 
 def _decimal(value: Any) -> Decimal:

@@ -204,6 +204,34 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "reward.delete"),
         )
 
+    async def import_legacy_rewards(
+        self,
+        interaction,
+        location_id: str,
+        version: int,
+        payload: dict[str, Any],
+        replace_existing: bool,
+        *,
+        dry_run: bool,
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/admin/channels/{channel}/locations/{location_id}/rewards/import-legacy",
+            json={
+                "expected_version": version,
+                "payload": payload,
+                "replace_existing": replace_existing,
+                "dry_run": dry_run,
+            },
+            idempotency_key=(
+                None
+                if dry_run
+                else interaction_key(interaction.id, "reward.import_legacy")
+            ),
+        )
+
     async def events(self, interaction):
         channel = await self.channel_id(interaction)
         return await self.client.request(interaction, "GET", f"/v1/admin/channels/{channel}/events")
