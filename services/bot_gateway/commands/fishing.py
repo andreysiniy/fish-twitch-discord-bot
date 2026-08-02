@@ -27,7 +27,7 @@ class FishingCog(commands.Cog):
             await self.bot.action_handler.handle_engine_response(ctx, response)
         except EngineApiError as error:
             await ctx.send(f"Engine error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish command failed")
             await ctx.send("Could not process fishing action.")
 
@@ -57,7 +57,7 @@ class FishingCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Stats are unavailable."))
         except EngineApiError as error:
             await ctx.send(f"Stats error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish stats command failed")
             await ctx.send("Could not retrieve stats.")
 
@@ -77,7 +77,7 @@ class FishingCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Top is unavailable."))
         except EngineApiError as error:
             await ctx.send(f"Top error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish top command failed")
             await ctx.send("Could not retrieve top players.")
 logger = logging.getLogger(__name__)

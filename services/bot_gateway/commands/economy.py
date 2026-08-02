@@ -24,7 +24,7 @@ class EconomyCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Sell action processed."))
         except EngineApiError as error:
             await ctx.send(f"Economy error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish sell command failed")
             await ctx.send("Could not sell fish.")
 
@@ -42,7 +42,7 @@ class EconomyCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Buy action processed."))
         except EngineApiError as error:
             await ctx.send(f"Economy error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Fish buy command failed")
             await ctx.send("Could not buy fish.")
 logger = logging.getLogger(__name__)

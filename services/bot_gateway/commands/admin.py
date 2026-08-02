@@ -2,7 +2,6 @@ import logging
 
 from twitchio.ext import commands
 from twitchio import User
-from typing import Literal
 
 from heplers.context_tool import get_channel_id
 
@@ -38,7 +37,7 @@ class AdminCog(commands.Cog):
             await ctx.send("Moderators: " + ", ".join(chunks))
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Moderator list command failed")
             await ctx.send("Could not load moderators")
 
@@ -78,7 +77,7 @@ class AdminCog(commands.Cog):
             )
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Moderator add command failed")
             await ctx.send("Could not update moderator.")
 
@@ -102,7 +101,7 @@ class AdminCog(commands.Cog):
             await ctx.send(f"Access removed for {user.name}")
         except EngineApiError as error:
             await ctx.send(f"Admin error: {error}")
-        except Exception as error:
+        except Exception:
             logger.exception("Moderator remove command failed")
             await ctx.send("Could not remove moderator")
 
@@ -144,7 +143,7 @@ class AdminCog(commands.Cog):
                 await ctx.send(response.get("chat_message", "Cooldown updated"))
             except EngineApiError as error:
                 await ctx.send(str(error))
-            except Exception as error:
+            except Exception:
                 logger.exception("Cooldown update command failed")
                 await ctx.send("Could not update cooldown")
             return
@@ -166,7 +165,7 @@ class AdminCog(commands.Cog):
             await ctx.send(response.get("chat_message", "Cooldown is unavailable."))
         except EngineApiError as error:
             await ctx.send(str(error))
-        except Exception as error:
+        except Exception:
             logger.exception("Cooldown status command failed")
             await ctx.send("Could not retrieve cooldown")
 
@@ -189,7 +188,7 @@ class AdminCog(commands.Cog):
                 await ctx.send(response.get("chat_message", "Available events: none"))
             except EngineApiError as error:
                 await ctx.send(str(error))
-            except Exception as error:
+            except Exception:
                 logger.exception("Fishing event list command failed")
                 await ctx.send("Could not load events")
             return
@@ -243,7 +242,7 @@ class AdminCog(commands.Cog):
             await ctx.send(f"Event enabled: [{eid}] {title}")
         except EngineApiError as error:
             await ctx.send(str(error))
-        except Exception as error:
+        except Exception:
             logger.exception("Fishing event toggle command failed")
             await ctx.send("Could not toggle event")
 
