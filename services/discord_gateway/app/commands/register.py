@@ -8,7 +8,7 @@ from app.api.admin import AdminApi
 from app.api.errors import EngineError, localize_error
 from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
-from app.interactions.modals import ConfigModal, EventModal, LocationModal, RewardModal
+from app.interactions.modals import ConfigModal, EventModal, LocationModal, create_reward_modal
 from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
     config_embed,
@@ -383,7 +383,7 @@ def register_commands(
 
             view = ModalLauncherView(
                 interaction.user.id,
-                lambda: RewardModal(reward_type.value, save),
+                lambda: create_reward_modal(reward_type.value, save),
             )
             await interaction.followup.send("The reward form is ready.", view=view, ephemeral=True)
 
@@ -424,7 +424,7 @@ def register_commands(
 
             view = ModalLauncherView(
                 interaction.user.id,
-                lambda: RewardModal(item["type"], save, item),
+                lambda: create_reward_modal(item["type"], save, item),
             )
             await interaction.followup.send("The reward form is ready.", view=view, ephemeral=True)
 

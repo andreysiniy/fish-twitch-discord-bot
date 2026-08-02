@@ -127,13 +127,38 @@ class LocationModal(discord.ui.Modal):
         await _show_preview(interaction, "Location preview", payload, confirm)
 
 
+def create_reward_modal(
+    reward_type: str,
+    on_save,
+    defaults: dict[str, Any] | None = None,
+) -> discord.ui.Modal:
+    defaults = defaults or {}
+    factories = {
+        "fish": lambda: FishRewardModal(on_save, defaults),
+        "timeout": lambda: TimeoutRewardModal(on_save, defaults),
+        "robbery": lambda: RobberyRewardModal(on_save, defaults),
+        "russian_roulette": lambda: RouletteSettingsModal(on_save, defaults),
+        "nothing": lambda: RewardModal("nothing", {}, on_save, defaults),
+    }
+    try:
+        return factories[reward_type]()
+    except KeyError as error:
+        raise ValueError("Unknown reward type") from error
+
+
 class RewardModal(discord.ui.Modal):
-    def __init__(self, reward_type: str, on_save, defaults: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        reward_type: str,
+        type_payload: dict[str, Any],
+        on_save,
+        defaults: dict[str, Any] | None = None,
+    ):
         defaults = defaults or {}
-        super().__init__(title=f"Reward: {reward_type.replace('_', ' ')}")
+        super().__init__(title=f"Reward details: {reward_type.replace('_', ' ')}")
         self.reward_type = reward_type
+        self.type_payload = type_payload
         self.on_save = on_save
-        self.defaults = defaults
         self.name = discord.ui.TextInput(
             label="Name",
             default=str(defaults.get("name") or ""),
@@ -166,7 +191,7 @@ class RewardModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
-            payload = build_reward_base_payload(
+            base_payload = build_reward_base_payload(
                 self.reward_type,
                 self.name.value,
                 self.weight.value,
@@ -177,33 +202,15 @@ class RewardModal(discord.ui.Modal):
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
-        if self.reward_type == "nothing":
-            await _show_reward_preview(interaction, payload, self.on_save)
-            return
-
-        factories = {
-            "fish": lambda: FishRewardModal(payload, self.on_save, self.defaults),
-            "timeout": lambda: TimeoutRewardModal(payload, self.on_save, self.defaults),
-            "robbery": lambda: RobberyRewardModal(payload, self.on_save, self.defaults),
-            "russian_roulette": lambda: RouletteSettingsModal(payload, self.on_save, self.defaults),
-        }
-        view = ModalLauncherView(
-            interaction.user.id,
-            factories[self.reward_type],
-            label="Open type settings",
-        )
-        await interaction.response.send_message(
-            "Common reward settings saved. Continue with the type-specific fields.",
-            view=view,
-            ephemeral=True,
-        )
+        payload = {**self.type_payload, **base_payload}
+        await _show_reward_preview(interaction, payload, self.on_save)
 
 
 class FishRewardModal(discord.ui.Modal):
-    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+    def __init__(self, on_save, defaults: dict[str, Any]):
         super().__init__(title="Fish reward settings")
-        self.base_payload = base_payload
         self.on_save = on_save
+        self.defaults = defaults
         self.fixed_mass = _optional_input(
             "Fixed mass",
             defaults.get("fixed_mass"),
@@ -228,9 +235,9 @@ class FishRewardModal(discord.ui.Modal):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await _complete_reward(
+        await _continue_to_reward_details(
             interaction,
-            self.base_payload,
+            "fish",
             {
                 "fixed_mass": self.fixed_mass.value,
                 "min_mass": self.min_mass.value,
@@ -238,14 +245,15 @@ class FishRewardModal(discord.ui.Modal):
                 "percentage": self.percentage.value,
             },
             self.on_save,
+            self.defaults,
         )
 
 
 class TimeoutRewardModal(discord.ui.Modal):
-    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+    def __init__(self, on_save, defaults: dict[str, Any]):
         super().__init__(title="Timeout reward settings")
-        self.base_payload = base_payload
         self.on_save = on_save
+        self.defaults = defaults
         self.duration = discord.ui.TextInput(
             label="Duration",
             default=str(defaults.get("duration") or ""),
@@ -262,19 +270,20 @@ class TimeoutRewardModal(discord.ui.Modal):
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await _complete_reward(
+        await _continue_to_reward_details(
             interaction,
-            self.base_payload,
+            "timeout",
             {"duration": self.duration.value, "reason": self.reason.value},
             self.on_save,
+            self.defaults,
         )
 
 
 class RobberyRewardModal(discord.ui.Modal):
-    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+    def __init__(self, on_save, defaults: dict[str, Any]):
         super().__init__(title="Robbery reward settings")
-        self.base_payload = base_payload
         self.on_save = on_save
+        self.defaults = defaults
         self.mass = _optional_input(
             "Fixed mass",
             defaults.get("mass"),
@@ -295,22 +304,22 @@ class RobberyRewardModal(discord.ui.Modal):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await _complete_reward(
+        await _continue_to_reward_details(
             interaction,
-            self.base_payload,
+            "robbery",
             {
                 "mass": self.mass.value,
                 "percentage": self.percentage.value,
                 "range": self.search_range.value,
             },
             self.on_save,
+            self.defaults,
         )
 
 
 class RouletteSettingsModal(discord.ui.Modal):
-    def __init__(self, base_payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+    def __init__(self, on_save, defaults: dict[str, Any]):
         super().__init__(title="Russian roulette settings")
-        self.base_payload = base_payload
         self.on_save = on_save
         self.defaults = defaults
         self.bullets = discord.ui.TextInput(
@@ -345,7 +354,7 @@ class RouletteSettingsModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
             payload = complete_reward_payload(
-                self.base_payload,
+                {"type": "russian_roulette", "weight": 1, "xp": 0, "message": ""},
                 {
                     "bullets": self.bullets.value,
                     "chambers": self.chambers.value,
@@ -448,7 +457,13 @@ class RouletteOutcomeModal(discord.ui.Modal):
                 ephemeral=True,
             )
             return
-        await _show_reward_preview(interaction, payload, self.on_save)
+        await _show_reward_details_step(
+            interaction,
+            "russian_roulette",
+            payload,
+            self.on_save,
+            self.reward_defaults,
+        )
 
 
 class EventModal(discord.ui.Modal):
@@ -561,18 +576,47 @@ class EventBonusModal(discord.ui.Modal):
         await _show_preview(interaction, "Event preview", payload, confirm)
 
 
-async def _complete_reward(
+async def _continue_to_reward_details(
     interaction: discord.Interaction,
-    base_payload: dict[str, Any],
+    reward_type: str,
     parameters: dict[str, Any],
     on_save,
+    defaults: dict[str, Any],
 ) -> None:
     try:
-        payload = complete_reward_payload(base_payload, parameters)
+        payload = complete_reward_payload(
+            {"type": reward_type, "weight": 1, "xp": 0, "message": ""},
+            parameters,
+        )
     except (TypeError, ValueError) as error:
         await interaction.response.send_message(str(error), ephemeral=True)
         return
-    await _show_reward_preview(interaction, payload, on_save)
+    await _show_reward_details_step(
+        interaction,
+        reward_type,
+        payload,
+        on_save,
+        defaults,
+    )
+
+
+async def _show_reward_details_step(
+    interaction: discord.Interaction,
+    reward_type: str,
+    type_payload: dict[str, Any],
+    on_save,
+    defaults: dict[str, Any],
+) -> None:
+    view = ModalLauncherView(
+        interaction.user.id,
+        lambda: RewardModal(reward_type, type_payload, on_save, defaults),
+        label="Open reward details",
+    )
+    await interaction.response.send_message(
+        "Type-specific settings saved. Continue with name, weight, XP, and message.",
+        view=view,
+        ephemeral=True,
+    )
 
 
 async def _show_reward_preview(

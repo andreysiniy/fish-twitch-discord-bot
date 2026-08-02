@@ -16,6 +16,7 @@ from app.interactions.modals import (
     RouletteOutcomeModal,
     RouletteSettingsModal,
     TimeoutRewardModal,
+    create_reward_modal,
 )
 from app.interactions.reward_payloads import build_reward_payload, build_roulette_outcome
 from app.interactions.sessions import WizardSessionStore
@@ -116,7 +117,7 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
     async def save(_interaction, _payload):
         return None
 
-    base = {"type": "fish", "weight": 100, "xp": 0, "message": ""}
+    base = {"type": "fish", "weight": 1, "xp": 0, "message": "", "fixed_mass": "1"}
     reward_defaults = {
         "type": "russian_roulette",
         "bullets": 1,
@@ -129,11 +130,11 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         "modifiers": {"luck_mult": "1", "xp_mult": "1", "cd_reduction": "0"},
     }
     modals = [
-        RewardModal("fish", save),
-        FishRewardModal(base, save, {}),
-        TimeoutRewardModal({**base, "type": "timeout"}, save, {}),
-        RobberyRewardModal({**base, "type": "robbery"}, save, {}),
-        RouletteSettingsModal({**base, "type": "russian_roulette"}, save, reward_defaults),
+        RewardModal("fish", base, save),
+        FishRewardModal(save, {}),
+        TimeoutRewardModal(save, {}),
+        RobberyRewardModal(save, {}),
+        RouletteSettingsModal(save, reward_defaults),
         RouletteOutcomeModal(
             "reward",
             {**base, "type": "russian_roulette"},
@@ -159,6 +160,17 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         "Luck multiplier",
         "XP multiplier",
         "Cooldown reduction",
+    }
+
+    first_step_labels = {
+        reward_type: {child.label for child in create_reward_modal(reward_type, save).children}
+        for reward_type in ("fish", "timeout", "robbery", "russian_roulette")
+    }
+    assert first_step_labels == {
+        "fish": {"Fixed mass", "Minimum mass", "Maximum mass", "Percentage"},
+        "timeout": {"Duration", "Reason"},
+        "robbery": {"Fixed mass", "Percentage", "Victim search range"},
+        "russian_roulette": {"Bullets", "Chambers", "Safe message", "Shot message"},
     }
 
 
