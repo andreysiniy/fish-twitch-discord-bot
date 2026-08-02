@@ -125,6 +125,18 @@ class FishingEngine:
         strategy = calculation_strategy or self._default_strategy
 
         catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+        empty_reroll_chance = min(
+            max(
+                to_decimal(modifiers.get("empty_catch_reroll_chance_pct", 0)),
+                ZERO_MASS,
+            ),
+            Decimal("1"),
+        )
+        if (
+            catch.get("type") == ActionType.NOTHING
+            and random.random() < float(empty_reroll_chance)
+        ):
+            catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
         catch = self._reroll_reward_effects(
             catch,
             loot_pool,
@@ -478,12 +490,23 @@ class FishingEngine:
     ) -> Dict[str, Any]:
         current = catch
         for effect in effects:
-            if effect.get("type") != "reroll_reward":
+            effect_type = effect.get("type")
+            if effect_type not in {"reroll_reward", "block_action"}:
+                continue
+            if (
+                effect_type == "block_action"
+                and effect.get("trigger") != "after_reward_roll"
+            ):
                 continue
             targets = set(effect.get("target_action_types") or [])
             triggered = 0
-            for _ in range(int(effect.get("max_rerolls", 1))):
+            max_rerolls = int(effect.get("max_rerolls", 1))
+            for _ in range(max_rerolls):
                 if str(current.get("type")) not in targets:
+                    break
+                if effect_type == "block_action" and random.random() >= float(
+                    effect.get("chance", 1)
+                ):
                     break
                 current = rng.roll_loot(loot_pool, luck_modifier=luck)
                 triggered += 1

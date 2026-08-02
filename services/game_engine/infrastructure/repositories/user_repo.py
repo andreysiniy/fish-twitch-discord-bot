@@ -147,49 +147,6 @@ class UserRepository:
             raise ValueError("User not found while locking robbery participants")
         return {row.id: row for row in rows}
 
-    def update_inventory(self, user: UserProgress, item_data: dict):
-        item_id = str(item_data.get("item_id", "")).strip()
-        if not item_id:
-            raise ValueError("item_id is required for inventory update")
-        meta = dict(item_data.get("meta") or {})
-        if item_data.get("obtained_at"):
-            meta["obtained_at"] = item_data["obtained_at"]
-        granted = InventoryRepository(self.db).grant_many(
-            user,
-            [
-                {
-                    "item_id": item_id,
-                    "quantity": item_data.get("quantity", 1),
-                    "current_durability": item_data.get("current_durability"),
-                    "meta": meta,
-                }
-            ],
-        )
-        return granted[0]
-
-    def grant_item_to_user(
-        self,
-        user: UserProgress,
-        item_id: str,
-        quantity: int = 1,
-        slot_id: int | None = None,
-        current_durability: int | None = None,
-        meta: dict | None = None,
-    ) -> InventoryItem:
-        granted = InventoryRepository(self.db).grant_many(
-            user,
-            [
-                {
-                    "item_id": item_id,
-                    "quantity": quantity,
-                    "slot_id": slot_id,
-                    "current_durability": current_durability,
-                    "meta": meta or {},
-                }
-            ],
-        )
-        return granted[0]
-
     def get_user_inventory_items(self, user_id: int) -> list[InventoryItem]:
         return (
             self.db.query(InventoryItem)

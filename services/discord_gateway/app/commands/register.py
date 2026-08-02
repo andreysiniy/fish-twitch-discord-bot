@@ -91,7 +91,6 @@ STAT_KEY_CHOICES = [
         "inventory_slots_add",
         "sell_rate_bonus_pct",
         "buy_discount_pct",
-        "repair_cost_reduction_pct",
     )
 ]
 

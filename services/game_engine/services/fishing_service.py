@@ -1,4 +1,5 @@
 import random
+from decimal import Decimal
 
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
@@ -133,14 +134,44 @@ class FishingService:
                 location_item_id, amount=1
             )
             if has_stock:
-                self.user_repo.update_inventory(user, result.item_drop)
+                item_meta = dict(result.item_drop.get("meta") or {})
+                if result.item_drop.get("obtained_at"):
+                    item_meta["obtained_at"] = result.item_drop["obtained_at"]
+                InventoryRepository(
+                    self.user_repo.db,
+                    max_slots_add=self.modifier_service.inventory_slot_bonus(user),
+                ).grant_many(
+                    user,
+                    [
+                        {
+                            "item_id": result.item_drop["item_id"],
+                            "quantity": result.item_drop.get("quantity", 1),
+                            "current_durability": result.item_drop.get(
+                                "current_durability"
+                            ),
+                            "meta": item_meta,
+                        }
+                    ],
+                )
             else:
                 result.item_drop = None
 
         inventory_repo = InventoryRepository(self.user_repo.db)
         for effect in behavioral_effects:
             trigger_count = int(effect.pop("_trigger_count", 0))
-            durability_cost = int(effect.get("durability_cost", 0)) * trigger_count
+            if effect.get("type") == "consume_charge":
+                trigger = effect.get("trigger")
+                should_consume = (
+                    trigger == "after_cast"
+                    or (
+                        trigger == "after_successful_cast"
+                        and result.loot.get("type") != ActionType.NOTHING
+                    )
+                    or (trigger == "after_item_drop" and result.item_drop is not None)
+                )
+                durability_cost = int(effect.get("amount", 1)) if should_consume else 0
+            else:
+                durability_cost = int(effect.get("durability_cost", 0)) * trigger_count
             if durability_cost:
                 inventory_repo.consume_durability(
                     user.id,
@@ -192,6 +223,9 @@ class FishingService:
             attacker=user,
             victim=victim,
             effects=list(victim_modifiers.effects),
+            counter_chance_bonus=victim_modifiers.value(
+                StatKey.ROBBERY_COUNTER_CHANCE_PCT
+            ),
         )
 
         if absorbed:
@@ -246,21 +280,34 @@ class FishingService:
         attacker: UserProgress,
         victim: UserProgress,
         effects: list[dict],
+        counter_chance_bonus=ZERO_MASS,
     ) -> tuple[list[dict], bool]:
         actions: list[dict] = []
         absorbed = False
         inventory_repo = InventoryRepository(self.user_repo.db)
         for effect in effects:
-            if effect.get("type") not in {"absorb_robbery", "robbery_counter"}:
+            effect_type = effect.get("type")
+            if effect_type == "block_action":
+                if effect.get("trigger") != "on_robbery_attempt" or "robbery" not in set(
+                    effect.get("target_action_types") or []
+                ):
+                    continue
+            if effect_type not in {"absorb_robbery", "robbery_counter", "block_action"}:
                 continue
-            if random.random() >= float(effect.get("chance", 1)):
+            chance = Decimal(str(effect.get("chance", 1)))
+            if effect_type == "robbery_counter":
+                chance = min(
+                    max(chance + Decimal(str(counter_chance_bonus)), Decimal("0")),
+                    Decimal("1"),
+                )
+            if random.random() >= float(chance):
                 continue
             durability_cost = int(effect.get("durability_cost", 0))
             source_slot = str(effect.get("source_slot") or "defense")
             if durability_cost:
                 inventory_repo.consume_durability(victim.id, source_slot, durability_cost)
 
-            if effect.get("type") == "absorb_robbery":
+            if effect_type in {"absorb_robbery", "block_action"}:
                 absorbed = True
                 mass_delta = quantize_mass(effect.get("attacker_mass_delta", 0))
                 previous_mass = quantize_mass(attacker.current_mass)

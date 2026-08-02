@@ -25,6 +25,7 @@ from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.se_client import SEApiClient
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
+from services.player_modifier_service import PlayerModifierService
 
 
 class AdminService:
@@ -311,14 +312,21 @@ class AdminService:
         if not user:
             raise ValueError("Player not found")
 
-        inv_item = self.user_repo.grant_item_to_user(
-            user=user,
-            item_id=data.item_id,
-            quantity=data.quantity,
-            slot_id=data.slot_id,
-            current_durability=data.current_durability,
-            meta=data.meta
-        )
+        slot_bonus = PlayerModifierService(self.user_repo.db).inventory_slot_bonus(user)
+        inv_item = InventoryRepository(
+            self.user_repo.db, max_slots_add=slot_bonus
+        ).grant_many(
+            user,
+            [
+                {
+                    "item_id": data.item_id,
+                    "quantity": data.quantity,
+                    "slot_id": data.slot_id,
+                    "current_durability": data.current_durability,
+                    "meta": data.meta,
+                }
+            ],
+        )[0]
         return inv_item
 
     def get_player_inventory(self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str):
@@ -333,11 +341,12 @@ class AdminService:
             equipped.slot: equipped.inventory_item.slot_id
             for equipped in InventoryRepository(self.user_repo.db).get_equipped(user.id)
         }
+        slot_bonus = PlayerModifierService(self.user_repo.db).inventory_slot_bonus(user)
         return {
             "items": items,
             "equipped_slots": equipped_slots,
             "equipped_rod_slot": equipped_slots.get("rod"),
-            "max_slots": inventory_meta.get("max_slots", 20)
+            "max_slots": max(int(inventory_meta.get("max_slots", 20)) + slot_bonus, 1)
         }
 
     def _serialize_inventory_item(self, item):

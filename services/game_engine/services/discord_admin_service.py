@@ -808,7 +808,10 @@ class DiscordAdminService:
                 context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
             )
             user = self._find_player(channel.id, user_twitch_id)
-            items = InventoryRepository(self.db).grant_many(
+            slot_bonus = PlayerModifierService(self.db).inventory_slot_bonus(user)
+            items = InventoryRepository(
+                self.db, max_slots_add=slot_bonus
+            ).grant_many(
                 user, [data.model_dump(mode="python")]
             )
             after = [self._serialize_inventory_item(row) for row in items]

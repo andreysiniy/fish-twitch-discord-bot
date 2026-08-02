@@ -8,12 +8,14 @@ from domain.schemas.rpg import (
 )
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
+from services.player_modifier_service import PlayerModifierService
 
 
 class InventoryService:
     def __init__(self, user_repo: UserRepository):
         self.user_repo = user_repo
         self.inventory_repo = InventoryRepository(user_repo.db)
+        self.modifier_service = PlayerModifierService(user_repo.db)
 
     def equip_item(self, data: EquipRequestDTO) -> EquipResponseDTO:
         user = self.user_repo.get_progress(data.user_id, data.channel_id)
@@ -49,7 +51,9 @@ class InventoryService:
         if not user:
             raise ValueError("You have no inventory")
         return UseItemResponseDTO.model_validate(
-            self.inventory_repo.use_item(user, data.slot_id, data.idempotency_key)
+            self._inventory_repository(user).use_item(
+                user, data.slot_id, data.idempotency_key
+            )
         )
 
     def get_inventory_msg(self, user_id: str, channel_id: str) -> InventoryResponseDTO:
@@ -91,7 +95,17 @@ class InventoryService:
             items=items,
             equipped_slots=equipped_slots,
             equipped_rod_slot=equipped_slots.get("rod"),
-            max_slots=max(int(inventory_data.get("max_slots", 20)), 1),
+            max_slots=max(
+                int(inventory_data.get("max_slots", 20))
+                + self.modifier_service.inventory_slot_bonus(user),
+                1,
+            ),
+        )
+
+    def _inventory_repository(self, user) -> InventoryRepository:
+        return InventoryRepository(
+            self.user_repo.db,
+            max_slots_add=self.modifier_service.inventory_slot_bonus(user),
         )
 
     @staticmethod

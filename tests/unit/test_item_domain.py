@@ -8,6 +8,7 @@ from domain.item_schema import (
     StatKey,
 )
 from domain.schemas.admin import ItemDefinitionCreateDTO
+from domain.schemas.discord_admin import PlayerModifierSetRequest
 from pydantic import ValidationError
 
 
@@ -76,6 +77,49 @@ def test_registry_defines_caps_and_scopes_for_every_stat() -> None:
     assert set(STAT_REGISTRY) == set(StatKey)
     assert ModifierScope.ROBBERY in STAT_REGISTRY[StatKey.ROBBERY_PROTECTION_PCT].scopes
     assert STAT_REGISTRY[StatKey.NEGATIVE_MASS_REDUCTION_PCT].maximum == Decimal("0.95")
+    assert STAT_REGISTRY[StatKey.INVENTORY_SLOTS_ADD].value_type == "integer"
+
+
+def test_integer_stats_and_multiplier_values_are_validated_by_operation() -> None:
+    with pytest.raises(ValidationError, match="must be an integer"):
+        ItemDefinitionData(
+            item_id="fractional_storage",
+            title="Fractional Storage",
+            item_type="equipment",
+            equipment_slot="storage",
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "inventory_slots_add",
+                    "value": "1.5",
+                }
+            ],
+        )
+
+    item = ItemDefinitionData(
+        item_id="scaled_armor",
+        title="Scaled Armor",
+        item_type="equipment",
+        equipment_slot="defense",
+        effects=[
+            {
+                "type": "stat_multiply",
+                "stat": "robbery_protection_pct",
+                "value": "1.5",
+            }
+        ],
+    )
+    assert item.effects[0].value == Decimal("1.5")
+
+    with pytest.raises(ValidationError, match="must be an integer"):
+        PlayerModifierSetRequest(
+            stat_key="inventory_slots_add",
+            operation="add",
+            value="2.5",
+            scope="inventory",
+            source_key="invalid-slots",
+            reason="Fractional inventory capacity",
+        )
 
 
 def test_admin_item_contract_rejects_legacy_free_form_stats() -> None:
