@@ -7,6 +7,8 @@ from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.config import DiscordSettings
+from app.commands.register import _json_confirmation
+from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
     DupeRewardModal,
     EventBonusModal,
@@ -377,3 +379,56 @@ def test_engine_headers_use_authoritative_interaction_permissions(permissions) -
     headers = client._headers(interaction, "request-id", None)
 
     assert headers["X-Discord-Manage-Guild"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_item_json_preview_requires_confirmation_before_mutation() -> None:
+    class FakeResponse:
+        def __init__(self):
+            self.done = False
+            self.sent = None
+
+        def is_done(self):
+            return self.done
+
+        async def send_message(self, **kwargs):
+            self.done = True
+            self.sent = kwargs
+
+        async def defer(self, **_kwargs):
+            self.done = True
+
+    class FakeInteraction:
+        def __init__(self):
+            self.user = SimpleNamespace(id=42)
+            self.response = FakeResponse()
+            self.edited = None
+
+        async def edit_original_response(self, **kwargs):
+            self.edited = kwargs
+
+    calls = []
+
+    async def mutate(interaction):
+        calls.append(interaction.user.id)
+
+    original = FakeInteraction()
+    await _json_confirmation(
+        original,
+        "Item creation preview",
+        {"item_id": "typed_item", "effects": []},
+        mutate,
+        "Item definition created.",
+    )
+
+    assert calls == []
+    assert original.response.sent["embed"].title == "Item creation preview"
+    view = original.response.sent["view"]
+    assert isinstance(view, ConfirmView)
+
+    confirmed = FakeInteraction()
+    await view.on_confirm(confirmed)
+
+    assert calls == [42]
+    assert confirmed.edited["content"] == "Item definition created."
+    assert confirmed.edited["view"] is None

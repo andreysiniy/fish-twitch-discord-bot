@@ -810,9 +810,11 @@ def register_commands(
         except ValueError as error:
             await _send_error(interaction, error)
             return
-        await _simple_mutation(
+        await _json_confirmation(
             interaction,
-            lambda: api.upsert_item(interaction, payload),
+            "Item creation preview",
+            payload,
+            lambda confirmed: api.upsert_item(confirmed, payload),
             "Item definition created.",
         )
 
@@ -880,8 +882,13 @@ def register_commands(
                     "value": current.get("value"),
                 }
             )
-            await api.upsert_item(interaction, payload)
-            await interaction.followup.send("Item definition updated.", ephemeral=True)
+            await _json_confirmation(
+                interaction,
+                "Item update preview",
+                payload,
+                lambda confirmed: api.upsert_item(confirmed, payload),
+                "Item definition updated.",
+            )
 
         await _deferred(interaction, operation)
 
@@ -1355,6 +1362,24 @@ async def _confirmation(interaction, prompt, operation, success, *, danger=False
         view=ConfirmView(interaction.user.id, confirm, danger=danger),
         ephemeral=True,
     )
+
+
+async def _json_confirmation(
+    interaction,
+    title: str,
+    payload: dict[str, Any],
+    operation,
+    success: str,
+) -> None:
+    async def confirm(confirmed: discord.Interaction) -> None:
+        await _mutation_response(confirmed, lambda: operation(confirmed), success)
+
+    embed = _json_embed(title, payload)
+    view = ConfirmView(interaction.user.id, confirm)
+    if interaction.response.is_done():
+        await interaction.edit_original_response(content=None, embed=embed, view=view)
+    else:
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 async def _send_error(interaction: discord.Interaction, error: Exception) -> None:
