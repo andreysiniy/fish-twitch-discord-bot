@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 from domain.schemas.fishing import FishingResult
 from services.fishing.engine import EventLootStrategy, FishingEngine
+from services.fishing.presenter import FishingPresenter
 from services.fishing_service import FishingService
 
 
@@ -49,6 +50,29 @@ def test_percentage_mass_uses_decimal_arithmetic() -> None:
 
     assert result == Decimal("1.25")
     assert isinstance(result, Decimal)
+
+
+def test_presenter_accepts_string_percentage_from_stored_reward() -> None:
+    user = make_user(
+        channel=SimpleNamespace(config={}),
+        current_mass=Decimal("12.50"),
+        total_mass_stat=Decimal("20.00"),
+    )
+    result = FishingResult(
+        loot={"type": "fish", "percentage": "0.5", "message": "Gain: {percentage}"},
+        item_drop=None,
+        username=user.username,
+        xp_gained=0,
+        mass_gained=Decimal("5.00"),
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+        luck_used=2.0,
+    )
+
+    response = FishingPresenter().build_response(user, result)
+
+    assert "Gain: +100%" in response.chat_message
 
 
 def test_points_bonus_is_applied_to_points_reward() -> None:
