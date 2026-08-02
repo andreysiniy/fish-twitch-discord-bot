@@ -1,0 +1,145 @@
+name: fisher-production
+
+x-engine-environment: &engine-environment
+  PYTHONUNBUFFERED: "1"
+  DATABASE_URL: postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+  BOT_API_KEY: ${BOT_API_KEY:?BOT_API_KEY is required}
+  DISCORD_BOT_API_KEY: ${DISCORD_BOT_API_KEY:?DISCORD_BOT_API_KEY is required}
+  TWITCH_CLIENT_ID: ${API_TWITCH_CLIENT_ID:?API_TWITCH_CLIENT_ID is required}
+  TWITCH_CLIENT_SECRET: ${API_TWITCH_CLIENT_SECRET:?API_TWITCH_CLIENT_SECRET is required}
+
+x-service-security: &service-security
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    <<: *service-security
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - fisher_net
+
+  redis:
+    <<: *service-security
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - fisher_net
+
+  game_engine:
+    <<: *service-security
+    build:
+      context: ./services/game_engine
+    command: ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      <<: *engine-environment
+      RUN_BACKGROUND_WORKERS: "false"
+      TWITCH_DISCORD_REDIRECT_URI: ${TWITCH_DISCORD_REDIRECT_URI:?TWITCH_DISCORD_REDIRECT_URI is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    ports:
+      - "${GAME_ENGINE_BIND:-127.0.0.1}:${GAME_ENGINE_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fisher_net
+
+  game_worker:
+    <<: *service-security
+    build:
+      context: ./services/game_engine
+    command: ["python", "worker_main.py"]
+    environment:
+      <<: *engine-environment
+    depends_on:
+      game_engine:
+        condition: service_healthy
+    networks:
+      - fisher_net
+
+  discord_gateway:
+    <<: *service-security
+    build:
+      context: ./services/discord_gateway
+    environment:
+      PYTHONUNBUFFERED: "1"
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?DISCORD_BOT_TOKEN is required}
+      DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID:?DISCORD_APPLICATION_ID is required}
+      DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      DISCORD_BOT_API_KEY: ${DISCORD_BOT_API_KEY:?DISCORD_BOT_API_KEY is required}
+      ENGINE_URL: http://game_engine:8000
+      REDIS_URL: redis://redis:6379/0
+      COMMAND_SYNC_MODE: ${COMMAND_SYNC_MODE:-global}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+    depends_on:
+      game_engine:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fisher_net
+
+  bot_gateway:
+    <<: *service-security
+    build:
+      context: ./services/bot_gateway
+    command: ["python", "main.py"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+      TWITCH_TOKEN: ${TWITCH_TOKEN:?TWITCH_TOKEN is required}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:?TWITCH_CLIENT_ID is required}
+      BOT_NICK: ${BOT_NICK:?BOT_NICK is required}
+      BOT_API_KEY: ${BOT_API_KEY:?BOT_API_KEY is required}
+      INITIAL_CHANNELS: ${INITIAL_CHANNELS:?INITIAL_CHANNELS is required}
+      ENGINE_URL: http://game_engine:8000
+    depends_on:
+      game_engine:
+        condition: service_healthy
+    networks:
+      - fisher_net
+
+networks:
+  fisher_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
