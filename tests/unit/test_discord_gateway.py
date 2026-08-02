@@ -19,7 +19,9 @@ from app.interactions.modals import (
 )
 from app.interactions.reward_payloads import build_reward_payload, build_roulette_outcome
 from app.interactions.sessions import WizardSessionStore
+from app.presentation.embeds import event_list_entry, location_list_entry, reward_list_entry
 from app.presentation.formatting import diff_lines, parse_decimal, parse_duration
+from app.presentation.pagination import PagedEmbedView
 
 
 class FakeRedis:
@@ -158,6 +160,53 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         "XP multiplier",
         "Cooldown reduction",
     }
+
+
+def test_entity_list_entries_include_all_parameters_without_truncation() -> None:
+    marker = "complete-message-marker"
+    reward = {
+        "reward_id": "reward-1",
+        "type": "russian_roulette",
+        "name": "Risky reward",
+        "weight": 100,
+        "probability": 0.5,
+        "xp": 25,
+        "message": "M" * 300,
+        "bullets": 1,
+        "chambers": 6,
+        "safe_message": "S" * 300,
+        "shot_message": "X" * 300 + marker,
+        "reward": {"type": "add_mass", "mass": "2.5"},
+        "penalty": {"type": "timeout", "duration": 60, "reason": "Unlucky"},
+    }
+    title, details = reward_list_entry(reward)
+    view = PagedEmbedView(1, "Rewards", [reward], reward_list_entry, page_size=1)
+    rendered = "\n".join(field.value for field in view.embed().fields)
+
+    assert title == "Risky reward"
+    assert "probability: 50.00%" in details
+    assert all(f"{key}:" in details for key in reward)
+    assert marker in rendered
+
+    location = {
+        "location_id": "river",
+        "location_name": "River",
+        "items_drop_rate": 0.1,
+        "requirements": {"level": 2},
+        "reward_count": 4,
+        "version": 3,
+    }
+    event = {
+        "id": 7,
+        "event_title": "Double XP",
+        "is_active": True,
+        "override_loot_pool": "river",
+        "modifiers": {"xp_mult": "2", "bonus_mass": "0.15"},
+        "version": 2,
+        "updated_at": "2026-08-02T00:00:00+00:00",
+    }
+    assert all(f"{key}:" in location_list_entry(location)[1] for key in location)
+    assert all(f"{key}:" in event_list_entry(event)[1] for key in event)
 
 
 def test_error_mapping_includes_request_id() -> None:

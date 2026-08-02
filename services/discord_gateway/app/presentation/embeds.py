@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import discord
@@ -47,6 +48,45 @@ def diff_embed(title: str, before: dict[str, Any], after: dict[str, Any]) -> dis
     )
 
 
+def reward_list_entry(item: dict[str, Any]) -> tuple[str, str]:
+    title = item.get("name") or item["type"].replace("_", " ").title()
+    order = (
+        "reward_id",
+        "type",
+        "name",
+        "weight",
+        "probability",
+        "xp",
+        "message",
+    )
+    return title, _entity_details(item, order, probability_key="probability")
+
+
+def location_list_entry(item: dict[str, Any]) -> tuple[str, str]:
+    order = (
+        "location_id",
+        "location_name",
+        "items_drop_rate",
+        "requirements",
+        "reward_count",
+        "version",
+    )
+    return item["location_name"], _entity_details(item, order)
+
+
+def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
+    order = (
+        "id",
+        "event_title",
+        "is_active",
+        "override_loot_pool",
+        "modifiers",
+        "version",
+        "updated_at",
+    )
+    return item["event_title"], _entity_details(item, order)
+
+
 def placeholder_help_embeds(
     items: list[dict[str, Any]],
     message_key: str | None = None,
@@ -93,3 +133,22 @@ def placeholder_help_embeds(
         embed.set_footer(text=f"Messages {offset + 1}-{min(offset + 15, len(items))}")
         embeds.append(embed)
     return embeds
+
+
+def _entity_details(
+    item: dict[str, Any],
+    preferred_order: tuple[str, ...],
+    *,
+    probability_key: str | None = None,
+) -> str:
+    ordered_keys = [key for key in preferred_order if key in item]
+    ordered_keys.extend(sorted(set(item) - set(ordered_keys)))
+    lines = []
+    for key in ordered_keys:
+        value = item[key]
+        if key == probability_key:
+            rendered = f"{float(value):.2%}"
+        else:
+            rendered = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        lines.append(f"{key}: {rendered}")
+    return "\n".join(lines)
