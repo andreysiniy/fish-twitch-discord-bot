@@ -1,8 +1,10 @@
 import json
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
+from domain.item_schema import STAT_REGISTRY, ModifierOperation, ModifierScope, StatKey
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -113,3 +115,37 @@ class DiscordEventPatchRequest(StrictDTO):
 class DiscordEventStartRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
     duration_seconds: int | None = Field(None, ge=1, le=1_209_600)
+
+
+class PlayerModifierSetRequest(StrictDTO):
+    stat_key: StatKey
+    operation: ModifierOperation = ModifierOperation.ADD
+    value: Decimal
+    scope: ModifierScope
+    source_key: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_.:-]{0,119}$")
+    reason: str = Field(..., min_length=1, max_length=300)
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+    expected_version: int | None = Field(None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_modifier(self):
+        definition = STAT_REGISTRY[self.stat_key]
+        if self.scope != ModifierScope.ALL and self.scope not in definition.scopes:
+            raise ValueError(f"{self.stat_key.value} is not available in {self.scope.value}")
+        if self.operation == ModifierOperation.MULTIPLY:
+            if self.value < 0 or self.value > 100:
+                raise ValueError("Multiplier must be between 0 and 100")
+        elif not definition.minimum <= self.value <= definition.maximum:
+            raise ValueError(
+                f"{self.stat_key.value} must be between "
+                f"{definition.minimum} and {definition.maximum}"
+            )
+        if self.starts_at and self.expires_at and self.expires_at <= self.starts_at:
+            raise ValueError("expires_at must be later than starts_at")
+        return self
+
+
+class VersionedStateRequest(StrictDTO):
+    expected_version: int = Field(..., ge=1)
+    is_enabled: bool

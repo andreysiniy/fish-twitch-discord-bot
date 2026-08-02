@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from infrastructure.repositories.channel_repo import ChannelRepository
-from services.fishing.engine import CalculationStrategy, EventLootStrategy, DefaultLootStrategy
+from services.fishing.engine import CalculationStrategy, DefaultLootStrategy
 
 
 @dataclass
@@ -28,11 +28,8 @@ class FishingStrategyResolver:
             )
 
         modifiers = dict(event.modifiers or {})
-        strategy = EventLootStrategy(modifiers=modifiers)
-
-        cd_reduction = float(modifiers.get("cd_reduction", 0.0) or 0.0)
-        cd_reduction = min(max(cd_reduction, 0.0), 0.95)
-        cooldown_multiplier = round(1.0 - cd_reduction, 4)
+        strategy = DefaultLootStrategy()
+        cooldown_multiplier = 1.0
 
         override_pool_id = event.override_loot_pool
 

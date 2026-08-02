@@ -1,5 +1,6 @@
 import json
 import secrets
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -11,6 +12,7 @@ from core.config import settings
 from core.messages import message_placeholder_catalog, validate_custom_message_template
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
+from domain.item_schema import ModifierScope
 from domain.schemas.admin import ChannelCreateDTO
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
@@ -19,12 +21,14 @@ from domain.schemas.discord_admin import (
     DiscordEventPatchRequest,
     DiscordEventStartRequest,
     GuildBindRequest,
+    LegacyRewardImportRequest,
     LocationCreateRequest,
     LocationPatchRequest,
-    LegacyRewardImportRequest,
     MessageTemplatePatchRequest,
+    PlayerModifierSetRequest,
     RewardCreateRequest,
     RewardPatchRequest,
+    VersionedStateRequest,
 )
 from infrastructure.models import (
     AdminAuditLog,
@@ -32,6 +36,7 @@ from infrastructure.models import (
     DiscordAccountLink,
     DiscordGuildBinding,
     FishingEvent,
+    PlayerModifier,
     RewardPool,
     UserProgress,
 )
@@ -42,6 +47,7 @@ from services.auth_service import AuthService
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.idempotency_service import IdempotencyService
 from services.legacy_rewards import convert_legacy_rewards
+from services.player_modifier_service import PlayerModifierService
 from sqlalchemy.orm.attributes import flag_modified
 
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
@@ -319,6 +325,208 @@ class DiscordAdminService:
             context.request_id,
             mutation,
         )
+
+    def list_player_modifiers(
+        self, context, channel_twitch_id: str, user_twitch_id: str
+    ) -> dict[str, Any]:
+        channel, _ = self._authorize(
+            context, ChannelPermission.PLAYERS_READ, channel_twitch_id
+        )
+        user = self._find_player(channel.id, user_twitch_id)
+        rows = (
+            self.db.query(PlayerModifier)
+            .filter(PlayerModifier.user_progress_id == user.id)
+            .order_by(PlayerModifier.created_at.asc(), PlayerModifier.id.asc())
+            .all()
+        )
+        return {
+            "channel_twitch_id": channel.twitch_id,
+            "user_twitch_id": user.user_twitch_id,
+            "items": [self._serialize_player_modifier(row) for row in rows],
+        }
+
+    def set_player_modifier(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        data: PlayerModifierSetRequest,
+    ) -> dict[str, Any]:
+        payload = data.model_dump(mode="json")
+
+        def mutation() -> dict[str, Any]:
+            channel, link = self._authorize(
+                context,
+                ChannelPermission.PLAYERS_WRITE,
+                channel_twitch_id,
+                for_update=True,
+            )
+            user = self._find_player(channel.id, user_twitch_id, for_update=True)
+            row = (
+                self.db.query(PlayerModifier)
+                .filter(
+                    PlayerModifier.channel_id == channel.id,
+                    PlayerModifier.user_progress_id == user.id,
+                    PlayerModifier.stat_key == data.stat_key.value,
+                    PlayerModifier.scope == data.scope.value,
+                    PlayerModifier.source_key == data.source_key,
+                )
+                .with_for_update()
+                .first()
+            )
+            before = self._serialize_player_modifier(row) if row else {}
+            if row:
+                if data.expected_version is None:
+                    raise ApiProblem(
+                        409,
+                        "CONFIG_VERSION_CONFLICT",
+                        "expected_version is required when updating a modifier",
+                    )
+                self._check_version(row.version, data.expected_version, context)
+                row.version += 1
+            else:
+                if data.expected_version is not None:
+                    raise ApiProblem(
+                        409,
+                        "CONFIG_VERSION_CONFLICT",
+                        "Modifier does not exist",
+                    )
+                row = PlayerModifier(
+                    id=str(uuid.uuid4()),
+                    channel_id=channel.id,
+                    user_progress_id=user.id,
+                    stat_key=data.stat_key.value,
+                    scope=data.scope.value,
+                    source_key=data.source_key,
+                    created_by_twitch_id=link.twitch_user_id,
+                    created_by_discord_id=context.discord_user_id,
+                )
+                self.db.add(row)
+            row.operation = data.operation.value
+            row.value = data.value
+            row.reason = data.reason
+            row.starts_at = data.starts_at
+            row.expires_at = data.expires_at
+            row.is_enabled = True
+            self.db.flush()
+            after = self._serialize_player_modifier(row)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "player_modifier.set",
+                "player_modifier",
+                row.id,
+                before,
+                after,
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player_modifier.set",
+            payload,
+            context.request_id,
+            mutation,
+        )
+
+    def set_player_modifier_state(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        modifier_id: str,
+        data: VersionedStateRequest,
+    ) -> dict[str, Any]:
+        def mutation() -> dict[str, Any]:
+            channel, link = self._authorize(
+                context, ChannelPermission.PLAYERS_WRITE, channel_twitch_id
+            )
+            user = self._find_player(channel.id, user_twitch_id)
+            row = self._find_player_modifier(user.id, modifier_id, for_update=True)
+            self._check_version(row.version, data.expected_version, context)
+            before = self._serialize_player_modifier(row)
+            row.is_enabled = data.is_enabled
+            row.version += 1
+            self.db.flush()
+            after = self._serialize_player_modifier(row)
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "player_modifier.state",
+                "player_modifier",
+                row.id,
+                before,
+                after,
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player_modifier.state",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
+
+    def remove_player_modifier(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        modifier_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]:
+        def mutation() -> dict[str, Any]:
+            channel, link = self._authorize(
+                context, ChannelPermission.PLAYERS_WRITE, channel_twitch_id
+            )
+            user = self._find_player(channel.id, user_twitch_id)
+            row = self._find_player_modifier(user.id, modifier_id, for_update=True)
+            self._check_version(row.version, expected_version, context)
+            before = self._serialize_player_modifier(row)
+            self.db.delete(row)
+            self.db.flush()
+            self._audit(
+                context,
+                link.twitch_user_id,
+                "player_modifier.remove",
+                "player_modifier",
+                row.id,
+                before,
+                {},
+            )
+            return {"status": "removed", "id": modifier_id}
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player_modifier.remove",
+            {"modifier_id": modifier_id, "expected_version": expected_version},
+            context.request_id,
+            mutation,
+        )
+
+    def explain_player_stats(
+        self,
+        context,
+        channel_twitch_id: str,
+        user_twitch_id: str,
+        scope: ModifierScope,
+    ) -> dict[str, Any]:
+        channel, _ = self._authorize(
+            context, ChannelPermission.PLAYERS_READ, channel_twitch_id
+        )
+        user = self._find_player(channel.id, user_twitch_id)
+        resolved = PlayerModifierService(self.db).resolve(user, scope)
+        return {
+            "channel_twitch_id": channel.twitch_id,
+            "user_twitch_id": user.user_twitch_id,
+            "scope": scope.value,
+            "stats": resolved.explain(),
+            "behavioral_effects": list(resolved.effects),
+        }
 
     def get_config(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
@@ -1062,6 +1270,54 @@ class DiscordAdminService:
             context.request_id,
             mutation,
         )
+
+    def _find_player(
+        self, channel_id: int, user_twitch_id: str, *, for_update: bool = False
+    ) -> UserProgress:
+        query = self.db.query(UserProgress).filter(
+            UserProgress.channel_id == channel_id,
+            UserProgress.user_twitch_id == user_twitch_id,
+        )
+        if for_update:
+            query = query.with_for_update(of=UserProgress)
+        user = query.first()
+        if not user:
+            raise ApiProblem(404, "PLAYER_NOT_FOUND", "Player not found")
+        return user
+
+    def _find_player_modifier(
+        self, user_id: int, modifier_id: str, *, for_update: bool = False
+    ) -> PlayerModifier:
+        query = self.db.query(PlayerModifier).filter(
+            PlayerModifier.user_progress_id == user_id,
+            PlayerModifier.id == modifier_id,
+        )
+        if for_update:
+            query = query.with_for_update(of=PlayerModifier)
+        row = query.first()
+        if not row:
+            raise ApiProblem(404, "PLAYER_MODIFIER_NOT_FOUND", "Player modifier not found")
+        return row
+
+    @staticmethod
+    def _serialize_player_modifier(row: PlayerModifier) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "stat_key": row.stat_key,
+            "operation": row.operation,
+            "value": str(row.value),
+            "scope": row.scope,
+            "source_key": row.source_key,
+            "reason": row.reason,
+            "starts_at": row.starts_at.isoformat() if row.starts_at else None,
+            "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+            "is_enabled": row.is_enabled,
+            "version": row.version,
+            "created_by_twitch_id": row.created_by_twitch_id,
+            "created_by_discord_id": row.created_by_discord_id,
+            "created_at": row.created_at.isoformat(),
+            "updated_at": row.updated_at.isoformat(),
+        }
 
     def _authorize(self, context, permission, channel_twitch_id=None, *, for_update=False):
         link = self._get_link(context)

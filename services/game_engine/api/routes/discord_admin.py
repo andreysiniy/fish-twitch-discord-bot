@@ -2,6 +2,7 @@ from api.dependencies import get_discord_admin_service
 from api.discord_dependencies import DiscordServiceContext, get_discord_service_context
 from core.api_errors import ApiProblem
 from domain.config_schema import GameConfig
+from domain.item_schema import ModifierScope
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
     ConfigResetRequest,
@@ -12,13 +13,87 @@ from domain.schemas.discord_admin import (
     LocationCreateRequest,
     LocationPatchRequest,
     MessageTemplatePatchRequest,
+    PlayerModifierSetRequest,
     RewardCreateRequest,
     RewardPatchRequest,
+    VersionedStateRequest,
 )
 from fastapi import APIRouter, Depends, Query
 from services.discord_admin_service import CONFIG_SECTIONS, DiscordAdminService
 
 router = APIRouter()
+
+
+@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers")
+def list_player_modifiers(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_player_modifiers(context, channel_twitch_id, user_twitch_id)
+
+
+@router.put("/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers")
+def set_player_modifier(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    data: PlayerModifierSetRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.set_player_modifier(
+        context, channel_twitch_id, user_twitch_id, data
+    )
+
+
+@router.patch(
+    "/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers/{modifier_id}/state"
+)
+def set_player_modifier_state(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    modifier_id: str,
+    data: VersionedStateRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.set_player_modifier_state(
+        context, channel_twitch_id, user_twitch_id, modifier_id, data
+    )
+
+
+@router.delete(
+    "/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers/{modifier_id}"
+)
+def remove_player_modifier(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    modifier_id: str,
+    expected_version: int = Query(..., ge=1),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.remove_player_modifier(
+        context,
+        channel_twitch_id,
+        user_twitch_id,
+        modifier_id,
+        expected_version,
+    )
+
+
+@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/stats/explain")
+def explain_player_stats(
+    channel_twitch_id: str,
+    user_twitch_id: str,
+    scope: ModifierScope = Query(ModifierScope.FISHING),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.explain_player_stats(
+        context, channel_twitch_id, user_twitch_id, scope
+    )
 
 
 @router.get("/channels/{channel_twitch_id}/config/schema")

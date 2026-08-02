@@ -315,6 +315,26 @@ class FishingPresenter:
             )
             actions.append(SendBaseMessageAction(action_message=msg_text))
 
+        for counter_action in robbery_result.counter_actions:
+            if counter_action.get("type") == "timeout":
+                actions.append(
+                    TimeoutAction(
+                        duration=int(counter_action["duration_seconds"]),
+                        reason=str(counter_action.get("reason") or "Robbery counter"),
+                        target_user=user.username,
+                        action_message=str(counter_action.get("message") or ""),
+                    )
+                )
+            elif counter_action.get("type") == "add_mass":
+                actions.append(
+                    AddMassAction(
+                        amount=to_decimal(counter_action.get("amount", 0)),
+                        amount_now=user.current_mass,
+                        total_mass=user.total_mass_stat,
+                        action_message=str(counter_action.get("message") or ""),
+                    )
+                )
+
         return actions
 
     def _present_roulette(

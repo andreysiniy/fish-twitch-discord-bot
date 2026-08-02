@@ -1,6 +1,9 @@
+import random
+
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, format_percent_signed, resolve_message
+from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
 from domain.logic.mass import ZERO_MASS, quantize_mass
 from domain.logic.stats_calculator import calculate_player_stats
@@ -13,9 +16,11 @@ from domain.schemas.fishing import (
 from infrastructure.models import UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
+from infrastructure.repositories.inventory_repo import InventoryRepository
 from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
+from services.player_modifier_service import PlayerModifierService
 
 
 class FishingService:
@@ -33,6 +38,7 @@ class FishingService:
         self.engine = FishingEngine()
         self.presenter = FishingPresenter()
         self.strategy_resolver = FishingStrategyResolver(channel_repo=channel_repo)
+        self.modifier_service = PlayerModifierService(user_repo.db)
 
     def process_cast(
         self,
@@ -50,12 +56,17 @@ class FishingService:
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
         strategy_ctx = self.strategy_resolver.resolve(user.channel_id)
+        fishing_modifiers = self.modifier_service.resolve(user, ModifierScope.FISHING)
         cooldown_duration = (
             0
             if bypass_cooldown
             else self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
         )
-        cooldown_duration = max(int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0)
+        cooldown_multiplier = max(
+            1.0 - float(fishing_modifiers.value(StatKey.COOLDOWN_REDUCTION_PCT)),
+            0.0,
+        )
+        cooldown_duration = max(int(round(cooldown_duration * cooldown_multiplier)), 0)
 
         if cooldown_duration > 0:
             is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
@@ -74,6 +85,7 @@ class FishingService:
                 if override_result:
                     loot_pool, item_pool, rate = override_result
 
+        behavioral_effects = list(fishing_modifiers.effects)
         result = self.engine.calculate_result(
             user=user,
             loot_pool=loot_pool,
@@ -81,6 +93,10 @@ class FishingService:
             items_drop_rate=rate,
             custom_params=custom_params,
             calculation_strategy=strategy_ctx.calculation_strategy,
+            modifier_values=fishing_modifiers.values,
+            behavioral_effects=behavioral_effects,
+            negative_mass_floor=fishing_modifiers.mass_floor("negative_rewards"),
+            roulette_mass_floor=fishing_modifiers.mass_floor("roulette"),
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
@@ -121,6 +137,17 @@ class FishingService:
             else:
                 result.item_drop = None
 
+        inventory_repo = InventoryRepository(self.user_repo.db)
+        for effect in behavioral_effects:
+            trigger_count = int(effect.pop("_trigger_count", 0))
+            durability_cost = int(effect.get("durability_cost", 0)) * trigger_count
+            if durability_cost:
+                inventory_repo.consume_durability(
+                    user.id,
+                    str(effect.get("source_slot") or "charm_1"),
+                    durability_cost,
+                )
+
         result.broken_item_name = self.user_repo.apply_equipped_rod_durability_loss(
             user,
             result.durability_loss,
@@ -147,9 +174,48 @@ class FishingService:
             channel_id=user.channel.id, attacker_id=user.id, lookup_range=lookup_range
         )
 
-        robbery_result = self.engine.calculate_mass_robbery(
-            attacker=user, victim=victim, channel_config=channel_config, catch=loot
+        if victim is None:
+            return self.engine.calculate_mass_robbery(
+                attacker=user,
+                victim=None,
+                channel_config=channel_config,
+                catch=loot,
+            )
+
+        locked = self.user_repo.lock_users([user.id, victim.id])
+        user = locked[user.id]
+        victim = locked[victim.id]
+        attacker_modifiers = self.modifier_service.resolve(user, ModifierScope.ROBBERY)
+        victim_modifiers = self.modifier_service.resolve(victim, ModifierScope.ROBBERY)
+
+        counter_actions, absorbed = self._apply_robbery_defenses(
+            attacker=user,
+            victim=victim,
+            effects=list(victim_modifiers.effects),
         )
+
+        if absorbed:
+            return RobberyResultDTO(
+                is_success=False,
+                absorbed=True,
+                amount_stolen=ZERO_MASS,
+                victim_name=victim.username,
+                victim_twitch_id=victim.user_twitch_id,
+                victim_new_mass=quantize_mass(victim.current_mass),
+                chance_used=0.0,
+                counter_actions=counter_actions,
+            )
+
+        robbery_result = self.engine.calculate_mass_robbery(
+            attacker=user,
+            victim=victim,
+            channel_config=channel_config,
+            catch=loot,
+            attacker_modifiers=attacker_modifiers.values,
+            victim_modifiers=victim_modifiers.values,
+            protected_mass_floor=victim_modifiers.mass_floor("robbery"),
+        )
+        robbery_result.counter_actions = counter_actions
 
         if robbery_result.is_success:
             requested_stolen = max(
@@ -174,6 +240,69 @@ class FishingService:
             self.user_repo.save_progress(victim)
 
         return robbery_result
+
+    def _apply_robbery_defenses(
+        self,
+        attacker: UserProgress,
+        victim: UserProgress,
+        effects: list[dict],
+    ) -> tuple[list[dict], bool]:
+        actions: list[dict] = []
+        absorbed = False
+        inventory_repo = InventoryRepository(self.user_repo.db)
+        for effect in effects:
+            if effect.get("type") not in {"absorb_robbery", "robbery_counter"}:
+                continue
+            if random.random() >= float(effect.get("chance", 1)):
+                continue
+            durability_cost = int(effect.get("durability_cost", 0))
+            source_slot = str(effect.get("source_slot") or "defense")
+            if durability_cost:
+                inventory_repo.consume_durability(victim.id, source_slot, durability_cost)
+
+            if effect.get("type") == "absorb_robbery":
+                absorbed = True
+                mass_delta = quantize_mass(effect.get("attacker_mass_delta", 0))
+                previous_mass = quantize_mass(attacker.current_mass)
+                attacker.current_mass = max(
+                    quantize_mass(previous_mass + mass_delta),
+                    ZERO_MASS,
+                )
+                applied = quantize_mass(attacker.current_mass - previous_mass)
+                if applied:
+                    actions.append(
+                        {
+                            "type": "add_mass",
+                            "amount": str(applied),
+                            "message": effect.get("message", ""),
+                        }
+                    )
+                continue
+
+            action = dict(effect.get("action") or {})
+            if action.get("type") == "timeout":
+                actions.append(
+                    {
+                        "type": "timeout",
+                        "duration_seconds": int(action["duration_seconds"]),
+                        "reason": action.get("reason", "Robbery counter"),
+                        "message": action.get("message", ""),
+                    }
+                )
+            elif action.get("type") == "add_mass":
+                previous_mass = quantize_mass(attacker.current_mass)
+                attacker.current_mass = max(
+                    quantize_mass(previous_mass + quantize_mass(action.get("mass", 0))),
+                    ZERO_MASS,
+                )
+                actions.append(
+                    {
+                        "type": "add_mass",
+                        "amount": str(quantize_mass(attacker.current_mass - previous_mass)),
+                        "message": action.get("message", ""),
+                    }
+                )
+        return actions, absorbed
 
     def get_profile_stats(
         self, twitch_id: str, channel_id: str, username: str | None = None
@@ -298,9 +427,16 @@ class FishingService:
         custom_params = (channel_config or {}).get("custom_params", {})
         cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
         if channel:
-            strategy_ctx = self.strategy_resolver.resolve(channel.id)
+            user = self.user_repo.get_progress(twitch_id, channel_id)
+            reduction = (
+                self.modifier_service.resolve(user, ModifierScope.FISHING).value(
+                    StatKey.COOLDOWN_REDUCTION_PCT
+                )
+                if user
+                else ZERO_MASS
+            )
             cooldown_duration = max(
-                int(round(cooldown_duration * strategy_ctx.cooldown_multiplier)), 0
+                int(round(cooldown_duration * max(1.0 - float(reduction), 0.0))), 0
             )
         is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
         return self.presenter.build_cooldown_status_response(
