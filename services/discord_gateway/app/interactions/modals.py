@@ -64,6 +64,49 @@ class ConfigModal(discord.ui.Modal):
         )
 
 
+class MessageTemplateModal(discord.ui.Modal):
+    def __init__(self, item: dict[str, Any], on_save):
+        super().__init__(title=f"Message: {item['message_key']}"[:45])
+        self.item = item
+        self.on_save = on_save
+        allowed = ", ".join(f"{{{placeholder['name']}}}" for placeholder in item["placeholders"])
+        self.allowed_placeholders = discord.ui.TextInput(
+            label="Allowed placeholders",
+            default=allowed or "None",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=1000,
+        )
+        self.allowed_placeholders.disabled = True
+        self.template = discord.ui.TextInput(
+            label="Message template (empty resets)",
+            default=item["effective_message"],
+            placeholder="Enter a custom English message or clear to reset",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500,
+        )
+        self.add_item(self.allowed_placeholders)
+        self.add_item(self.template)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        template = self.template.value.strip() or None
+        after = template or self.item["default_message"]
+
+        async def confirm(confirm_interaction: discord.Interaction) -> None:
+            await self.on_save(confirm_interaction, template)
+
+        await interaction.response.send_message(
+            embed=diff_embed(
+                "Message change preview",
+                {"template": self.item["effective_message"]},
+                {"template": after},
+            ),
+            view=ConfirmView(interaction.user.id, confirm),
+            ephemeral=True,
+        )
+
+
 class LocationModal(discord.ui.Modal):
     def __init__(self, on_save, defaults: dict[str, Any] | None = None):
         defaults = defaults or {}

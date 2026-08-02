@@ -11,6 +11,7 @@ from app.interactions.modals import (
     EventBonusModal,
     EventModal,
     FishRewardModal,
+    MessageTemplateModal,
     RewardModal,
     RobberyRewardModal,
     RouletteOutcomeModal,
@@ -173,6 +174,21 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         "russian_roulette": {"Bullets", "Chambers", "Safe message", "Shot message"},
     }
 
+    message_modal = MessageTemplateModal(
+        {
+            "message_key": "robbery_no_target",
+            "default_message": "No target for {attacker}.",
+            "effective_message": "Nobody to rob, {attacker}.",
+            "placeholders": [{"name": "attacker", "description": "Attacker name."}],
+        },
+        save,
+    )
+    assert {child.label for child in message_modal.children} == {
+        "Allowed placeholders",
+        "Message template (empty resets)",
+    }
+    assert message_modal.template.default == "Nobody to rob, {attacker}."
+
 
 def test_entity_list_entries_include_all_parameters_without_truncation() -> None:
     marker = "complete-message-marker"
@@ -267,6 +283,9 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "status",
         "unlink",
     }
+    placeholders = fish.get_command("placeholders")
+    assert placeholders is not None
+    assert {command.name for command in placeholders.commands} == {"edit", "list", "show"}
     assert gateway_settings.DEV_GUILD_ID is None
     assert bot.intents.guilds is True
     assert bot.intents.message_content is False
