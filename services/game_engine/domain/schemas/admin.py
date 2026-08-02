@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.game_limits import (
     MAX_COOLDOWN_SECONDS,
@@ -48,14 +48,12 @@ class StreamElementsIntegrationResponseDTO(BaseModel):
 
 # --- Rewards ---
 
-class LocationItemUpdateDTO(BaseModel):
+class LocationItemResponseDTO(BaseModel):
     item_id: str
     weight: int = 100
     xp_gain: int = 0
     quantity: Optional[int] = None
     message: Optional[str] = None
-
-class LocationItemResponseDTO(LocationItemUpdateDTO):
     db_id: Optional[int] = None
     title: str
     description: Optional[str] = None
@@ -71,6 +69,8 @@ class LocationItemResponseDTO(LocationItemUpdateDTO):
 
 
 class RewardPoolUpdateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     items_drop_rate: Optional[float] = Field(0.1, ge=0, le=1, description="Chance to drop an item")
     location_name: Optional[str] = Field(None, description="Display name for location")
     requirements: Optional[LocationRequirements] = Field(
@@ -83,11 +83,6 @@ class RewardPoolUpdateDTO(BaseModel):
         max_length=100,
         description="Rewards data to update the pool",
     )
-    items: Optional[List[LocationItemUpdateDTO]] = Field(
-        None,
-        description="Optional list of location drop items",
-    )
-
 class RewardPoolResponseDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     location_id: str

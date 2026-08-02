@@ -98,9 +98,12 @@ class AdminService:
             channel.id,
             location_id,
             [reward.model_dump(mode="json") for reward in data.rewards],
-            data.items or [],
             data.items_drop_rate,
-            data.requirements.model_dump(mode="json", exclude_none=True) if data.requirements else {},
+            (
+                data.requirements.model_dump(mode="json", exclude_none=True)
+                if data.requirements
+                else {}
+            ),
             data.location_name
         )
 
