@@ -71,12 +71,6 @@ class UnequipRequestDTO(BaseModel):
     equipment_slot: EquipmentSlot
 
 
-class RepairRequestDTO(BaseModel):
-    user_id: str
-    channel_id: str
-    slot_id: int = Field(..., ge=1)
-
-
 class UseItemRequestDTO(BaseModel):
     user_id: str
     channel_id: str

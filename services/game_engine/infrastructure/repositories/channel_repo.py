@@ -188,9 +188,6 @@ class ChannelRepository:
         effects: list | None = None,
         schema_version: int = 1,
         value=None,
-        sell_value=None,
-        is_sellable: bool = True,
-        is_tradeable: bool = True,
         expected_version: int | None = None,
         updated_by: str | None = None,
     ) -> ItemDefinition:
@@ -243,12 +240,9 @@ class ChannelRepository:
         definition.effects = effects or []
         definition.schema_version = schema_version
         definition.value = value
-        definition.sell_value = sell_value
         definition.is_active = True
         definition.archived_at = None
         definition.updated_by = updated_by
-        definition.is_sellable = is_sellable
-        definition.is_tradeable = is_tradeable
         self.db.flush()
         self.db.refresh(definition)
         return definition

@@ -77,7 +77,6 @@ class StatKey(str, Enum):
     INVENTORY_SLOTS_ADD = "inventory_slots_add"
     SELL_RATE_BONUS_PCT = "sell_rate_bonus_pct"
     BUY_DISCOUNT_PCT = "buy_discount_pct"
-    REPAIR_COST_REDUCTION_PCT = "repair_cost_reduction_pct"
 
 
 class StatDefinition(StrictItemModel):
@@ -166,9 +165,6 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
     ),
     StatKey.BUY_DISCOUNT_PCT: _stat(
         "0", "0.95", {ModifierScope.ECONOMY}, "Fish buying discount."
-    ),
-    StatKey.REPAIR_COST_REDUCTION_PCT: _stat(
-        "0", "0.95", {ModifierScope.ECONOMY}, "Item repair cost reduction."
     ),
 }
 
@@ -313,9 +309,6 @@ class ItemDefinitionData(StrictItemModel):
     effects: list[ItemEffect] = Field(default_factory=list, max_length=100)
     image_url: str | None = Field(None, max_length=2048)
     value: Decimal | None = Field(None, ge=0, le=1_000_000_000_000)
-    sell_value: Decimal | None = Field(None, ge=0, le=1_000_000_000_000)
-    is_sellable: bool = True
-    is_tradeable: bool = True
 
     @model_validator(mode="after")
     def validate_item_shape(self):

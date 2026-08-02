@@ -184,24 +184,6 @@ class InventoryRepository:
         self.db.flush()
         return title
 
-    def repair(self, user_id: int, inventory_slot: int) -> InventoryItem:
-        self._lock_user(user_id)
-        item = (
-            self.db.query(InventoryItem)
-            .filter(InventoryItem.user_id == user_id, InventoryItem.slot_id == inventory_slot)
-            .with_for_update(of=InventoryItem)
-            .first()
-        )
-        if not item or not item.definition:
-            raise ValueError(f"Inventory slot {inventory_slot} is empty")
-        if item.definition.max_durability is None:
-            raise ValueError(f"{item.definition.title} cannot be repaired")
-        item.current_durability = item.definition.max_durability
-        item.version += 1
-        self.db.flush()
-        self.db.refresh(item)
-        return item
-
     def use_item(
         self,
         user: UserProgress,

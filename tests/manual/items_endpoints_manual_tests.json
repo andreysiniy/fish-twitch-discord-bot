@@ -59,9 +59,7 @@
           "base_stats": {
             "luck_bonus": 0.05,
             "xp_bonus_pct": 0.03
-          },
-          "is_sellable": true,
-          "is_tradeable": true
+          }
         }
       },
       "expect": {
@@ -95,9 +93,7 @@
           "base_stats": {
             "luck_bonus": 0.05,
             "xp_bonus_pct": 0.03
-          },
-          "is_sellable": true,
-          "is_tradeable": true
+          }
         }
       },
       "expect": {
@@ -130,9 +126,7 @@
           "image_url": "https://example.com/items/bait_worm.png",
           "base_stats": {
             "luck_bonus": 0.01
-          },
-          "is_sellable": true,
-          "is_tradeable": true
+          }
         }
       },
       "expect": {
@@ -438,9 +432,7 @@
           "image_url": null,
           "base_stats": {
             "luck_bonus": 0.5
-          },
-          "is_sellable": true,
-          "is_tradeable": false
+          }
         }
       },
       "expect": {

@@ -586,11 +586,8 @@ class DiscordAdminService:
                 effects=[effect.model_dump(mode="json") for effect in data.effects],
                 schema_version=data.schema_version,
                 value=data.value,
-                sell_value=data.sell_value,
                 expected_version=data.expected_version,
                 updated_by=link.twitch_user_id,
-                is_sellable=data.is_sellable,
-                is_tradeable=data.is_tradeable,
             )
             after = self._serialize_item_definition(row, channel)
             self._audit(
@@ -1666,9 +1663,6 @@ class DiscordAdminService:
             "schema_version": row.schema_version,
             "image_url": row.image_url,
             "value": str(row.value) if row.value is not None else None,
-            "sell_value": str(row.sell_value) if row.sell_value is not None else None,
-            "is_sellable": row.is_sellable,
-            "is_tradeable": row.is_tradeable,
             "is_active": row.is_active,
             "version": row.version,
             "archived_at": row.archived_at.isoformat() if row.archived_at else None,
