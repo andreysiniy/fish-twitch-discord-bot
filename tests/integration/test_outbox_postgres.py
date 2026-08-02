@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -16,6 +17,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _sell_operation(db, suffix: str, *, mass: str = "90.00"):
+    suffix = f"{suffix}-{uuid.uuid4().hex}"
     channel = Channel(twitch_id=f"outbox-{suffix}", name=f"outbox_{suffix}", config={})
     db.add(channel)
     db.flush()
