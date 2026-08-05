@@ -1,5 +1,6 @@
 import os
 import uuid
+from decimal import Decimal
 
 import psycopg2
 import pytest
@@ -7,7 +8,15 @@ from alembic import command
 from alembic.config import Config
 from core.config import settings
 from infrastructure.database import Base
-from infrastructure.models import Channel, InventoryItem, ItemDefinition, UserProgress
+from infrastructure.models import (
+    Channel,
+    FishingCast,
+    FishingCastItemDrop,
+    FishingRulesetSnapshot,
+    InventoryItem,
+    ItemDefinition,
+    UserProgress,
+)
 from psycopg2 import sql
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
@@ -116,6 +125,140 @@ def test_latest_pre_alembic_snapshot_upgrades_without_data_loss() -> None:
                 sql.SQL("DROP DATABASE IF EXISTS {}").format(
                     sql.Identifier(database_name)
                 )
+            )
+        admin.close()
+
+
+@pytest.mark.integration
+def test_fishing_cast_ledger_tables_upgrade_and_roundtrip() -> None:
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_ledger_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        assert {"fishing_casts", "fishing_ruleset_snapshots", "fishing_cast_item_drops"} <= tables
+
+        # Tenant isolation: cast is tied to its channel and user via FK constraints.
+        cast_columns = {column["name"] for column in inspector.get_columns("fishing_casts")}
+        assert "source_request_id" in cast_columns
+        assert "rng_trace" in cast_columns
+        assert "response_snapshot" in cast_columns
+
+        with Session(engine) as db:
+            channel = Channel(twitch_id=f"ledger-{uuid.uuid4().hex}", name="Ledger", config={})
+            db.add(channel)
+            db.flush()
+            user = UserProgress(
+                user_twitch_id="ledger-viewer",
+                username="ledger_viewer",
+                channel_id=channel.id,
+                current_mass=Decimal("100.00"),
+            )
+            db.add(user)
+            db.flush()
+            snapshot = FishingRulesetSnapshot(
+                channel_id=channel.id,
+                ruleset_hash="a" * 64,
+                channel_config_version=1,
+                modifier_schema_version=2,
+                engine_version="test",
+            )
+            db.add(snapshot)
+            db.flush()
+            cast = FishingCast(
+                channel_id=channel.id,
+                user_progress_id=user.id,
+                ruleset_snapshot_id=snapshot.id,
+                source="twitch",
+                source_request_id="msg-1",
+                status="resolved",
+                twitch_user_id_snapshot="ledger-viewer",
+                username_snapshot="ledger_viewer",
+                location_id="default",
+                mass_before=Decimal("100.00"),
+                mass_after=Decimal("129.40"),
+                mass_delta_applied=Decimal("29.40"),
+                xp_gained=20,
+                item_drop_count=1,
+                reward_id="reward-fish-20pct",
+                reward_type="fish",
+                rng_trace=[{"stage": "ordinary_reward", "roll": "10"}],
+            )
+            db.add(cast)
+            db.flush()
+            db.add(
+                FishingCastItemDrop(
+                    cast_id=cast.id,
+                    channel_id=channel.id,
+                    item_id_snapshot="leviathan_rod",
+                    title_snapshot="Leviathan Rod",
+                    quantity_requested=1,
+                    quantity_granted=1,
+                    grant_status="granted",
+                )
+            )
+            db.commit()
+
+        with Session(engine) as db:
+            row = db.query(FishingCast).one()
+            assert row.source_request_id == "msg-1"
+            assert row.ruleset_snapshot_id is not None
+            assert str(row.mass_delta_applied) == "29.40"
+            assert len(row.item_drops) == 1
+            assert row.item_drops[0].item_id_snapshot == "leviathan_rod"
+
+        # Idempotency: a duplicate source_request_id must be rejected by the partial unique index.
+        with Session(engine) as db:
+            owner = db.query(FishingCast).one()
+            try:
+                db.add(
+                    FishingCast(
+                        channel_id=owner.channel_id,
+                        user_progress_id=owner.user_progress_id,
+                        source="twitch",
+                        source_request_id="msg-1",
+                        status="resolved",
+                        twitch_user_id_snapshot="ledger-viewer",
+                        username_snapshot="ledger_viewer",
+                        location_id="default",
+                    )
+                )
+                db.commit()
+                duplicate_rejected = False
+            except Exception:
+                db.rollback()
+                duplicate_rejected = True
+        assert duplicate_rejected is True
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            cursor.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name))
             )
         admin.close()
 
