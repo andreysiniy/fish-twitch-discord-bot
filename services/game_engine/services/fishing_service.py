@@ -466,9 +466,13 @@ class FishingService:
         stats = calculate_player_stats(user)
         resolved = self.modifier_service.resolve(user, ModifierScope.FISHING)
         stats["luck_bonus"] = float(resolved.value(StatKey.LOOT_LUCK_PCT))
-        stats["resist_bonus"] = float(
+        stats["resolve_bad_catch"] = float(
             resolved.value(StatKey.NEGATIVE_MASS_REDUCTION_PCT)
         )
+        stats["good_catch_bonus"] = float(
+            resolved.value(StatKey.POSITIVE_MASS_BONUS_PCT)
+        )
+        stats["cd_bonus"] = float(resolved.value(StatKey.COOLDOWN_REDUCTION_PCT))
         stats["xp_bonus_pct"] = float(resolved.value(StatKey.XP_GAIN_BONUS_PCT))
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
@@ -489,7 +493,9 @@ class FishingService:
             xp_next=stats["xp_to_next_level"],
             rod_name=stats["rod_name"],
             luck_fmt=format_percent_signed(stats["luck_bonus"]),
-            resist_fmt=format_percent_signed(stats["resist_bonus"]),
+            good_catch_fmt=format_percent_signed(stats["good_catch_bonus"]),
+            bad_catch_fmt=format_percent_signed(stats["resolve_bad_catch"]),
+            cd_fmt=format_percent_signed(stats["cd_bonus"]),
             xp_fmt=format_percent_signed(stats["xp_bonus_pct"]),
             current_mass=format_large_number_mass(stats["current_mass"]),
             total_fish_stat=stats["total_fish_stat"],

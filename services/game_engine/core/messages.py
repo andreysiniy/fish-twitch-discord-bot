@@ -195,9 +195,11 @@ DEFAULT_MESSAGES = {
         "🐟 Current Mass: {current_mass} | "
         "🎯 Total Catches: {total_fish_stat} | "
         "🎣 Rod: {rod_name} | "
-        "🍀 Luck: {luck_fmt} | "
-        "🛡 Resist: {resist_fmt} | "
-        "✨ XP Bonus: {xp_fmt} | "
+        "🍀 Fish Luck: {luck_fmt} | "
+        "🐟 Good Catch: {good_catch_fmt} | "
+        "🛟 Bad Catch: {bad_catch_fmt} | "
+        "✨ XP: {xp_fmt} | "
+        "⏱ CD: {cd_fmt} | "
         "🏆 Rank: #{rank} (Total: {total_mass})"
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
@@ -227,6 +229,9 @@ PLACEHOLDER_DESCRIPTIONS = {
     "location_name": "Fishing location display name.",
     "location_number": "Location number entered by the user.",
     "locations": "Formatted list of available locations.",
+    "bad_catch_fmt": "Formatted negative catch reduction.",
+    "cd_fmt": "Formatted fishing cooldown change.",
+    "good_catch_fmt": "Formatted positive catch bonus.",
     "luck_fmt": "Formatted luck bonus.",
     "mass": "Fish mass involved in the operation.",
     "max": "Maximum inventory capacity.",
