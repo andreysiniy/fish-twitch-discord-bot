@@ -1,9 +1,9 @@
 """Read-side queries for the fishing cast ledger (admin history, search, stats)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from infrastructure.models import FishingCast
+from infrastructure.models import FishingCast, FishingStatsDaily
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -123,6 +123,91 @@ class FishingCastQueryRepository:
             "items_actual": items_actual,
             "items_expected": items_expected,
         }
+
+    def rebuild_daily_stats(self, day: datetime, channel_id: int | None = None) -> int:
+        """Idempotently recompute daily aggregates for a UTC day.
+
+        Deletes and rewrites the whole day per channel, so a rerun always
+        converges to the same result. Returns number of buckets written.
+        """
+        day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = day_start + timedelta(days=1)
+
+        query = self.db.query(FishingCast).filter(
+            FishingCast.requested_at >= day_start,
+            FishingCast.requested_at < next_day,
+        )
+        if channel_id is not None:
+            query = query.filter(FishingCast.channel_id == channel_id)
+        rows = query.all()
+
+        buckets: dict[tuple, dict[str, Any]] = {}
+        for cast in rows:
+            key = (
+                cast.channel_id,
+                cast.location_id,
+                cast.event_id,
+                cast.reward_type,
+                None,
+            )
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "casts": 0,
+                    "players": set(),
+                    "mass_positive": 0,
+                    "mass_negative": 0,
+                    "xp_gained": 0,
+                    "item_drop_expected": 0.0,
+                    "item_drop_actual": 0,
+                    "failures": 0,
+                },
+            )
+            bucket["casts"] += 1
+            if cast.status == "resolved":
+                bucket["players"].add(cast.user_progress_id)
+                delta = float(cast.mass_delta_applied or 0)
+                if delta >= 0:
+                    bucket["mass_positive"] += delta
+                else:
+                    bucket["mass_negative"] += -delta
+                bucket["xp_gained"] += int(cast.xp_gained or 0)
+                bucket["item_drop_expected"] += float(cast.item_drop_probability or 0)
+                bucket["item_drop_actual"] += int(cast.item_drop_count or 0)
+            elif cast.status in ("failed", "compensated"):
+                bucket["failures"] += 1
+
+        # Delete the day's aggregates per channel then rewrite (idempotent).
+        self.db.query(FishingStatsDaily).filter(
+            FishingStatsDaily.day == day_start,
+        ).filter(
+            FishingStatsDaily.channel_id.in_(
+                {key[0] for key in buckets} if buckets else {channel_id} if channel_id else {-1}
+            )
+        ).delete(synchronize_session=False)
+        self.db.flush()
+
+        for (channel_id_, location_id_, event_id_, reward_type_, _item), data in buckets.items():
+            self.db.add(
+                FishingStatsDaily(
+                    day=day_start,
+                    channel_id=channel_id_,
+                    location_id=location_id_,
+                    event_id=event_id_,
+                    reward_type=reward_type_,
+                    item_definition_id=None,
+                    casts=data["casts"],
+                    unique_players=len(data["players"]),
+                    mass_positive=data["mass_positive"],
+                    mass_negative=data["mass_negative"],
+                    xp_gained=data["xp_gained"],
+                    item_drop_expected=data["item_drop_expected"],
+                    item_drop_actual=data["item_drop_actual"],
+                    failures=data["failures"],
+                )
+            )
+        self.db.flush()
+        return len(buckets)
 
 
 def utcnow() -> datetime:
