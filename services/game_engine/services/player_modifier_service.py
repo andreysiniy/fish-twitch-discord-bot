@@ -129,6 +129,14 @@ class PlayerModifierService:
         if scope != ModifierScope.FISHING:
             return []
         modifiers = event.modifiers or {}
+        if modifiers.get("schema_version") == 2:
+            return PlayerModifierService._event_contributions_v2(event, scope, modifiers)
+        return PlayerModifierService._event_contributions_legacy(event, scope, modifiers)
+
+    @staticmethod
+    def _event_contributions_legacy(
+        event: FishingEvent, scope: ModifierScope, modifiers: dict
+    ) -> list[ModifierContribution]:
         mapped: list[tuple[StatKey, Decimal, str]] = []
         luck_mult = Decimal(str(modifiers.get("luck_mult", 1)))
         xp_mult = Decimal(str(modifiers.get("xp_mult", 1)))
@@ -164,6 +172,43 @@ class PlayerModifierService:
             for stat, value, key in mapped
             if value != 0
         ]
+
+    @staticmethod
+    def _event_contributions_v2(
+        event: FishingEvent, scope: ModifierScope, modifiers: dict
+    ) -> list[ModifierContribution]:
+        from domain.config_schema import EventModifiersV2
+
+        payload = EventModifiersV2(**modifiers).to_resolver_payload()
+        stat_keys = {
+            "loot_luck_pct": StatKey.LOOT_LUCK_PCT,
+            "positive_mass_bonus_pct": StatKey.POSITIVE_MASS_BONUS_PCT,
+            "negative_mass_reduction_pct": StatKey.NEGATIVE_MASS_REDUCTION_PCT,
+            "xp_gain_bonus_pct": StatKey.XP_GAIN_BONUS_PCT,
+            "cooldown_reduction_pct": StatKey.COOLDOWN_REDUCTION_PCT,
+            "item_drop_chance_add": StatKey.ITEM_DROP_CHANCE_ADD,
+            "item_rarity_luck_pct": StatKey.ITEM_RARITY_LUCK_PCT,
+            "robbery_protection_pct": StatKey.ROBBERY_PROTECTION_PCT,
+            "robbery_evasion_pct": StatKey.ROBBERY_EVASION_PCT,
+        }
+        contributions: list[ModifierContribution] = []
+        for key, stat in stat_keys.items():
+            value = Decimal(str(payload[key]))
+            if value == 0:
+                continue
+            contributions.append(
+                ModifierContribution(
+                    stat=stat,
+                    operation=ModifierOperation.ADD,
+                    value=value,
+                    source_type="event",
+                    source_key=f"{event.id}:{key}",
+                    label=event.event_title,
+                    scope=scope,
+                    priority=200,
+                )
+            )
+        return contributions
 
     def _player_contributions(
         self, user: UserProgress, scope: ModifierScope

@@ -152,6 +152,8 @@ RewardDefinition = Annotated[
 
 
 class EventModifiers(StrictModel):
+    """Legacy v1 modifier schema. Kept for migration/back-compat only."""
+
     luck_mult: Decimal = Field(Decimal(1), ge=0, le=100)
     xp_mult: Decimal = Field(Decimal(1), ge=0, le=100)
     cd_reduction: Decimal = Field(Decimal(0), ge=0, le=Decimal("0.95"))
@@ -161,3 +163,41 @@ class EventModifiers(StrictModel):
         le=100,
         description="Relative mass bonus where 0.15 adds 15 percent",
     )
+
+
+class EventModifiersV2(StrictModel):
+    """Public v2 event modifier schema using ordinary human percentages.
+
+    ``5`` means exactly ``5%``, ``-50`` means a ``50%`` reduction, and ``0`` is
+    neutral. Fish luck only affects fish-reward magnitude; item drop uses its own
+    stats.
+    """
+
+    schema_version: int = Field(2, ge=2, le=2)
+    fish_luck_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
+    positive_fish_reward_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
+    negative_fish_reward_change_percent: Decimal = Field(Decimal(0), ge=-100, le=2000)
+    xp_gain_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
+    cooldown_change_percent: Decimal = Field(Decimal(0), ge=-100, le=95)
+    item_drop_chance_add_pp: Decimal = Field(Decimal(0), ge=-100, le=100)
+    item_rarity_luck_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
+    robbery_protection_percent: Decimal = Field(Decimal(0), ge=0, le=100)
+    robbery_evasion_percent: Decimal = Field(Decimal(0), ge=0, le=100)
+
+    def to_resolver_payload(self) -> dict[str, Decimal]:
+        """Map v2 human percentages to resolver stat ratios (ratios, not percent)."""
+
+        def pct(value: Decimal) -> Decimal:
+            return value / Decimal("100")
+
+        return {
+            "loot_luck_pct": pct(self.fish_luck_change_percent),
+            "positive_mass_bonus_pct": pct(self.positive_fish_reward_change_percent),
+            "negative_mass_reduction_pct": pct(self.negative_fish_reward_change_percent),
+            "xp_gain_bonus_pct": pct(self.xp_gain_change_percent),
+            "cooldown_reduction_pct": pct(self.cooldown_change_percent),
+            "item_drop_chance_add": pct(self.item_drop_chance_add_pp),
+            "item_rarity_luck_pct": pct(self.item_rarity_luck_change_percent),
+            "robbery_protection_pct": pct(self.robbery_protection_percent),
+            "robbery_evasion_pct": pct(self.robbery_evasion_percent),
+        }
