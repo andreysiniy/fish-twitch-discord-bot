@@ -502,3 +502,102 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+
+
+@pytest.mark.integration
+def test_location_items_are_migrated_into_loot_tables() -> None:
+    """Upgrade a pool with legacy location_items and verify the copy end state."""
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_loot_mig_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}\n").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        # Upgrade to 0014 (before the location_items copy migration).
+        command.upgrade(alembic_config, "20260802_0014")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO channels (twitch_id, name, is_active, config, "
+                    "config_version, config_updated_at) VALUES ('mig','MIG','t','{}',1,now())"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO reward_pools (channel_id, location_id, location_name, "
+                    "rewards_data, requirements, items_drop_rate) "
+                    "SELECT id,'lake','Lake','[]'::jsonb,'{}'::jsonb,0.1 FROM channels "
+                    "WHERE twitch_id='mig'"
+                )
+            )
+            definition_id = connection.execute(
+                text(
+                    "INSERT INTO item_definitions (channel_id, item_id, title, type, "
+                    "rarity, stack_size) SELECT id,'rod','Rod','equipment','rare',1 "
+                    "FROM channels WHERE twitch_id='mig' RETURNING id"
+                )
+            ).scalar()
+            pool_id = connection.execute(
+                text(
+                    "SELECT rp.id FROM reward_pools rp JOIN channels c ON c.id=rp.channel_id "
+                    "WHERE c.twitch_id='mig'"
+                )
+            ).scalar()
+            connection.execute(
+                text(
+                    "INSERT INTO location_items (reward_pool_id, item_id, weight, xp_gain, "
+                    "quantity, message) VALUES (:pid,:def,100,5,10,'got {name}')"
+                ),
+                {"pid": pool_id, "def": definition_id},
+            )
+        command.upgrade(alembic_config, "head")
+
+        with engine.connect() as connection:
+            linked = connection.execute(
+                text(
+                    "SELECT item_loot_table_id IS NOT NULL FROM reward_pools "
+                    "WHERE id = :pid"
+                ),
+                {"pid": pool_id},
+            ).scalar()
+            assert linked is True
+            entries = connection.execute(
+                text(
+                    "SELECT count(*) FROM loot_table_entries e "
+                    "JOIN loot_tables t ON e.loot_table_id = t.id "
+                    "WHERE t.table_id = 'location:lake'"
+                )
+            ).scalar()
+            assert entries == 1
+            stock = connection.execute(
+                text("SELECT count(*) FROM loot_table_entry_stock")
+            ).scalar()
+            assert stock == 1
+            xp = connection.execute(
+                text(
+                    "SELECT e.xp_gain FROM loot_table_entries e "
+                    "JOIN loot_tables t ON e.loot_table_id = t.id "
+                    "WHERE t.table_id = 'location:lake'"
+                )
+            ).scalar()
+            assert xp == 5
+        command.check(alembic_config)
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
+        admin.close()
