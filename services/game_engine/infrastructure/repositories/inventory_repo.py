@@ -476,5 +476,11 @@ class InventoryRepository:
         )
 
     def _max_slots(self, user: UserProgress) -> int:
-        base_slots = int((user.inventory or {}).get("max_slots", 20))
+        # During transition, trust the legacy JSON max_slots if explicitly set,
+        # else fall back to the normalized column.
+        legacy_raw = (user.inventory or {}).get("max_slots")
+        if isinstance(legacy_raw, (int, str)) and str(legacy_raw).strip().isdigit():
+            base_slots = max(int(str(legacy_raw).strip()), 1)
+        else:
+            base_slots = int(getattr(user, "base_inventory_slots", None) or 20)
         return max(base_slots + self.max_slots_add, 1)

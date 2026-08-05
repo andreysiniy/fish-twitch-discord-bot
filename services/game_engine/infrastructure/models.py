@@ -95,7 +95,9 @@ class UserProgress(Base):
     current_mass = Column(Numeric(18, 2), default=0, nullable=False)
 
     current_location_id = Column(String, default="default", nullable=False)
-    
+
+    base_inventory_slots = Column(Integer, default=20, nullable=False)
+
     inventory = Column(
         JSONB,
         default=lambda: {"equipped_rod_slot": None, "max_slots": 20},
