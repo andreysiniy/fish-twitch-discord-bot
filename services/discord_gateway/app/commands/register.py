@@ -21,6 +21,7 @@ from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
     config_embed,
     event_list_entry,
+    item_detail_embed,
     item_drop_list_entry,
     item_list_entry,
     legacy_import_embed,
@@ -748,7 +749,7 @@ def register_commands(
                 "Item definitions",
                 result["items"],
                 item_list_entry,
-                page_size=1,
+                page_size=8,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
@@ -758,7 +759,9 @@ def register_commands(
     async def item_show(interaction: discord.Interaction, item_id: str) -> None:
         async def operation() -> None:
             result = await api.item(interaction, item_id)
-            await _send_json_embed(interaction, "Item definition", result)
+            await interaction.followup.send(
+                embed=item_detail_embed(result), ephemeral=True
+            )
 
         await _deferred(interaction, operation)
 

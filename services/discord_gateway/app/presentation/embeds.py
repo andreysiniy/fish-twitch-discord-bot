@@ -6,8 +6,34 @@ import discord
 from app.presentation.formatting import diff_lines
 
 
+# Semantic palette (UI audit §7.1/§7.4): every state maps to one colour so all
+# commands present info/preview/success/warning/error consistently.
+def info_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.blurple(), **kwargs)
+
+
+def preview_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.orange(), **kwargs)
+
+
+def success_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.green(), **kwargs)
+
+
+def warning_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.gold(), **kwargs)
+
+
+def error_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.red(), **kwargs)
+
+
+def danger_embed(title: str, **kwargs: Any) -> discord.Embed:
+    return discord.Embed(title=title, color=discord.Color.dark_red(), **kwargs)
+
+
 def status_embed(status: dict[str, Any]) -> discord.Embed:
-    embed = discord.Embed(title="Fisher Bot — status", color=discord.Color.blue())
+    embed = info_embed("Fisher Bot — status")
     twitch = status.get("twitch")
     binding = status.get("binding")
     embed.add_field(
@@ -28,11 +54,8 @@ def status_embed(status: dict[str, Any]) -> discord.Embed:
 
 
 def config_embed(config: dict[str, Any], section: str | None = None) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"Configuration{f' — {section}' if section else ''}",
-        description=f"Version: `{config['version']}`",
-        color=discord.Color.blurple(),
-    )
+    embed = info_embed(f"Configuration{f' — {section}' if section else ''}")
+    embed.description = f"Version: `{config['version']}`"
     values = config.get("effective", {})
     for key, value in values.items():
         embed.add_field(name=key, value=f"`{value}`", inline=True)
@@ -41,11 +64,9 @@ def config_embed(config: dict[str, Any], section: str | None = None) -> discord.
 
 def diff_embed(title: str, before: dict[str, Any], after: dict[str, Any]) -> discord.Embed:
     lines = diff_lines(before, after)
-    return discord.Embed(
-        title=title,
-        description="\n".join(lines) if lines else "No changes.",
-        color=discord.Color.orange(),
-    )
+    embed = preview_embed(title)
+    embed.description = "\n".join(lines) if lines else "No changes."
+    return embed
 
 
 def reward_list_entry(item: dict[str, Any]) -> tuple[str, str]:
@@ -118,20 +139,58 @@ def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
 
 
 def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
-    order = (
-        "item_id",
-        "item_type",
-        "equipment_slot",
-        "rarity",
-        "stack_size",
-        "max_durability",
-        "break_policy",
-        "effects",
-        "value",
-        "is_active",
-        "version",
+    detail_parts = []
+    detail_parts.append(f"ID: `{item.get('item_id', '?')}`")
+    detail_parts.append(f"Type: {item.get('item_type', '?')}")
+    if item.get("equipment_slot"):
+        detail_parts.append(f"Slot: {item['equipment_slot']}")
+    detail_parts.append(f"Rarity: {item.get('rarity', '?')}")
+    if item.get("is_active") is not None:
+        detail_parts.append("Active" if item["is_active"] else "Archived")
+    effect_count = len(item.get("effects") or [])
+    detail_parts.append(f"{effect_count} effect(s)" if effect_count else "no effects")
+    detail_parts.append(f"v{item.get('version', '?')}")
+    return item.get("title") or item.get("item_id", "?"), " · ".join(detail_parts)
+
+
+def item_detail_embed(item: dict[str, Any]) -> discord.Embed:
+    archived = item.get("is_active") is False
+    embed = info_embed(item.get("title") or item.get("item_id", "Item"))
+    embed.description = item.get("description") or None
+    status = "archived" if archived else "active"
+    embed.add_field(name="ID", value=f"`{item.get('item_id')}`", inline=True)
+    embed.add_field(name="Type", value=item.get("item_type", "?"), inline=True)
+    embed.add_field(name="Status", value=status, inline=True)
+    embed.add_field(name="Rarity", value=item.get("rarity", "?"), inline=True)
+    if item.get("equipment_slot"):
+        embed.add_field(name="Slot", value=item["equipment_slot"], inline=True)
+    else:
+        embed.add_field(name="Stack size", value=item.get("stack_size", 1), inline=True)
+    if item.get("max_durability"):
+        embed.add_field(name="Durability", value=str(item["max_durability"]), inline=True)
+        embed.add_field(name="Break policy", value=item.get("break_policy", "?"), inline=True)
+    effects = item.get("effects") or []
+    if effects:
+        embed.add_field(
+            name=f"Effects ({len(effects)})",
+            value="\n".join("- " + _effect_one_line(effect) for effect in effects)[:1024],
+            inline=False,
+        )
+    footer = [f"version {item.get('version')}"]
+    if item.get("schema_version"):
+        footer.append(f"schema {item['schema_version']}")
+    embed.set_footer(text=" · ".join(footer))
+    return embed
+
+
+def _effect_one_line(effect: dict[str, Any]) -> str:
+    effect_type = str(effect.get("type") or "?")
+    details = json.dumps(
+        {key: value for key, value in effect.items() if key != "type"},
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
-    return item["title"], _entity_details(item, order)
+    return f"{effect_type} {details}" if details else effect_type
 
 
 def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
