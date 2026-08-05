@@ -302,6 +302,7 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
     assert fish is not None
     assert {command.name for command in fish.commands} == {
         "account",
+        "cast",
         "config",
         "event",
         "help",

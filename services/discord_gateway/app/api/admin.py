@@ -452,3 +452,65 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/players/{user_twitch_id}/stats/explain"
             f"?scope={scope}",
         )
+
+    async def recent_casts(
+        self,
+        interaction,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        user_twitch_id: str | None = None,
+        status: str | None = None,
+        location_id: str | None = None,
+        reward_type: str | None = None,
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        query: list[str] = [f"limit={limit}"]
+        if cursor:
+            query.append(f"cursor={cursor}")
+        if user_twitch_id:
+            query.append(f"user_twitch_id={user_twitch_id}")
+        if status:
+            query.append(f"status={status}")
+        if location_id:
+            query.append(f"location_id={location_id}")
+        if reward_type:
+            query.append(f"reward_type={reward_type}")
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/fishing-casts?{'&'.join(query)}",
+        )
+
+    async def cast_detail(
+        self, interaction, cast_id: str, *, include_technical: bool = False
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/fishing-casts/{cast_id}"
+            f"?include_technical={str(include_technical).lower()}",
+        )
+
+    async def cast_stats(
+        self,
+        interaction,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        query = ""
+        if start or end:
+            params = []
+            if start:
+                params.append(f"start={start}")
+            if end:
+                params.append(f"end={end}")
+            query = f"?{'&'.join(params)}"
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/fishing-stats/summary{query}",
+        )

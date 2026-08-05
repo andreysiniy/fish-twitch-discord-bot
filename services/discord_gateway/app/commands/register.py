@@ -6,6 +6,7 @@ from discord import app_commands
 
 from app.api.admin import AdminApi
 from app.api.errors import EngineError, localize_error
+from app.commands.casts import register_casts_group
 from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.modals import (
@@ -127,6 +128,7 @@ def register_commands(
     player_stats = app_commands.Group(
         name="player-stats", description="Explain resolved player stats", parent=fish
     )
+    register_casts_group(tree, api, fish)
 
     @fish.command(name="help", description="Show available Fisher Bot commands")
     async def help_command(interaction: discord.Interaction) -> None:
@@ -139,7 +141,8 @@ def register_commands(
             "`location` — fishing locations\n"
             "`reward` — weighted channel rewards\n"
             "`event` — channel events\n"
-            "`placeholders` — message placeholder reference"
+            "`placeholders` — message placeholder reference\n"
+            "`cast` — fishing cast history and statistics"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
