@@ -140,6 +140,8 @@ class PlayerStatsDTO(BaseModel):
     xp_bonus_pct: float = 0.0
     rank: int = 0
     total_mass_stat: Decimal = Decimal("0.00")
+    good_catch_bonus: float = 0.0
+    cd_bonus: float = 0.0
 
 
 class FishStatsResponse(BaseModel):
