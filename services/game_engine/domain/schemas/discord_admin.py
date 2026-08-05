@@ -3,7 +3,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from domain.config_schema import EventModifiers, LocationRequirements, RewardDefinition
+from domain.config_schema import (
+    EventModifiers,
+    EventModifiersV2,
+    LocationRequirements,
+    RewardDefinition,
+)
 from domain.item_schema import (
     STAT_REGISTRY,
     ItemDefinitionData,
@@ -11,7 +16,7 @@ from domain.item_schema import (
     ModifierScope,
     StatKey,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictDTO(BaseModel):
@@ -99,9 +104,35 @@ class GuildBindRequest(StrictDTO):
     replace: bool = False
 
 
+def _coerce_event_modifiers(
+    value: Any,
+) -> EventModifiers | EventModifiersV2 | None:
+    """Accept either the v1 (legacy) or v2 (human-percent) modifier schema.
+
+    v2 payloads carry ``schema_version: 2``; legacy payloads do not. ``None`` is
+    passed through untouched so partial patches do not reset to defaults.
+    """
+    if value is None:
+        return None
+    if isinstance(value, EventModifiersV2):
+        return value
+    if isinstance(value, EventModifiers):
+        return value
+    data = dict(value or {})
+    if data.get("schema_version") == 2:
+        return EventModifiersV2(**data)
+    return EventModifiers(**data)
+
+
 class DiscordEventCreateRequest(StrictDTO):
     event_title: str = Field(..., min_length=1, max_length=120)
-    modifiers: EventModifiers = Field(default_factory=EventModifiers)
+    modifiers: Any = Field(default_factory=EventModifiers.model_construct)
+
+    @field_validator("modifiers", mode="before")
+    @classmethod
+    def validate_modifiers(cls, value: Any) -> Any:
+        return _coerce_event_modifiers(value)
+
     override_loot_pool: str | None = Field(
         None,
         pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$",
@@ -111,7 +142,13 @@ class DiscordEventCreateRequest(StrictDTO):
 class DiscordEventPatchRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
     event_title: str | None = Field(None, min_length=1, max_length=120)
-    modifiers: EventModifiers | None = None
+    modifiers: Any | None = None
+
+    @field_validator("modifiers", mode="before")
+    @classmethod
+    def validate_modifiers(cls, value: Any) -> Any:
+        return _coerce_event_modifiers(value)
+
     override_loot_pool: str | None = Field(
         None,
         pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$",
