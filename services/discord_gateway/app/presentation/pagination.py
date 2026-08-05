@@ -14,7 +14,7 @@ class PagedEmbedView(discord.ui.View):
         *,
         page_size: int = 10,
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.initiator_id = initiator_id
         self.title = title
         self.items = list(items)

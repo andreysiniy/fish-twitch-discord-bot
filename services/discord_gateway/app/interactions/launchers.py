@@ -11,7 +11,7 @@ class ModalLauncherView(discord.ui.View):
         *,
         label: str = "Open form",
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.initiator_id = initiator_id
         self.modal_factory = modal_factory
         self.open_form.label = label

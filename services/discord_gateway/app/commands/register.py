@@ -397,7 +397,7 @@ def register_commands(
     async def location_show(interaction: discord.Interaction, location_id: str) -> None:
         async def operation() -> None:
             item = await api.location(interaction, location_id)
-            await interaction.followup.send(embed=_json_embed("Location", item), ephemeral=True)
+            await _send_json_embed(interaction, "Location", item)
 
         await _deferred(interaction, operation)
 
@@ -479,7 +479,7 @@ def register_commands(
             )
             if item is None:
                 raise EngineError(404, "REWARD_NOT_FOUND", "Reward not found")
-            await interaction.followup.send(embed=_json_embed("Reward", item), ephemeral=True)
+            await _send_json_embed(interaction, "Reward", item)
 
         await _deferred(interaction, operation)
 
@@ -652,7 +652,7 @@ def register_commands(
     async def event_show(interaction: discord.Interaction, event_id: int) -> None:
         async def operation() -> None:
             item = await api.event(interaction, event_id)
-            await interaction.followup.send(embed=_json_embed("Event", item), ephemeral=True)
+            await _send_json_embed(interaction, "Event", item)
 
         await _deferred(interaction, operation)
 
@@ -758,9 +758,7 @@ def register_commands(
     async def item_show(interaction: discord.Interaction, item_id: str) -> None:
         async def operation() -> None:
             result = await api.item(interaction, item_id)
-            await interaction.followup.send(
-                embed=_json_embed("Item definition", result), ephemeral=True
-            )
+            await _send_json_embed(interaction, "Item definition", result)
 
         await _deferred(interaction, operation)
 
@@ -1115,9 +1113,7 @@ def register_commands(
     ) -> None:
         async def operation() -> None:
             result = await api.player_inventory(interaction, user_twitch_id)
-            await interaction.followup.send(
-                embed=_json_embed("Player inventory", result), ephemeral=True
-            )
+            await _send_json_embed(interaction, "Player inventory", result)
 
         await _deferred(interaction, operation)
 
@@ -1184,9 +1180,7 @@ def register_commands(
     ) -> None:
         async def operation() -> None:
             result = await api.player_modifiers(interaction, user_twitch_id)
-            await interaction.followup.send(
-                embed=_json_embed("Player modifiers", result), ephemeral=True
-            )
+            await _send_json_embed(interaction, "Player modifiers", result)
 
         await _deferred(interaction, operation)
 
@@ -1287,9 +1281,7 @@ def register_commands(
             result = await api.explain_player_stats(
                 interaction, user_twitch_id, scope.value
             )
-            await interaction.followup.send(
-                embed=_json_embed("Resolved player stats", result), ephemeral=True
-            )
+            await _send_json_embed(interaction, "Resolved player stats", result)
 
         await _deferred(interaction, operation)
 
@@ -1482,12 +1474,32 @@ def _error_text(error: Exception) -> str:
 
 
 def _json_embed(title: str, item: dict[str, Any]) -> discord.Embed:
-    rendered = json.dumps(item, ensure_ascii=True, indent=2, default=str)
+    rendered = json.dumps(item, ensure_ascii=False, indent=2, default=str)
     if len(rendered) > 3900:
-        rendered = f"{rendered[:3897]}..."
+        rendered = f"{rendered[:3897]}…\n(полный JSON во вложении)"
     return discord.Embed(
         title=title, description=f"```json\n{rendered}\n```", color=discord.Color.blurple()
     )
+
+
+async def _send_json_embed(
+    interaction: discord.Interaction,
+    title: str,
+    item: dict[str, Any],
+) -> None:
+    """Не молча обрезает JSON: при превышении лимита прикладывает файл."""
+    rendered = json.dumps(item, ensure_ascii=False, indent=2, default=str)
+    embed = _json_embed(title, item)
+    kwargs: dict[str, Any] = {"ephemeral": True}
+    if len(rendered) > 3900:
+        embed.description = f"```json\n{rendered[:900]}\n```\n(полный JSON во вложении)"
+        kwargs["file"] = discord.File(
+            discord.utils.MaybeUnicodeIO(rendered), filename=f"{title.lower()}.json"
+        )
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, **kwargs)
+    else:
+        await interaction.response.send_message(embed=embed, **kwargs)
 
 
 async def _session(
