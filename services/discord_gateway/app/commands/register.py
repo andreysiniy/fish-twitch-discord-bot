@@ -995,21 +995,51 @@ def register_commands(
         quantity: app_commands.Range[int, 0, 1_000_000_000] | None = None,
         message: str = "You caught {name}!",
     ) -> None:
-        await _simple_mutation(
-            interaction,
-            lambda: api.upsert_item_drop(
-                interaction,
-                location_id,
-                {
-                    "item_id": item_id,
-                    "weight": weight,
-                    "xp_gain": xp_gain,
-                    "quantity": quantity,
-                    "message": message,
-                },
-            ),
-            "Item drop created.",
-        )
+        async def operation() -> None:
+            preview = await api.preview_item_drop(interaction, location_id, weight)
+            probability = preview.get("drop_probability", 0.0)
+            expected = preview.get("expected_casts_to_drop")
+
+            async def confirm(confirmed: discord.Interaction) -> None:
+                await api.upsert_item_drop(
+                    confirmed,
+                    location_id,
+                    {
+                        "item_id": item_id,
+                        "weight": weight,
+                        "xp_gain": xp_gain,
+                        "quantity": quantity,
+                        "message": message,
+                    },
+                )
+
+            embed = discord.Embed(
+                title=f"Add item drop: {item_id}",
+                description=f"Location `{location_id}` · weight `{weight}`",
+                color=discord.Color.orange(),
+            )
+            embed.add_field(
+                name="Drop chance",
+                value=(
+                    f"{probability * 100:.2f}% per cast"
+                    + (f" (≈{expected} casts)" if expected is not None else "")
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="Details",
+                value=(
+                    f"XP: {xp_gain}\n"
+                    f"Stock: {'unlimited' if quantity is None else quantity}\n"
+                    f"Message: {message}"
+                ),
+                inline=False,
+            )
+            await interaction.edit_original_response(
+                content=None, embed=embed, view=ConfirmView(interaction.user.id, confirm)
+            )
+
+        await _deferred(interaction, operation)
 
     @item_drop.command(name="edit", description="Edit a versioned item drop")
     @app_commands.describe(
