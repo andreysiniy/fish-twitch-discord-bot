@@ -675,6 +675,38 @@ class DiscordAdminService:
             mutation,
         )
 
+    def preview_item_drop(
+        self, context, channel_twitch_id: str, location_id: str, item_weight: int
+    ) -> dict:
+        """Compute the runtime drop probability for a prospective item weight.
+
+        The display must come from the backend calculation so the shown chance
+        matches runtime selection (audit §10).
+        """
+        pool, _, _ = self._resolve_pool(
+            context, channel_twitch_id, location_id, ChannelPermission.ITEMS_READ
+        )
+        rows = (
+            self.db.query(LocationItem)
+            .filter(LocationItem.reward_pool_id == pool.id)
+            .all()
+        )
+        total_weight = sum(int(row.weight) for row in rows) + max(int(item_weight), 1)
+        if total_weight <= 0:
+            probability = 0.0
+        else:
+            probability = float(pool.items_drop_rate or 0.0) * (
+                max(int(item_weight), 1) / total_weight
+            )
+        return {
+            "location_id": pool.location_id,
+            "items_drop_rate": pool.items_drop_rate,
+            "proposed_weight": max(int(item_weight), 1),
+            "total_weight": total_weight,
+            "drop_probability": round(probability, 6),
+            "expected_casts_to_drop": round(1.0 / probability, 1) if probability > 0 else None,
+        }
+
     def list_item_drops(
         self, context, channel_twitch_id: str, location_id: str
     ) -> dict:
