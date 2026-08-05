@@ -5,7 +5,6 @@ from decimal import Decimal
 import pytest
 from infrastructure.database import SessionLocal
 from infrastructure.models import Channel, FishingCast, UserProgress
-from services.fishing.ledger_service import FishingLedgerService
 from services.fishing_service import FishingService
 
 
