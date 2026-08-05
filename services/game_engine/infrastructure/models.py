@@ -286,6 +286,11 @@ class RewardPool(Base):
     )
 
     items_drop_rate = Column(Float, default=0.1, nullable=False)
+    item_loot_table_id = Column(
+        Integer,
+        ForeignKey("loot_tables.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     items = relationship("LocationItem", back_populates="pool")
 
     channel = relationship("Channel", back_populates="reward_pools")
@@ -517,8 +522,40 @@ class LootTableEntry(Base):
     min_quantity = Column(Integer, default=1, nullable=False)
     max_quantity = Column(Integer, default=1, nullable=False)
     rarity_filter = Column(String, nullable=True)
+    xp_gain = Column(Integer, default=0, nullable=False)
+    message = Column(String, nullable=True)
     table = relationship("LootTable", back_populates="entries")
     definition = relationship("ItemDefinition", lazy="joined")
+    stock = relationship(
+        "LootTableEntryStock",
+        back_populates="entry",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class LootTableEntryStock(Base):
+    """Global remaining stock for a single loot-table entry."""
+
+    __tablename__ = "loot_table_entry_stock"
+
+    id = Column(Integer, primary_key=True)
+    loot_table_entry_id = Column(
+        Integer,
+        ForeignKey("loot_table_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    remaining_quantity = Column(Integer, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    entry = relationship("LootTableEntry", back_populates="stock")
 
 
 class InventoryItemUseRecord(Base):
