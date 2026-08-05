@@ -882,3 +882,50 @@ class FishingCastItemDrop(Base):
     )
 
     cast = relationship("FishingCast", back_populates="item_drops")
+
+
+class FishingStatsDaily(Base):
+    """Idempotent daily aggregate over the fishing cast ledger."""
+
+    __tablename__ = "fishing_stats_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "day",
+            "channel_id",
+            "location_id",
+            "event_id",
+            "reward_type",
+            "item_definition_id",
+            name="uq_fishing_stats_daily_bucket",
+        ),
+        Index(
+            "ix_fishing_stats_daily_channel_day",
+            "channel_id",
+            "day",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    day = Column(DateTime(timezone=True), nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    location_id = Column(String, nullable=True)
+    event_id = Column(Integer, nullable=True)
+    reward_type = Column(String, nullable=True)
+    item_definition_id = Column(Integer, nullable=True)
+    casts = Column(Integer, nullable=False, default=0)
+    unique_players = Column(Integer, nullable=False, default=0)
+    mass_positive = Column(Numeric(18, 2), nullable=False, default=0)
+    mass_negative = Column(Numeric(18, 2), nullable=False, default=0)
+    xp_gained = Column(Integer, nullable=False, default=0)
+    item_drop_expected = Column(Numeric(18, 2), nullable=False, default=0)
+    item_drop_actual = Column(Integer, nullable=False, default=0)
+    failures = Column(Integer, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

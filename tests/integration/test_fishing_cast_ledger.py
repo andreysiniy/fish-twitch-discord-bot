@@ -171,3 +171,54 @@ def test_cross_channel_cast_isolation() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_daily_stats_rebuild_is_idempotent() -> None:
+    from datetime import datetime, timezone
+
+    from infrastructure.models import FishingStatsDaily
+    from infrastructure.repositories.fishing_cast_query_repo import (
+        FishingCastQueryRepository,
+    )
+
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "daily")
+        from domain.schemas.fishing import FishResponse
+
+        service = _make_service(db)
+        service.presenter.build_response = lambda _u, _r: FishResponse(
+            chat_message="ok", xp_gained=0, actions=[]
+        )
+        service.process_cast(
+            user.user_twitch_id,
+            user.username,
+            channel.twitch_id,
+            is_mod=True,
+            source="twitch",
+            source_request_id="msg-daily-1",
+        )
+        db.flush()
+
+        repo = FishingCastQueryRepository(db)
+        day = datetime.now(timezone.utc).date()
+        day_start = datetime(
+            day.year, day.month, day.day, tzinfo=timezone.utc
+        )
+        buckets1 = repo.rebuild_daily_stats(day_start, channel_id=channel.id)
+
+        # Idempotent: rebuilding yields the same total casts.
+        buckets2 = repo.rebuild_daily_stats(day_start, channel_id=channel.id)
+        db.flush()
+        total = (
+            db.query(FishingStatsDaily)
+            .filter(FishingStatsDaily.day == day_start)
+            .with_entities(FishingStatsDaily.casts)
+            .all()
+        )
+        assert sum(row[0] for row in total) >= 1
+        assert buckets1 == buckets2
+    finally:
+        db.rollback()
+        db.close()
