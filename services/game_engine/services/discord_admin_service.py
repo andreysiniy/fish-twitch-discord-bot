@@ -689,8 +689,35 @@ class DiscordAdminService:
         )
         return {
             "location_id": pool.location_id,
-            "items": [self._serialize_item_drop(row) for row in rows],
+            "items": self._serialize_item_drops_with_chance(rows, pool),
         }
+
+    def _serialize_item_drops_with_chance(self, rows, pool) -> list[dict]:
+        """Serialize item drops and include the per-cast drop probability.
+
+        Probability is derived from the same weighted pool used at runtime so the
+        displayed chance always matches the backend calculation (audit §10).
+        """
+        total_weight = sum(int(row.weight) for row in rows) or 0
+        items = []
+        for row in rows:
+            entry = self._serialize_item_drop(row)
+            if total_weight > 0:
+                entry["selection_weight_share"] = round(
+                    int(row.weight) / total_weight, 6
+                )
+            else:
+                entry["selection_weight_share"] = 0.0
+            entry["drop_probability"] = round(
+                float(pool.items_drop_rate or 0.0) * float(entry["selection_weight_share"]),
+                6,
+            )
+            if entry["drop_probability"] > 0:
+                entry["expected_casts_to_drop"] = round(1.0 / entry["drop_probability"], 1)
+            else:
+                entry["expected_casts_to_drop"] = None
+            items.append(entry)
+        return items
 
     def upsert_item_drop(
         self,
