@@ -8,6 +8,7 @@ from app.api.admin import AdminApi
 from app.api.errors import EngineError, localize_error
 from app.commands.casts import register_casts_group
 from app.interactions.confirms import ConfirmView
+from app.interactions.effects_editor import EffectsEditorView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.modals import (
     ConfigModal,
@@ -891,6 +892,57 @@ def register_commands(
                 payload,
                 lambda confirmed: api.upsert_item(confirmed, payload),
                 "Item definition updated.",
+            )
+
+        await _deferred(interaction, operation)
+
+    @item.command(name="effect-edit", description="Edit the typed effects of an item without JSON")
+    async def item_effect_edit(interaction: discord.Interaction, item_id: str) -> None:
+        async def operation() -> None:
+            current = await api.item(interaction, item_id)
+            current_effects = list(current.get("effects") or [])
+
+            async def on_done(done_interaction, final_effects) -> None:
+                if final_effects is None:
+                    await done_interaction.followup.send(
+                        "Effect editing cancelled.", ephemeral=True
+                    )
+                    return
+                payload = _item_payload(
+                    item_id=current["item_id"],
+                    title=current["title"],
+                    item_type=current["item_type"],
+                    rarity=current["rarity"],
+                    equipment_slot=current.get("equipment_slot"),
+                    stack_size=current.get("stack_size", 1),
+                    max_durability=current.get("max_durability"),
+                    break_policy=current.get("break_policy", "indestructible"),
+                    effects=final_effects,
+                    description=current.get("description"),
+                )
+                payload.update(
+                    {
+                        "expected_version": current["version"],
+                        "schema_version": current["schema_version"],
+                        "image_url": current.get("image_url"),
+                        "value": current.get("value"),
+                    }
+                )
+                await _json_confirmation(
+                    done_interaction,
+                    "Item effect update preview",
+                    payload,
+                    lambda confirmed: api.upsert_item(confirmed, payload),
+                    "Item effects updated.",
+                )
+
+            view = EffectsEditorView(
+                interaction.user.id,
+                current_effects,
+                on_done,
+            )
+            await interaction.followup.send(
+                view.message_text, embed=view._embed(), view=view, ephemeral=True
             )
 
         await _deferred(interaction, operation)
