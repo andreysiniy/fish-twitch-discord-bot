@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     RUN_BACKGROUND_WORKERS: bool = False
     LOG_LEVEL: str = "INFO"
 
+    # Retention policy (days); 0 disables that category.
+    RETENTION_RESOLVED_CAST_DAYS: int = 730
+    RETENTION_REJECTED_CAST_DAYS: int = 60
+    RETENTION_EXPIRED_IDEMPOTENCY_DAYS: int = 30
+
     @property
     def DATABASE_URL(self) -> str:
         if self.DATABASE_URL_OVERRIDE:

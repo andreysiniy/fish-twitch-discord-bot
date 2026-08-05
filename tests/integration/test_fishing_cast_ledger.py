@@ -222,3 +222,44 @@ def test_daily_stats_rebuild_is_idempotent() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_retention_runner_deletes_expired_idempotency_rows() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    import asyncio
+
+    from infrastructure.models import IdempotencyRecord
+    from services.retention.retention_job_runner import RetentionJobRunner
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        db.add(
+            IdempotencyRecord(
+                actor_scope="twitch:retention-test",
+                idempotency_key="retention-key",
+                request_hash="abc",
+                response_status=200,
+                response_json={},
+                created_at=now - timedelta(days=400),
+                expires_at=now - timedelta(days=399),
+            )
+        )
+        db.commit()
+
+        runner = RetentionJobRunner(interval_seconds=60.0)
+        runner.run_once.__globals__["SessionLocal"] = lambda: db
+        stats = asyncio.run(runner.run_once())
+
+        remaining = (
+            db.query(IdempotencyRecord)
+            .filter(IdempotencyRecord.idempotency_key == "retention-key")
+            .count()
+        )
+        assert remaining == 0
+        assert stats["idempotency_records"] >= 1
+    finally:
+        db.rollback()
+        db.close()
