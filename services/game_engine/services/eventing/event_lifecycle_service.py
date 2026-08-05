@@ -1,3 +1,7 @@
+import logging
+from datetime import datetime, timezone
+
+from infrastructure.models import FishingEvent
 from infrastructure.redis_client import RedisClient
 from services.eventing.event_scheduler import FishingEventScheduler
 
@@ -56,5 +60,20 @@ class FishingEventLifecycleService:
             active_event = self.channel_repo.get_active_fishing_event(channel_id)
             if active_event and (event_id is None or active_event.id == event_id):
                 self.channel_repo.set_active_fishing_event(channel_id, None)
+                self._mark_event_ended(active_event)
 
             self.scheduler.complete_job(channel_twitch_id, job_id)
+
+    def _mark_event_ended(self, event: FishingEvent) -> None:
+        """Persist the end time durably; Redis only schedules the transition."""
+        now = datetime.now(timezone.utc)
+        try:
+            event.is_active = False
+            event.status = "ended"
+            event.deactivated_at = now
+            event.ends_at = now
+            self.channel_repo.db.flush()
+        except Exception as error:  # pragma: no cover - defensive
+            logging.getLogger("eventing.lifecycle").warning(
+                "Failed to persist event end time", exc_info=error
+            )
