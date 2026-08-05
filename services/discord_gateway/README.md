@@ -27,7 +27,7 @@ global Discord command propagation can take longer.
 - `/fish reward list|show|add|edit|delete` manages stable-ID weighted rewards. Supported types are
   `fish`, `timeout`, `robbery`, `russian_roulette`, and `nothing`.
 - `/fish event list|show|create|edit|start|stop|delete` manages immediate or timed channel events.
-- `/fish cast recent|show|stats` shows fishing cast history and channel statistics.
+- `/fish cast recent|show|stats|export` shows fishing cast history, channel statistics, and raw JSON export.
 - `/fish item effect-edit` edits an item's typed effects through structured forms, no raw JSON.
 
 Edit forms capture an entity version. If another administrator changes the same entity first, the

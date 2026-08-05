@@ -88,4 +88,4 @@ def test_register_casts_group_creates_subcommands() -> None:
     group = register_casts_group(tree, api, parent)  # type: ignore[arg-type]
     assert group.name == "cast"
     names = {cmd.name for cmd in group.commands}
-    assert {"recent", "show", "stats"} <= names
+    assert {"recent", "show", "stats", "export"} <= names
