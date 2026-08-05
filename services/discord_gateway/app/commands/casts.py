@@ -3,6 +3,9 @@
 Module-per-domain per the audit; registered from register_commands().
 """
 
+import json
+from datetime import datetime, timezone
+
 import discord
 from discord import app_commands
 
@@ -21,6 +24,10 @@ STATUS_COLORS = {
 
 def _short(cast_id: str) -> str:
     return cast_id[:8] if cast_id else ""
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def cast_list_formatter(item: dict) -> tuple[str, str]:
@@ -239,6 +246,40 @@ def register_casts_group(
             stats = await api.cast_stats(interaction)
             await interaction.followup.send(
                 embed=cast_stats_embed(stats), ephemeral=True
+            )
+
+        await _deferred(interaction, operation)
+
+    @cast.command(name="export", description="Export the raw fishing cast journal as JSON")
+    async def cast_export(
+        interaction: discord.Interaction,
+        viewer: str | None = None,
+        status: app_commands.Choice[str] | None = None,
+    ) -> None:
+        _allow_owner_only()
+
+        async def operation() -> None:
+            result = await api.recent_casts(
+                interaction,
+                limit=25,
+                user_twitch_id=viewer,
+                status=status.value if status else None,
+            )
+            rows = result.get("items", [])
+            payload = {
+                "exported_at": _utcnow_iso(),
+                "channel": interaction.guild.name if interaction.guild else None,
+                "count": len(rows),
+                "casts": rows,
+            }
+            raw = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+            file = discord.File(
+                discord.utils.MaybeUnicodeIO(raw), filename="casts_export.json"
+            )
+            await interaction.followup.send(
+                f"Exported {len(rows)} fishing cast record(s) as JSON.",
+                file=file,
+                ephemeral=True,
             )
 
         await _deferred(interaction, operation)
