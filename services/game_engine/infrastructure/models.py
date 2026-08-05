@@ -427,6 +427,8 @@ class OutboxEvent(Base):
             "'dead_letter','compensated','reconciliation_required')",
             name="ck_outbox_events_state",
         ),
+        Index("ix_outbox_pending_due", "next_attempt_at", "created_at", postgresql_where=text("state = 'pending'")),
+        Index("ix_outbox_processing_lease", "lease_expires_at", "created_at", postgresql_where=text("state = 'processing'")),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -469,6 +471,7 @@ class PlayerModifier(Base):
             "scope IN ('fishing','robbery','economy','inventory','all')",
             name="ck_player_modifiers_scope",
         ),
+        Index("ix_player_modifiers_user", "user_progress_id"),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))

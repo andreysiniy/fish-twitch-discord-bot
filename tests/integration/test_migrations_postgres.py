@@ -185,6 +185,18 @@ def test_fishing_cast_ledger_tables_upgrade_and_roundtrip() -> None:
         }
         assert {"xp_gain", "message"} <= loot_columns
 
+        # Targeted runtime indexes from the DB audit (outbox polling, modifiers).
+        runtime_indexes = set()
+        for table_name in ("outbox_events", "player_modifiers"):
+            runtime_indexes.update(
+                index["name"] for index in inspector.get_indexes(table_name)
+            )
+        assert {
+            "ix_outbox_pending_due",
+            "ix_outbox_processing_lease",
+            "ix_player_modifiers_user",
+        } <= runtime_indexes
+
         # Tenant isolation: cast is tied to its channel and user via FK constraints.
         cast_columns = {column["name"] for column in inspector.get_columns("fishing_casts")}
         assert "source_request_id" in cast_columns
