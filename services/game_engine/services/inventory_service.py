@@ -61,7 +61,6 @@ class InventoryService:
         if not user:
             return InventoryResponseDTO(success=False, message="You have no inventory.", items=[])
 
-        inventory_data = dict(user.inventory or {})
         db_items = self.user_repo.get_user_inventory_items(user.id)
         equipped = self.inventory_repo.get_equipped(user.id)
         equipped_slots = {
@@ -96,7 +95,7 @@ class InventoryService:
             equipped_slots=equipped_slots,
             equipped_rod_slot=equipped_slots.get("rod"),
             max_slots=max(
-                int(inventory_data.get("max_slots", 20))
+                int(getattr(user, "base_inventory_slots", 20) or 20)
                 + self.modifier_service.inventory_slot_bonus(user),
                 1,
             ),

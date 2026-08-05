@@ -15,8 +15,10 @@ def make_user(**overrides):
         "level": 1,
         "username": "angler",
         "current_mass": 10.0,
+        "base_inventory_slots": 20,
         "inventory": {},
         "items": [],
+        "equipped_items": [],
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -223,7 +225,10 @@ def test_points_bonus_is_applied_to_points_reward() -> None:
         ),
     )
     result = FishingEngine().calculate_result(
-        user=make_user(inventory={"equipped_rod_slot": 1}, items=[rod]),
+        user=make_user(
+            equipped_items=[SimpleNamespace(slot="rod", inventory_item=rod, inventory_item_id=1)],
+            items=[rod],
+        ),
         loot_pool=[{"type": "points", "weight": 1, "value": 100}],
         item_pool=[],
         items_drop_rate=0,

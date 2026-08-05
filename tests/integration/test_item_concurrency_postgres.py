@@ -37,7 +37,7 @@ def test_concurrent_grants_fill_one_stack_without_lost_updates() -> None:
             user_twitch_id=f"grant-user-{suffix}",
             username="grant_user",
             channel_id=channel.id,
-            inventory={"max_slots": 1, "equipped_rod_slot": None},
+            base_inventory_slots=1,
         )
         definition = ItemDefinition(
             channel_id=channel.id,
@@ -111,7 +111,7 @@ def test_finite_location_stock_is_consumed_by_only_one_concurrent_grant() -> Non
                 user_twitch_id=f"stock-user-{index}-{suffix}",
                 username=f"stock_user_{index}",
                 channel_id=channel.id,
-                inventory={"max_slots": 1, "equipped_rod_slot": None},
+                base_inventory_slots=1,
             )
             for index in range(2)
         ]

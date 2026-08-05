@@ -504,7 +504,8 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "DROP COLUMN ends_at, DROP COLUMN activated_at, DROP COLUMN deactivated_at, "
         "DROP COLUMN modifier_schema_version, DROP COLUMN requires_review, "
         "DROP COLUMN modifiers_history",
-        "ALTER TABLE users_progress DROP COLUMN base_inventory_slots",
+        "ALTER TABLE users_progress DROP COLUMN base_inventory_slots, "
+        "ADD COLUMN inventory JSONB DEFAULT '{\"equipped_rod_slot\": null, \"max_slots\": 20}'::jsonb",
         "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version",
         "ALTER TABLE location_items DROP COLUMN version, DROP COLUMN updated_at",
         "ALTER TABLE outbox_events DROP COLUMN lease_expires_at",

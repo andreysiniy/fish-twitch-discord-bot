@@ -32,7 +32,7 @@ def test_grants_stack_reuse_holes_and_rollback_as_one_unit() -> None:
             user_twitch_id=f"user-{suffix}",
             username="inventory_user",
             channel_id=channel.id,
-            inventory={"max_slots": 3, "equipped_rod_slot": None},
+            base_inventory_slots=3,
         )
         stackable = ItemDefinition(
             channel_id=channel.id,
@@ -100,7 +100,7 @@ def test_equipment_durability_obeys_break_policy() -> None:
             user_twitch_id=f"user-{suffix}",
             username="durability_user",
             channel_id=channel.id,
-            inventory={"max_slots": 2, "equipped_rod_slot": None},
+            base_inventory_slots=2,
         )
         definition = ItemDefinition(
             channel_id=channel.id,
@@ -140,7 +140,7 @@ def test_consumable_use_is_atomic_and_idempotent() -> None:
             username="use_user",
             channel_id=channel.id,
             current_mass=0,
-            inventory={"max_slots": 1, "equipped_rod_slot": None},
+            base_inventory_slots=1,
         )
         reward = ItemDefinition(
             channel_id=channel.id,
@@ -193,7 +193,7 @@ def test_equipped_storage_expands_effective_inventory_capacity() -> None:
             user_twitch_id=f"user-{suffix}",
             username="storage_user",
             channel_id=channel.id,
-            inventory={"max_slots": 1, "equipped_rod_slot": None},
+            base_inventory_slots=1,
         )
         storage = ItemDefinition(
             channel_id=channel.id,

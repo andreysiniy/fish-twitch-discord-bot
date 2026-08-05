@@ -6,7 +6,11 @@ from domain.logic.mass import quantize_mass
 
 def calculate_player_stats(user) -> Dict[str, Any]:
     equipped_rod = (
-        find_equipped_rod(getattr(user, "inventory", {}) or {}, getattr(user, "items", None)) or {}
+        find_equipped_rod(
+            getattr(user, "equipped_items", None),
+            getattr(user, "items", None),
+        )
+        or {}
     )
     resolved = {
         "luck_bonus": 0.0,
