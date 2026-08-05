@@ -554,3 +554,235 @@ class IdempotencyRecord(Base):
     response_json = Column(JSONB, default=dict, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class FishingRulesetSnapshot(Base):
+    """Deduplicated snapshot of the static configuration applied to a cast."""
+
+    __tablename__ = "fishing_ruleset_snapshots"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "ruleset_hash", name="uq_ruleset_snapshot_channel_hash"),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
+    ruleset_hash = Column(String(64), nullable=False)
+    channel_config_version = Column(Integer, nullable=False)
+    reward_pool_id = Column(Integer, nullable=True)
+    reward_pool_version = Column(Integer, nullable=True)
+    item_loot_table_id = Column(Integer, nullable=True)
+    item_loot_table_version = Column(Integer, nullable=True)
+    event_id = Column(Integer, nullable=True)
+    event_version = Column(Integer, nullable=True)
+    modifier_schema_version = Column(Integer, nullable=False)
+    engine_version = Column(String(64), nullable=False)
+    location_snapshot = Column(JSONB, default=dict, nullable=False)
+    reward_entries_snapshot = Column(JSONB, default=list, nullable=False)
+    item_entries_snapshot = Column(JSONB, default=list, nullable=False)
+    effective_params_snapshot = Column(JSONB, default=dict, nullable=False)
+    event_snapshot = Column(JSONB, default=dict, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    channel = relationship("Channel")
+
+
+class FishingCast(Base):
+    """One ledger row for every processed fishing attempt."""
+
+    __tablename__ = "fishing_casts"
+    __table_args__ = (
+        # One idempotent source request may only produce one cast.
+        Index(
+            "uq_fishing_casts_source_request",
+            "channel_id",
+            "source",
+            "source_request_id",
+            unique=True,
+            postgresql_where=text("source_request_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_fishing_casts_channel_requested",
+            "channel_id",
+            "requested_at",
+            "id",
+        ),
+        Index(
+            "ix_fishing_casts_channel_user",
+            "channel_id",
+            "user_progress_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_fishing_casts_channel_location",
+            "channel_id",
+            "location_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_fishing_casts_channel_reward",
+            "channel_id",
+            "reward_type",
+            "requested_at",
+        ),
+        Index(
+            "ix_fishing_casts_channel_event",
+            "channel_id",
+            "event_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_fishing_casts_channel_status",
+            "channel_id",
+            "status",
+            "requested_at",
+        ),
+        Index(
+            "ix_fishing_casts_channel_item_drop",
+            "channel_id",
+            "requested_at",
+            postgresql_where=text("item_drop_count > 0"),
+        ),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
+    user_progress_id = Column(
+        Integer, ForeignKey("users_progress.id"), nullable=False, index=True
+    )
+    ruleset_snapshot_id = Column(
+        String,
+        ForeignKey("fishing_ruleset_snapshots.id"),
+        nullable=True,
+        index=True,
+    )
+    source = Column(String(32), nullable=False, default="twitch")
+    source_request_id = Column(String(128), nullable=True)
+
+    status = Column(String(32), nullable=False, default="resolved", index=True)
+    error_code = Column(String(64), nullable=True)
+
+    # User and context snapshots.
+    twitch_user_id_snapshot = Column(String, nullable=False)
+    username_snapshot = Column(String, nullable=False)
+    location_id = Column(String, nullable=False, default="default")
+    location_name_snapshot = Column(String, nullable=True)
+    is_mod = Column(Boolean, nullable=False, default=False)
+    is_sub = Column(Boolean, nullable=False, default=False)
+    bypass_cooldown = Column(Boolean, nullable=False, default=False)
+    event_id = Column(Integer, nullable=True)
+    event_title_snapshot = Column(String, nullable=True)
+
+    # Time.
+    requested_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    started_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    persisted_at = Column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+        nullable=False,
+    )
+    duration_ms = Column(Integer, nullable=True)
+    cooldown_seconds_applied = Column(Integer, nullable=False, default=0)
+    next_available_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Mass/XP/level before and after.
+    mass_before = Column(Numeric(18, 2), nullable=True)
+    mass_after = Column(Numeric(18, 2), nullable=True)
+    mass_delta_requested = Column(Numeric(18, 2), nullable=True)
+    mass_delta_applied = Column(Numeric(18, 2), nullable=True)
+    xp_before = Column(Integer, nullable=True)
+    xp_after = Column(Integer, nullable=True)
+    xp_gained = Column(Integer, nullable=True)
+    level_before = Column(Integer, nullable=True)
+    level_after = Column(Integer, nullable=True)
+    points_delta = Column(Integer, nullable=False, default=0)
+    was_level_up = Column(Boolean, nullable=False, default=False)
+
+    # Ordinary reward.
+    reward_id = Column(String, nullable=True)
+    reward_type = Column(String, nullable=True)
+    reward_weight = Column(Numeric(24, 8), nullable=True)
+    reward_total_weight = Column(Numeric(24, 8), nullable=True)
+    reward_probability = Column(Numeric(14, 12), nullable=True)
+    reward_roll = Column(Numeric(24, 12), nullable=True)
+    reward_snapshot = Column(JSONB, default=dict, nullable=False)
+
+    # Item roll.
+    item_drop_probability = Column(Numeric(14, 12), nullable=True)
+    item_drop_roll = Column(Numeric(14, 12), nullable=True)
+    item_drop_succeeded = Column(Boolean, nullable=False, default=False)
+    item_drop_count = Column(Integer, nullable=False, default=0)
+
+    # Explanation.
+    resolved_modifiers = Column(JSONB, default=dict, nullable=False)
+    modifier_sources = Column(JSONB, default=dict, nullable=False)
+    equipped_items_snapshot = Column(JSONB, default=list, nullable=False)
+    triggered_effects = Column(JSONB, default=list, nullable=False)
+    rng_trace = Column(JSONB, default=list, nullable=False)
+    special_result = Column(JSONB, default=dict, nullable=False)
+    result_snapshot = Column(JSONB, default=dict, nullable=False)
+    response_snapshot = Column(JSONB, default=dict, nullable=False)
+
+    channel = relationship("Channel")
+    item_drops = relationship(
+        "FishingCastItemDrop",
+        back_populates="cast",
+        cascade="all, delete-orphan",
+        order_by="FishingCastItemDrop.created_at",
+    )
+
+
+class FishingCastItemDrop(Base):
+    """One item granted (or attempted) during a single cast."""
+
+    __tablename__ = "fishing_cast_item_drops"
+    __table_args__ = (
+        Index(
+            "ix_cast_item_drops_channel_item",
+            "channel_id",
+            "item_definition_id",
+            "created_at",
+        ),
+        Index(
+            "ix_cast_item_drops_channel_snapshot",
+            "channel_id",
+            "item_id_snapshot",
+            "created_at",
+        ),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    cast_id = Column(
+        String, ForeignKey("fishing_casts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
+    item_definition_id = Column(Integer, nullable=True)
+    item_id_snapshot = Column(String, nullable=False)
+    title_snapshot = Column(String, nullable=False)
+    rarity_snapshot = Column(String, nullable=True)
+    item_type_snapshot = Column(String, nullable=True)
+    definition_version = Column(Integer, nullable=True)
+    loot_table_id = Column(Integer, nullable=True)
+    loot_table_entry_id = Column(Integer, nullable=True)
+    selection_weight = Column(Numeric(24, 8), nullable=True)
+    selection_total_weight = Column(Numeric(24, 8), nullable=True)
+    selection_probability = Column(Numeric(14, 12), nullable=True)
+    selection_roll = Column(Numeric(24, 12), nullable=True)
+    quantity_requested = Column(Integer, nullable=False)
+    quantity_granted = Column(Integer, nullable=False)
+    grant_status = Column(String(32), nullable=False, default="granted")
+    stock_before = Column(Integer, nullable=True)
+    stock_after = Column(Integer, nullable=True)
+    inventory_grants = Column(JSONB, default=list, nullable=False)
+    metadata_snapshot = Column(JSONB, default=dict, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    cast = relationship("FishingCast", back_populates="item_drops")
