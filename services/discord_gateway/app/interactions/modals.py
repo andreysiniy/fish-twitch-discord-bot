@@ -567,30 +567,27 @@ class EventModal(discord.ui.Modal):
             "Optional location ID, for example: lake",
             max_length=32,
         )
-        self.luck_mult = discord.ui.TextInput(
-            label="Luck multiplier",
-            default=str(modifiers.get("luck_mult", "1")),
-            placeholder="Decimal from 0 to 100; 1 means unchanged",
-            max_length=32,
+        self.fish_luck = _percent_input(
+            "Fish luck change",
+            modifiers.get("fish_luck_change_percent"),
+            "Ordinary percentage; 10 = +10%, -20 = -20%",
         )
-        self.xp_mult = discord.ui.TextInput(
-            label="XP multiplier",
-            default=str(modifiers.get("xp_mult", "1")),
-            placeholder="Decimal from 0 to 100; 1 means unchanged",
-            max_length=32,
+        self.positive_reward = _percent_input(
+            "Positive reward change",
+            modifiers.get("positive_fish_reward_change_percent"),
+            "Ordinary percentage; 10 = +10%",
         )
-        self.cooldown_reduction = discord.ui.TextInput(
-            label="Cooldown reduction",
-            default=str(modifiers.get("cd_reduction", "0")),
-            placeholder="Decimal from 0 to 0.95; 0.2 removes 20%",
-            max_length=32,
+        self.negative_reward = _percent_input(
+            "Negative reward change",
+            modifiers.get("negative_fish_reward_change_percent"),
+            "Ordinary percentage; -15 = -15%",
         )
         for item in (
             self.title_input,
             self.override_location,
-            self.luck_mult,
-            self.xp_mult,
-            self.cooldown_reduction,
+            self.fish_luck,
+            self.positive_reward,
+            self.negative_reward,
         ):
             self.add_item(item)
 
@@ -600,10 +597,15 @@ class EventModal(discord.ui.Modal):
                 "event_title": self.title_input.value.strip(),
                 "override_loot_pool": self.override_location.value.strip() or None,
                 "modifiers": {
-                    "luck_mult": _bounded_decimal(self.luck_mult.value, "Luck multiplier", 0, 100),
-                    "xp_mult": _bounded_decimal(self.xp_mult.value, "XP multiplier", 0, 100),
-                    "cd_reduction": _bounded_decimal(
-                        self.cooldown_reduction.value, "Cooldown reduction", 0, 0.95
+                    "schema_version": 2,
+                    "fish_luck_change_percent": _bounded_decimal(
+                        self.fish_luck.value, "Fish luck change", -500, 2000
+                    ),
+                    "positive_fish_reward_change_percent": _bounded_decimal(
+                        self.positive_reward.value, "Positive reward change", -500, 2000
+                    ),
+                    "negative_fish_reward_change_percent": _bounded_decimal(
+                        self.negative_reward.value, "Negative reward change", -500, 2000
                     ),
                 },
             }
@@ -615,29 +617,34 @@ class EventModal(discord.ui.Modal):
 
         view = ModalLauncherView(
             interaction.user.id,
-            lambda: EventBonusModal(payload, self.on_save, self.defaults),
-            label="Set mass bonus",
+            lambda: EventModifiersModal(payload, self.on_save, self.defaults),
+            label="Set XP and cooldown",
         )
         await interaction.response.send_message(
-            "Event settings saved. Continue with the mass bonus field.",
+            "Event settings saved. Continue with XP and cooldown.",
             view=view,
             ephemeral=True,
         )
 
 
-class EventBonusModal(discord.ui.Modal):
+class EventModifiersModal(discord.ui.Modal):
     def __init__(self, payload: dict[str, Any], on_save, defaults: dict[str, Any]):
-        super().__init__(title="Event mass bonus")
+        super().__init__(title="Event XP and cooldown")
         self.payload = payload
         self.on_save = on_save
         modifiers = defaults.get("modifiers") or {}
-        self.bonus_mass = discord.ui.TextInput(
-            label="Bonus mass",
-            default=str(modifiers.get("bonus_mass", "0")),
-            placeholder="Relative bonus from 0 to 100; 0.15 adds 15%",
-            max_length=32,
+        self.xp_gain = _percent_input(
+            "XP gain change",
+            modifiers.get("xp_gain_change_percent"),
+            "Ordinary percentage; 100 = +100%",
         )
-        self.add_item(self.bonus_mass)
+        self.cooldown_change = _percent_input(
+            "Cooldown change",
+            modifiers.get("cooldown_change_percent"),
+            "Ordinary percentage; -50 = -50%",
+        )
+        self.add_item(self.xp_gain)
+        self.add_item(self.cooldown_change)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
@@ -645,7 +652,12 @@ class EventBonusModal(discord.ui.Modal):
                 **self.payload,
                 "modifiers": {
                     **self.payload["modifiers"],
-                    "bonus_mass": _bounded_decimal(self.bonus_mass.value, "Bonus mass", 0, 100),
+                    "xp_gain_change_percent": _bounded_decimal(
+                        self.xp_gain.value, "XP gain change", -100, 2000
+                    ),
+                    "cooldown_change_percent": _bounded_decimal(
+                        self.cooldown_change.value, "Cooldown change", -100, 2000
+                    ),
                 },
             }
         except ValueError as error:
@@ -745,6 +757,21 @@ def _optional_input(
         style=discord.TextStyle.paragraph if paragraph else discord.TextStyle.short,
         required=False,
         max_length=max_length,
+    )
+
+
+def _percent_input(
+    label: str,
+    default: Any,
+    placeholder: str,
+) -> discord.ui.TextInput:
+    return discord.ui.TextInput(
+        label=label,
+        default="" if default is None else str(default),
+        placeholder=placeholder,
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=16,
     )
 
 
