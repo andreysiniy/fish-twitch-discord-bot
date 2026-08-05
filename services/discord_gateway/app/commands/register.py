@@ -9,6 +9,7 @@ from app.api.errors import EngineError, localize_error
 from app.commands.casts import register_casts_group
 from app.interactions.confirms import ConfirmView
 from app.interactions.effects_editor import EffectsEditorView
+from app.interactions.item_wizard import ItemPreviewView, build_item_payload
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.modals import (
     ConfigModal,
@@ -781,7 +782,6 @@ def register_commands(
         stack_size="Maximum quantity in one inventory slot; equipment must use 1",
         max_durability="Required for breakable items",
         break_policy="Behavior when durability reaches zero",
-        effects_json="Strict JSON array of typed effects; omit for no effects",
         description="Optional item description",
     )
     async def item_create(
@@ -794,34 +794,37 @@ def register_commands(
         stack_size: app_commands.Range[int, 1, 1_000_000] = 1,
         max_durability: app_commands.Range[int, 1, 1_000_000] | None = None,
         break_policy: app_commands.Choice[str] | None = None,
-        effects_json: str | None = None,
         description: str | None = None,
     ) -> None:
-        try:
-            payload = _item_payload(
-                item_id=item_id,
-                title=title,
-                item_type=item_type.value,
-                rarity=rarity.value,
-                equipment_slot=equipment_slot.value if equipment_slot else None,
-                stack_size=stack_size,
-                max_durability=max_durability,
-                break_policy=(
-                    break_policy.value if break_policy else "indestructible"
-                ),
-                effects=_parse_effects(effects_json),
-                description=description,
+        async def operation() -> None:
+            draft = {
+                "item_id": item_id,
+                "title": title,
+                "item_type": item_type.value,
+                "rarity": rarity.value,
+                "equipment_slot": equipment_slot.value if equipment_slot else None,
+                "stack_size": stack_size,
+                "max_durability": max_durability,
+                "break_policy": break_policy.value if break_policy else "indestructible",
+                "description": description,
+                "effects": [],
+            }
+            payload = build_item_payload(draft)
+
+            async def confirm(confirmed: discord.Interaction) -> None:
+                await api.upsert_item(confirmed, payload)
+
+            view = ItemPreviewView(interaction.user.id, draft, confirm)
+            embed = view.embed()
+            embed.title = f"Create item: {title}"
+            embed.set_footer(text="Effects can be added afterwards with /fish item effect-edit")
+            await interaction.edit_original_response(
+                content=None,
+                embed=embed,
+                view=view,
             )
-        except ValueError as error:
-            await _send_error(interaction, error)
-            return
-        await _json_confirmation(
-            interaction,
-            "Item creation preview",
-            payload,
-            lambda confirmed: api.upsert_item(confirmed, payload),
-            "Item definition created.",
-        )
+
+        await _deferred(interaction, operation)
 
     @item.command(name="edit", description="Replace a versioned typed item definition")
     @app_commands.choices(
