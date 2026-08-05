@@ -143,9 +143,8 @@ class FishingService:
             if result.item_drop.get("quantity") is None:
                 result.item_drop["quantity"] = 1
 
-            location_item_id = result.item_drop.get("db_id")
-            has_stock = not location_item_id or self.config_repo.consume_location_item_stock(
-                location_item_id, amount=1
+            has_stock = not bool(result.item_drop.get("db_id")) or self.config_repo.consume_item_stock(
+                result.item_drop, amount=1
             )
             if has_stock:
                 item_meta = dict(result.item_drop.get("meta") or {})
