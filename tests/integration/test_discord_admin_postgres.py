@@ -358,3 +358,98 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(twitch_id="cast-history", name="Cast History", config={})
+        other = Channel(twitch_id="cast-other", name="Other", config={})
+        db.add_all([channel, other])
+        db.flush()
+        db.add_all(
+            [
+                DiscordAccountLink(
+                    discord_user_id="1001",
+                    twitch_user_id="cast-history",
+                    twitch_login="cast_history",
+                    verified_at=now,
+                    last_verified_at=now,
+                ),
+                DiscordGuildBinding(
+                    discord_guild_id="2001",
+                    channel_id=channel.id,
+                    configured_by_discord_id="1001",
+                ),
+            ]
+        )
+        db.flush()
+
+        from infrastructure.models import FishingCast
+
+        for idx in range(3):
+            db.add(
+                FishingCast(
+                    id=f"11111111-2222-4333-8444-{idx:012d}",
+                    channel_id=channel.id,
+                    user_progress_id=1,
+                    source="twitch",
+                    status="resolved",
+                    twitch_user_id_snapshot="viewer",
+                    username_snapshot="viewer",
+                    location_id="default",
+                    mass_delta_applied=idx * 10,
+                    xp_gained=5 + idx,
+                    item_drop_count=1 if idx == 2 else 0,
+                )
+            )
+        # A cast on another channel must never be visible.
+        db.add(
+            FishingCast(
+                id="99999999-2222-4333-8444-000000000001",
+                channel_id=other.id,
+                user_progress_id=1,
+                source="twitch",
+                status="resolved",
+                twitch_user_id_snapshot="viewer",
+                username_snapshot="viewer",
+                location_id="default",
+            )
+        )
+        db.flush()
+
+        service = DiscordAdminService(db)
+        page1 = service.list_recent_casts(_context("cast-list"), "cast-history", limit=2)
+        assert len(page1["items"]) == 2
+        assert page1["next_cursor"] is not None
+        page2 = service.list_recent_casts(
+            _context("cast-list-2"), "cast-history", limit=2, cursor=page1["next_cursor"]
+        )
+        assert len(page2["items"]) == 1
+        assert page2["next_cursor"] is None
+        ids = [item["cast_id"] for item in page1["items"] + page2["items"]]
+        assert len(ids) == len(set(ids))
+        assert not any(item_id.startswith("99999999") for item_id in ids)
+
+        detail = service.get_cast_detail(
+            _context("cast-detail"), "cast-history", ids[0], include_technical=True
+        )
+        assert detail["cast_id"] == ids[0]
+        assert "technical" in detail
+        assert "rng_trace" in detail["technical"]
+
+        stats = service.get_cast_summary_stats(_context("cast-stats"), "cast-history")
+        assert stats["casts"] == 3
+        assert stats["items_actual"] == 1
+
+        # A cast belonging to another channel must not be reachable from this guild.
+        with pytest.raises(ApiProblem) as cross:
+            service.get_cast_detail(
+                _context("cast-cross-other"), "cast-history", "99999999-2222-4333-8444-000000000001"
+            )
+        assert cross.value.code in ("PERMISSION_DENIED", "CAST_NOT_FOUND")
+    finally:
+        db.rollback()
+        db.close()

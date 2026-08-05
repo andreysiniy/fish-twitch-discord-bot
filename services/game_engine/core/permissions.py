@@ -18,6 +18,8 @@ class ChannelPermission(str, Enum):
     PLAYER_ITEMS_GRANT = "channel.player_items.grant"
     PLAYER_MODIFIERS_READ = "channel.player_modifiers.read"
     PLAYER_MODIFIERS_WRITE = "channel.player_modifiers.write"
+    CASTS_READ = "channel.casts.read"
+    CASTS_TECHNICAL_READ = "channel.casts.technical_read"
 
 
 ROLE_PERMISSIONS = {
@@ -33,6 +35,8 @@ ROLE_PERMISSIONS = {
         ChannelPermission.ITEMS_READ,
         ChannelPermission.ITEMS_WRITE,
         ChannelPermission.ITEM_DROPS_WRITE,
+        ChannelPermission.CASTS_READ,
+        ChannelPermission.CASTS_TECHNICAL_READ,
     },
     "moderator": {
         ChannelPermission.CONFIG_READ,
@@ -40,5 +44,6 @@ ROLE_PERMISSIONS = {
         ChannelPermission.COOLDOWN_WRITE,
         ChannelPermission.ITEMS_READ,
         ChannelPermission.PLAYER_INVENTORY_READ,
+        ChannelPermission.CASTS_READ,
     },
 }

@@ -487,4 +487,54 @@ def delete_event(
     return service.delete_event(context, channel_twitch_id, event_id, expected_version)
 
 
+@router.get("/channels/{channel_twitch_id}/fishing-casts")
+def list_recent_casts(
+    channel_twitch_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None),
+    user_twitch_id: str | None = Query(None),
+    status: str | None = Query(None),
+    location_id: str | None = Query(None),
+    reward_type: str | None = Query(None),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_recent_casts(
+        context,
+        channel_twitch_id,
+        limit=limit,
+        cursor=cursor,
+        user_twitch_id=user_twitch_id,
+        status=status,
+        location_id=location_id,
+        reward_type=reward_type,
+    )
+
+
+@router.get("/channels/{channel_twitch_id}/fishing-casts/{cast_id}")
+def get_cast_detail(
+    channel_twitch_id: str,
+    cast_id: str,
+    include_technical: bool = Query(False),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_cast_detail(
+        context, channel_twitch_id, cast_id, include_technical=include_technical
+    )
+
+
+@router.get("/channels/{channel_twitch_id}/fishing-stats/summary")
+def get_cast_summary_stats(
+    channel_twitch_id: str,
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_cast_summary_stats(
+        context, channel_twitch_id, start=start, end=end
+    )
+
+
 # ruff: noqa: B008

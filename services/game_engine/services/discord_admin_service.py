@@ -2,6 +2,7 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
 
@@ -49,6 +50,7 @@ from infrastructure.models import (
 )
 from infrastructure.redis_client import RedisClient
 from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.fishing_cast_query_repo import FishingCastQueryRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
 from pydantic import TypeAdapter, ValidationError
@@ -73,6 +75,31 @@ CONFIG_SECTIONS = {
     },
     "cooldown": {"fishing_cooldown", "subs_fishing_cooldown"},
 }
+
+
+def _iso(value) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _dec(value) -> str | None:
+    if value is None:
+        return None
+    return str(Decimal(value))
+
+
+def _format_delta(value) -> str | None:
+    if value is None:
+        return None
+    return _dec(value)
+
+
+def _parse_datetime(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 class DiscordAdminService:
@@ -1929,3 +1956,168 @@ class DiscordAdminService:
             )
         )
         self.db.flush()
+
+    # --- Fishing cast history -------------------------------------------------
+
+    def list_recent_casts(
+        self,
+        context,
+        channel_twitch_id: str,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        user_twitch_id: str | None = None,
+        status: str | None = None,
+        location_id: str | None = None,
+        reward_type: str | None = None,
+    ) -> dict:
+        channel, _ = self._authorize(context, ChannelPermission.CASTS_READ, channel_twitch_id)
+        limit = max(1, min(limit, 100))
+        query_repo = FishingCastQueryRepository(self.db)
+        user_id = None
+        if user_twitch_id:
+            user = (
+                self.db.query(UserProgress)
+                .filter(
+                    UserProgress.channel_id == channel.id,
+                    UserProgress.user_twitch_id == user_twitch_id,
+                )
+                .first()
+            )
+            user_id = user.id if user else -1
+        casts, next_cursor = query_repo.recent_casts(
+            channel_id=channel.id,
+            limit=limit,
+            cursor=cursor,
+            user_progress_id=user_id,
+            status=status,
+            location_id=location_id,
+            reward_type=reward_type,
+        )
+        return {
+            "items": [self._serialize_cast_summary(cast) for cast in casts],
+            "next_cursor": next_cursor,
+        }
+
+    def get_cast_detail(
+        self,
+        context,
+        channel_twitch_id: str,
+        cast_id: str,
+        *,
+        include_technical: bool = False,
+    ) -> dict:
+        permission = (
+            ChannelPermission.CASTS_TECHNICAL_READ
+            if include_technical
+            else ChannelPermission.CASTS_READ
+        )
+        channel, _ = self._authorize(context, permission, channel_twitch_id)
+        query_repo = FishingCastQueryRepository(self.db)
+        cast = query_repo.get_cast(cast_id, channel.id)
+        if not cast:
+            raise ApiProblem(404, "CAST_NOT_FOUND", "Fishing cast not found")
+        return self._serialize_cast_detail(cast, include_technical=include_technical)
+
+    def get_cast_summary_stats(
+        self,
+        context,
+        channel_twitch_id: str,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict:
+        channel, _ = self._authorize(context, ChannelPermission.CASTS_READ, channel_twitch_id)
+        query_repo = FishingCastQueryRepository(self.db)
+        start_dt = _parse_datetime(start)
+        end_dt = _parse_datetime(end)
+        stats = query_repo.summary(
+            channel_id=channel.id,
+            start=start_dt,
+            end=end_dt,
+        )
+        return {"period": {"start": start, "end": end}, **stats}
+
+    def _serialize_cast_summary(self, cast) -> dict:
+        reward_type = cast.reward_type
+        mass_label = _format_delta(cast.mass_delta_applied)
+        xp = int(cast.xp_gained or 0)
+        return {
+            "cast_id": cast.id,
+            "requested_at": _iso(cast.requested_at),
+            "status": cast.status,
+            "username": cast.username_snapshot,
+            "location_id": cast.location_id,
+            "reward_type": reward_type,
+            "mass_delta_applied": str(cast.mass_delta_applied) if cast.mass_delta_applied is not None else None,
+            "xp_gained": xp,
+            "mass_label": mass_label,
+            "item_drop_count": int(cast.item_drop_count or 0),
+            "event_title": cast.event_title_snapshot,
+        }
+
+    def _serialize_cast_detail(self, cast, *, include_technical: bool) -> dict:
+        drops = [
+            {
+                "item_id": drop.item_id_snapshot,
+                "title": drop.title_snapshot,
+                "quantity_granted": drop.quantity_granted,
+                "grant_status": drop.grant_status,
+            }
+            for drop in cast.item_drops
+        ]
+        detail = {
+            "cast_id": cast.id,
+            "status": cast.status,
+            "error_code": cast.error_code,
+            "channel_id": cast.channel_id,
+            "user_progress_id": cast.user_progress_id,
+            "username": cast.username_snapshot,
+            "location_id": cast.location_id,
+            "location_name": cast.location_name_snapshot,
+            "requested_at": _iso(cast.requested_at),
+            "resolved_at": _iso(cast.resolved_at),
+            "duration_ms": cast.duration_ms,
+            "event": (
+                {"id": cast.event_id, "title": cast.event_title_snapshot}
+                if cast.event_id
+                else None
+            ),
+            "reward": {
+                "reward_id": cast.reward_id,
+                "reward_type": cast.reward_type,
+                "probability": (
+                    str(cast.reward_probability) if cast.reward_probability is not None else None
+                ),
+                "roll": str(cast.reward_roll) if cast.reward_roll is not None else None,
+            },
+            "state": {
+                "mass_before": _dec(cast.mass_before),
+                "mass_after": _dec(cast.mass_after),
+                "mass_delta_applied": _dec(cast.mass_delta_applied),
+                "xp_before": cast.xp_before,
+                "xp_after": cast.xp_after,
+                "xp_gained": cast.xp_gained,
+                "level_before": cast.level_before,
+                "level_after": cast.level_after,
+                "was_level_up": cast.was_level_up,
+            },
+            "items": drops,
+            "item_drop": {
+                "succeeded": cast.item_drop_succeeded,
+                "count": int(cast.item_drop_count or 0),
+                "probability": (
+                    str(cast.item_drop_probability) if cast.item_drop_probability is not None else None
+                ),
+            },
+        }
+        if include_technical:
+            detail["technical"] = {
+                "rng_trace": cast.rng_trace,
+                "resolved_modifiers": cast.resolved_modifiers,
+                "modifier_sources": cast.modifier_sources,
+                "special_result": cast.special_result,
+                "result_snapshot": cast.result_snapshot,
+                "ruleset_snapshot_id": cast.ruleset_snapshot_id,
+            }
+        return detail
