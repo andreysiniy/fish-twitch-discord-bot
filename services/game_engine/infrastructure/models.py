@@ -70,6 +70,14 @@ class UserProgress(Base):
     __tablename__ = "users_progress"
     __table_args__ = (
         UniqueConstraint("channel_id", "user_twitch_id", name="uq_user_progress_channel_user"),
+        CheckConstraint("level >= 1", name="ck_users_progress_level_positive"),
+        CheckConstraint("xp >= 0", name="ck_users_progress_xp_nonnegative"),
+        CheckConstraint(
+            "total_fish_stat >= 0", name="ck_users_progress_total_fish_nonnegative"
+        ),
+        CheckConstraint(
+            "current_mass >= 0", name="ck_users_progress_current_mass_nonnegative"
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -133,6 +141,10 @@ class ItemDefinition(Base):
         CheckConstraint(
             "break_policy IN ('indestructible','retain_broken','unequip_broken','destroy_at_zero')",
             name="ck_item_definitions_break_policy",
+        ),
+        CheckConstraint("version >= 1", name="ck_item_definitions_version_positive"),
+        CheckConstraint(
+            "schema_version >= 1", name="ck_item_definitions_schema_version_positive"
         ),
     )
 
@@ -250,6 +262,10 @@ class RewardPool(Base):
     __tablename__ = "reward_pools"
     __table_args__ = (
         UniqueConstraint("channel_id", "location_id", name="uq_reward_pool_channel_location"),
+        CheckConstraint(
+            "items_drop_rate BETWEEN 0 AND 1",
+            name="ck_reward_pools_items_drop_rate_range",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -277,6 +293,15 @@ class LocationItem(Base):
     __table_args__ = (
         UniqueConstraint(
             "reward_pool_id", "item_id", name="uq_location_items_pool_item"
+        ),
+        CheckConstraint(
+            "weight > 0", name="ck_location_items_weight_positive"
+        ),
+        CheckConstraint(
+            "quantity IS NULL OR quantity >= 0", name="ck_location_items_stock_nonnegative"
+        ),
+        CheckConstraint(
+            "xp_gain >= 0", name="ck_location_items_xp_nonnegative"
         ),
     )
 
@@ -400,6 +425,15 @@ class PlayerModifier(Base):
             "scope",
             "source_key",
             name="uq_player_modifiers_source",
+        ),
+        CheckConstraint("version >= 1", name="ck_player_modifiers_version_positive"),
+        CheckConstraint(
+            "operation IN ('add','multiply','override','min','max')",
+            name="ck_player_modifiers_operation",
+        ),
+        CheckConstraint(
+            "scope IN ('fishing','robbery','economy','inventory','all')",
+            name="ck_player_modifiers_scope",
         ),
     )
 
