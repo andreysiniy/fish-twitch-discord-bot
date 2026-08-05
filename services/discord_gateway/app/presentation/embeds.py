@@ -145,7 +145,15 @@ def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
         "message",
         "version",
     )
-    return item["title"], _entity_details(item, order)
+    details = _entity_details(item, order)
+    probability = item.get("drop_probability")
+    if probability is not None:
+        expected = item.get("expected_casts_to_drop")
+        probability_part = f"Drop chance: {probability * 100:.2f}% per cast"
+        if expected is not None:
+            probability_part += f" (≈{expected} casts)"
+        details = (probability_part + "\n" + details).rstrip("\n")
+    return item["title"], details
 
 
 def placeholder_help_embeds(

@@ -330,6 +330,13 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
         )
         assert drop["quantity"] == 2
 
+        listed = service.list_item_drops(_context("item-drop-list"), channel.twitch_id, "default")
+        assert len(listed["items"]) == 1
+        listed_entry = listed["items"][0]
+        assert listed_entry["selection_weight_share"] == 1.0
+        assert listed_entry["drop_probability"] == pytest.approx(0.1, abs=1e-6)
+        assert listed_entry["expected_casts_to_drop"] is not None
+
         grant = service.grant_player_item(
             _context("item-grant"),
             channel.twitch_id,
