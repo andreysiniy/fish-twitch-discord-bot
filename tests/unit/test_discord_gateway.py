@@ -330,6 +330,7 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "archive",
         "create",
         "edit",
+        "effect-edit",
         "list",
         "show",
     }
