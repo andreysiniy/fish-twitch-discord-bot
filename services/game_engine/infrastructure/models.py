@@ -55,6 +55,10 @@ class ChannelAccessRole(Base):
     __tablename__ = "channel_access_roles"
     __table_args__ = (
         UniqueConstraint("channel_id", "user_twitch_id", name="uq_channel_user_access"),
+        CheckConstraint(
+            "role IN ('owner','editor','moderator')",
+            name="ck_channel_access_roles_role",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -122,6 +126,16 @@ class ItemDefinition(Base):
         CheckConstraint(
             "type <> 'equipment' OR stack_size = 1",
             name="ck_item_definitions_equipment_single_stack",
+        ),
+        CheckConstraint(
+            "(type = 'equipment' AND slot IS NOT NULL AND stack_size = 1) "
+            "OR (type <> 'equipment' AND slot IS NULL)",
+            name="ck_item_definitions_type_slot",
+        ),
+        CheckConstraint(
+            "(break_policy = 'indestructible' AND max_durability IS NULL) "
+            "OR (break_policy <> 'indestructible' AND max_durability IS NOT NULL)",
+            name="ck_item_definitions_durability_policy",
         ),
         CheckConstraint(
             "max_durability IS NULL OR max_durability > 0",
@@ -374,6 +388,17 @@ class FishingEvent(Base):
 
 class EconomyOperation(Base):
     __tablename__ = "economy_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "operation_type IN ('sell','buy','reward_points')",
+            name="ck_economy_operations_operation_type",
+        ),
+        CheckConstraint(
+            "state IN ('pending','queued','processing','external_pending','external_applied',"
+            "'completed','compensated','failed','reconciliation_required','dead_letter')",
+            name="ck_economy_operations_state",
+        ),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     idempotency_key = Column(String, unique=True, nullable=False)
@@ -402,6 +427,13 @@ class EconomyOperation(Base):
 
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending','processing','processed','failed',"
+            "'dead_letter','compensated','reconciliation_required')",
+            name="ck_outbox_events_state",
+        ),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     idempotency_key = Column(String, unique=True, nullable=False)
@@ -613,6 +645,12 @@ class DiscordGuildBinding(Base):
 
 class AdminAuditLog(Base):
     __tablename__ = "admin_audit_log"
+    __table_args__ = (
+        CheckConstraint(
+            "result IN ('success','error')",
+            name="ck_admin_audit_log_result",
+        ),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     created_at = Column(
