@@ -11,8 +11,8 @@ from app.commands.register import _json_confirmation
 from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
     DupeRewardModal,
-    EventBonusModal,
     EventModal,
+    EventModifiersModal,
     FishRewardModal,
     MessageTemplateModal,
     RewardModal,
@@ -154,7 +154,7 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
         ),
         DupeRewardModal(save, {}),
         EventModal(save),
-        EventBonusModal(event_payload, save, {}),
+        EventModifiersModal(event_payload, save, {}),
     ]
 
     assert all(len(modal.children) <= 5 for modal in modals)
@@ -168,9 +168,13 @@ def test_structured_modals_use_separate_fields_with_hints() -> None:
     assert {child.label for child in modals[7].children} == {
         "Name",
         "Override location",
-        "Luck multiplier",
-        "XP multiplier",
-        "Cooldown reduction",
+        "Fish luck change",
+        "Positive reward change",
+        "Negative reward change",
+    }
+    assert {child.label for child in modals[8].children} == {
+        "XP gain change",
+        "Cooldown change",
     }
 
     first_step_labels = {
