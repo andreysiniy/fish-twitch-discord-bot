@@ -159,6 +159,27 @@ def test_fishing_cast_ledger_tables_upgrade_and_roundtrip() -> None:
         assert {"fishing_casts", "fishing_ruleset_snapshots", "fishing_cast_item_drops"} <= tables
         assert "loot_table_entry_stock" in tables
 
+        # String state/role/type CHECK constraints from the DB audit.
+        string_checks = set()
+        for table_name in (
+            "item_definitions",
+            "economy_operations",
+            "outbox_events",
+            "channel_access_roles",
+            "admin_audit_log",
+        ):
+            for check in inspector.get_check_constraints(table_name):
+                string_checks.add(check["name"])
+        assert {
+            "ck_item_definitions_type_slot",
+            "ck_item_definitions_durability_policy",
+            "ck_economy_operations_operation_type",
+            "ck_economy_operations_state",
+            "ck_outbox_events_state",
+            "ck_channel_access_roles_role",
+            "ck_admin_audit_log_result",
+        } <= string_checks
+
         loot_columns = {
             column["name"] for column in inspector.get_columns("loot_table_entries")
         }
@@ -545,7 +566,7 @@ def test_location_items_are_migrated_into_loot_tables() -> None:
             definition_id = connection.execute(
                 text(
                     "INSERT INTO item_definitions (channel_id, item_id, title, type, "
-                    "rarity, stack_size) SELECT id,'rod','Rod','equipment','rare',1 "
+                    "slot, rarity, stack_size) SELECT id,'rod','Rod','equipment','rod','rare',1 "
                     "FROM channels WHERE twitch_id='mig' RETURNING id"
                 )
             ).scalar()
