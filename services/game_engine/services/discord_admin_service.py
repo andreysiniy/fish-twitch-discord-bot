@@ -1476,6 +1476,20 @@ class DiscordAdminService:
             if data.modifiers is not None:
                 event.modifiers = data.modifiers.model_dump(mode="json")
                 flag_modified(event, "modifiers")
+                # An explicit v2 save from the owner confirms/reviews the event:
+                # clear the unsafe-inheritance flag and pin the schema version.
+                if data.modifiers.model_dump(mode="json").get("schema_version") == 2:
+                    event.requires_review = False
+                    event.modifier_schema_version = 2
+                    history = list(event.modifiers_history or [])
+                    history.append(
+                        {
+                            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                            "modifiers_v2": data.modifiers.model_dump(mode="json"),
+                        }
+                    )
+                    event.modifiers_history = history
+                    flag_modified(event, "modifiers_history")
             if "override_loot_pool" in data.model_fields_set:
                 self._validate_event_location(channel.id, data.override_loot_pool)
                 event.override_loot_pool = data.override_loot_pool
@@ -1510,6 +1524,13 @@ class DiscordAdminService:
             event = next((candidate for candidate in events if candidate.id == event_id), None)
             if not event:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
+            if event.requires_review:
+                raise ApiProblem(
+                    422,
+                    "EVENT_REQUIRES_REVIEW",
+                    "This event has unsafe inherited modifiers and must be reviewed "
+                    "before it can be started again.",
+                )
             self._check_version(event.version, data.expected_version, context)
             before = self._serialize_event(event)
             now = datetime.now(timezone.utc)

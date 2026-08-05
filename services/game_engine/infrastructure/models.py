@@ -347,6 +347,7 @@ class FishingEvent(Base):
     modifier_schema_version = Column(Integer, nullable=False, default=2)
     requires_review = Column(Boolean, nullable=False, default=False)
     modifiers = Column(JSONB, default=dict, nullable=False)
+    modifiers_history = Column(JSONB, default=list, nullable=False)
     override_loot_pool = Column(String, nullable=True)
     version = Column(Integer, default=1, nullable=False)
     created_at = Column(
