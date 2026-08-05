@@ -16,6 +16,7 @@ from infrastructure.models import (
     FishingRulesetSnapshot,
     InventoryItem,
     ItemDefinition,
+    RewardPool,
     UserProgress,
 )
 from psycopg2 import sql
@@ -340,6 +341,111 @@ def test_equipment_cannot_reference_another_users_inventory() -> None:
         # Same-owner equip is permitted.
         with Session(engine) as db:
             db.add(EquippedItem(user_id=owner_user_id, slot="rod", inventory_item_id=owner_item_id))
+            db.commit()
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            cursor.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name))
+            )
+        admin.close()
+
+
+def test_economic_range_check_constraints_reject_invalid_state() -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_ck_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "head")
+
+        with Session(engine) as db:
+            channel = Channel(twitch_id=f"ck-{uuid.uuid4().hex}", name="CK", config={})
+            db.add(channel)
+            db.flush()
+            channel_id = channel.id
+            db.commit()
+
+        # Negative XP must be rejected by the DB.
+        with Session(engine) as db:
+            try:
+                db.add(
+                    UserProgress(
+                        user_twitch_id="bad-xp",
+                        username="bad_xp",
+                        channel_id=channel_id,
+                        level=1,
+                        xp=-5,
+                    )
+                )
+                db.flush()
+                db.rollback()
+                xp_rejected = False
+            except IntegrityError:
+                db.rollback()
+                xp_rejected = True
+            assert xp_rejected is True
+
+            # Out-of-range items_drop_rate must be rejected.
+            try:
+                db.add(
+                    RewardPool(
+                        channel_id=channel_id,
+                        location_id="bad-pool",
+                        items_drop_rate=1.5,
+                        rewards_data=[],
+                        requirements={},
+                    )
+                )
+                db.flush()
+                db.rollback()
+                rate_rejected = False
+            except IntegrityError:
+                db.rollback()
+                rate_rejected = True
+            assert rate_rejected is True
+
+            # Valid state is still accepted.
+            db.add(
+                UserProgress(
+                    user_twitch_id="good-user",
+                    username="good",
+                    channel_id=channel_id,
+                    level=1,
+                    xp=0,
+                )
+            )
+            db.add(
+                RewardPool(
+                    channel_id=channel_id,
+                    location_id="good-pool",
+                    items_drop_rate=0.1,
+                    rewards_data=[],
+                    requirements={},
+                )
+            )
             db.commit()
     finally:
         settings.DATABASE_URL_OVERRIDE = original_override
