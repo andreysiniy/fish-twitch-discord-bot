@@ -15,12 +15,16 @@ class FishingCog(commands.Cog):
     @commands.command(name="fish")
     async def fish(self, ctx: commands.Context) -> None:
         channel_id = await get_channel_id(ctx)
+        message_id = getattr(getattr(ctx, "message", None), "id", None)
+        source_request_id = f"twitch-{message_id}" if message_id else None
         payload = {
             "user_id": str(ctx.author.id),
             "username": ctx.author.name,
             "channel_id": channel_id,
             "is_mod": bool(getattr(ctx.author, "is_mod", False)),
             "is_sub": self._resolve_is_subscriber(ctx),
+            "source": "twitch",
+            "source_request_id": source_request_id,
         }
         try:
             response = await self.bot.api_client.fish(payload)
