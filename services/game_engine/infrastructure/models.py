@@ -102,12 +102,6 @@ class UserProgress(Base):
 
     base_inventory_slots = Column(Integer, default=20, nullable=False)
 
-    inventory = Column(
-        JSONB,
-        default=lambda: {"equipped_rod_slot": None, "max_slots": 20},
-        nullable=False,
-    )
-
     channel = relationship("Channel", back_populates="users_progress")
     items = relationship("InventoryItem", back_populates="owner", cascade="all, delete-orphan")
     equipped_items = relationship(

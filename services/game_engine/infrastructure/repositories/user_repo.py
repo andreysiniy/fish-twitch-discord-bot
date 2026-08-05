@@ -36,7 +36,6 @@ class UserRepository:
             user_twitch_id=user_twitch_id,
             username=username,
             channel_id=channel.id,
-            inventory={"equipped_rod_slot": None, "max_slots": 20},
         )
         self.db.add(user)
         self.db.flush()

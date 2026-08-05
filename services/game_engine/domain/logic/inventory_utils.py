@@ -21,16 +21,25 @@ def _to_inventory_dict(item_obj) -> dict:
     }
 
 
-def find_equipped_rod(inventory: dict, inventory_items: list | None = None) -> dict | None:
-    slot_id = (inventory or {}).get("equipped_rod_slot")
-    if slot_id is None:
-        return None
+def find_equipped_rod(equipped_items: list | None = None, inventory_items: list | None = None) -> dict | None:
+    """Return the currently equipped rod, reading from the normalized table.
 
-    if inventory_items is not None:
-        for item in inventory_items:
-            if getattr(item, "slot_id", None) == slot_id:
-                return _to_inventory_dict(item)
+    ``equipped_items`` is a list of ``EquippedItem`` rows; each exposes ``slot``
+    and an ``inventory_item`` (the concrete ``InventoryItem``). This is the single
+    source of truth — the legacy ``UserProgress.inventory`` JSON is not consulted.
+    """
+    equipped_items = list(equipped_items or [])
+    for equipped in equipped_items:
+        if getattr(equipped, "slot", None) != "rod":
+            continue
+        item = getattr(equipped, "inventory_item", None)
+        if item is not None:
+            return _to_inventory_dict(item)
+        # Fallback: match the equipped inventory item by id if items provided.
+        inventory_item_id = getattr(equipped, "inventory_item_id", None)
+        if inventory_items is not None and inventory_item_id is not None:
+            for candidate in inventory_items:
+                if getattr(candidate, "id", None) == inventory_item_id:
+                    return _to_inventory_dict(candidate)
         return None
-
-    items = (inventory or {}).get("items", [])
-    return next((i for i in items if i.get("slot_id") == slot_id), None)
+    return None

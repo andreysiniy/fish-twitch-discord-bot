@@ -4,7 +4,6 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from infrastructure.models import (
     EquippedItem,
@@ -124,11 +123,6 @@ class InventoryRepository:
             )
             self.db.add(equipped)
 
-        if equipment_slot == "rod":
-            inventory = dict(user.inventory or {})
-            inventory["equipped_rod_slot"] = item.slot_id
-            user.inventory = inventory
-            flag_modified(user, "inventory")
         self.db.flush()
         self.db.refresh(equipped)
         return equipped
@@ -143,11 +137,6 @@ class InventoryRepository:
         )
         if equipped:
             self.db.delete(equipped)
-        if equipment_slot == "rod":
-            inventory = dict(user.inventory or {})
-            inventory["equipped_rod_slot"] = None
-            user.inventory = inventory
-            flag_modified(user, "inventory")
         self.db.flush()
 
     def consume_durability(self, user_id: int, equipment_slot: str, amount: int) -> str | None:
@@ -182,11 +171,6 @@ class InventoryRepository:
             self.db.delete(item)
         elif policy == "unequip_broken":
             self.db.delete(equipped)
-        if equipment_slot == "rod" and policy in {"destroy_at_zero", "unequip_broken"}:
-            inventory = dict(user.inventory or {})
-            inventory["equipped_rod_slot"] = None
-            user.inventory = inventory
-            flag_modified(user, "inventory")
         self.db.flush()
         return title
 
@@ -476,11 +460,5 @@ class InventoryRepository:
         )
 
     def _max_slots(self, user: UserProgress) -> int:
-        # During transition, trust the legacy JSON max_slots if explicitly set,
-        # else fall back to the normalized column.
-        legacy_raw = (user.inventory or {}).get("max_slots")
-        if isinstance(legacy_raw, (int, str)) and str(legacy_raw).strip().isdigit():
-            base_slots = max(int(str(legacy_raw).strip()), 1)
-        else:
-            base_slots = int(getattr(user, "base_inventory_slots", None) or 20)
+        base_slots = int(getattr(user, "base_inventory_slots", None) or 20)
         return max(base_slots + self.max_slots_add, 1)

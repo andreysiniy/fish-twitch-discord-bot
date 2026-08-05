@@ -335,7 +335,6 @@ class AdminService:
         if not user:
             raise ValueError("Player not found")
 
-        inventory_meta = dict(user.inventory or {})
         items = [self._serialize_inventory_item(item) for item in self.user_repo.get_user_inventory_items(user.id)]
         equipped_slots = {
             equipped.slot: equipped.inventory_item.slot_id
@@ -346,7 +345,7 @@ class AdminService:
             "items": items,
             "equipped_slots": equipped_slots,
             "equipped_rod_slot": equipped_slots.get("rod"),
-            "max_slots": max(int(inventory_meta.get("max_slots", 20)) + slot_bonus, 1)
+            "max_slots": max(int(getattr(user, "base_inventory_slots", 20) or 20) + slot_bonus, 1)
         }
 
     def _serialize_inventory_item(self, item):
