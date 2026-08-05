@@ -1,7 +1,7 @@
 import json
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
@@ -1512,10 +1512,22 @@ class DiscordAdminService:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
             self._check_version(event.version, data.expected_version, context)
             before = self._serialize_event(event)
+            now = datetime.now(timezone.utc)
             for candidate in events:
                 candidate.is_active = candidate.id == event.id
                 if candidate.id == event.id:
                     candidate.version += 1
+                    candidate.status = "active"
+                    candidate.starts_at = now
+                    candidate.activated_at = now
+                    candidate.ends_at = (
+                        now + timedelta(seconds=data.duration_seconds)
+                        if data.duration_seconds
+                        else None
+                    )
+                else:
+                    candidate.status = "draft"
+                    candidate.deactivated_at = now
             self.db.flush()
             scheduled = None
             if data.duration_seconds:
@@ -1560,6 +1572,9 @@ class DiscordAdminService:
                 return {"status": "no_active_event"}
             before = self._serialize_event(event)
             event.is_active = False
+            event.status = "ended"
+            event.deactivated_at = datetime.now(timezone.utc)
+            event.ends_at = event.deactivated_at
             event.version += 1
             self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
             self.db.flush()
@@ -1908,6 +1923,13 @@ class DiscordAdminService:
             "id": event.id,
             "event_title": event.event_title,
             "is_active": event.is_active,
+            "status": event.status,
+            "starts_at": _iso(event.starts_at),
+            "ends_at": _iso(event.ends_at),
+            "activated_at": _iso(event.activated_at),
+            "deactivated_at": _iso(event.deactivated_at),
+            "modifier_schema_version": event.modifier_schema_version,
+            "requires_review": event.requires_review,
             "modifiers": event.modifiers or {},
             "override_loot_pool": event.override_loot_pool,
             "version": event.version,
