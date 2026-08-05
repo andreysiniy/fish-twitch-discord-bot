@@ -1216,11 +1216,64 @@ def register_commands(
             "reason": reason,
             "expected_version": expected_version,
         }
-        await _simple_mutation(
-            interaction,
-            lambda: api.set_player_modifier(interaction, user_twitch_id, payload),
-            "Player modifier saved.",
-        )
+        op_label = {
+            "add": "Add",
+            "multiply": "Multiply",
+            "override": "Override",
+            "min": "Set minimum",
+            "max": "Set maximum",
+        }.get(operation.value, operation.value)
+
+        async def operation() -> None:
+            # Show the current resolved value for this stat before applying,
+            # so an additive/override change is never applied blind.
+            current_resolved = None
+            existing_sources = []
+            try:
+                explained = await api.explain_player_stats(
+                    interaction, user_twitch_id, scope.value
+                )
+                for stat_key_value, stat_entry in (explained.get("stats") or {}).items():
+                    if stat_key_value == stat_key.value:
+                        current_resolved = stat_entry
+                players = await api.player_modifiers(interaction, user_twitch_id)
+                existing_sources = [
+                    entry
+                    for entry in players.get("items", [])
+                    if entry.get("stat_key") == stat_key.value
+                ]
+            except EngineError:
+                pass  # preview is best-effort; the mutation still proceeds
+
+            resolved_text = "unknown"
+            if current_resolved is not None:
+                resolved_text = str(current_resolved.get("value"))
+            if isinstance(current_resolved, dict) and "value" in current_resolved:
+                resolved_text = str(current_resolved["value"])
+
+            embed = _player_modifier_preview_embed(
+                user_twitch_id=user_twitch_id,
+                scope=scope.value,
+                stat_key=stat_key.value,
+                op_label=op_label,
+                value=value,
+                current_resolved=resolved_text,
+                existing_source_count=len(existing_sources),
+                source_key=source_key,
+                reason=reason,
+            )
+            await interaction.edit_original_response(
+                content=None,
+                embed=embed,
+                view=ConfirmView(
+                    interaction.user.id,
+                    lambda confirmed: api.set_player_modifier(
+                        confirmed, user_twitch_id, payload
+                    ),
+                ),
+            )
+
+        await _deferred(interaction, operation)
 
     @player_modifier.command(name="disable", description="Disable a player modifier")
     async def player_modifier_disable(
@@ -1480,6 +1533,54 @@ def _json_embed(title: str, item: dict[str, Any]) -> discord.Embed:
     return discord.Embed(
         title=title, description=f"```json\n{rendered}\n```", color=discord.Color.blurple()
     )
+
+
+def _player_modifier_preview_embed(
+    *,
+    user_twitch_id: str,
+    scope: str,
+    stat_key: str,
+    op_label: str,
+    value: str,
+    current_resolved: str,
+    existing_source_count: int,
+    source_key: str,
+    reason: str,
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Player modifier preview — {user_twitch_id}",
+        description=(
+            f"Scope: `{scope}` · Stat: `{stat_key}`\n"
+            f"Operation: **{op_label}** with value `{value}`"
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.add_field(
+        name="Current resolved value",
+        value=current_resolved,
+        inline=True,
+    )
+    embed.add_field(
+        name="Existing sources",
+        value=str(existing_source_count),
+        inline=True,
+    )
+    embed.add_field(
+        name="Source",
+        value=f"{source_key}\n{reason}",
+        inline=False,
+    )
+    if op_label.lower() == "override" or existing_source_count:
+        embed.add_field(
+            name="⚠️ Warning",
+            value=(
+                "This targets a stat that already has modifiers. "
+                "Override replaces the resolved value; add/multiply stacks "
+                "on top of the current total."
+            ),
+            inline=False,
+        )
+    return embed
 
 
 async def _send_json_embed(
