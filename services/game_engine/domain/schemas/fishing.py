@@ -14,6 +14,9 @@ class FishRequest(BaseModel):
     is_mod: bool = False
     is_sub: bool = False
     bypass_cooldown: bool = False
+    source: Optional[str] = "twitch"
+    source_request_id: Optional[str] = None
+    requested_at: Optional[Any] = None
 
 
 class FishCooldownRequest(BaseModel):
@@ -80,6 +83,9 @@ class FishResponse(BaseModel):
 
     actions: List[GameAction] = Field(default_factory=list)
 
+    cast_id: Optional[str] = None
+    is_replayed: bool = False
+
 
 class RobberyResultDTO(BaseModel):
     is_success: bool
@@ -117,6 +123,9 @@ class FishingResult(BaseModel):
     broken_item_name: Optional[str] = None
     robbery_result: Optional[RobberyResultDTO] = None
     roulette_result: Optional[RussianRouletteResultDTO] = None
+    reward_roll_trace: Optional[Dict[str, Any]] = None
+    item_roll_trace: Optional[Dict[str, Any]] = None
+    rng_stages: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class PlayerStatsDTO(BaseModel):

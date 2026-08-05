@@ -52,6 +52,10 @@ def _rarity_luck_weight(entry: dict, luck: float) -> Decimal:
     return weight * _to_decimal(str(safe_luck**rarity_rank))
 
 
+def _default_entry_weight(entry: dict) -> Decimal:
+    return _to_decimal(entry.get("weight", 0))
+
+
 def roll_loot_traced(
     loot_table: list[dict],
     weight_transform: Optional[Callable[[dict], Decimal]] = None,

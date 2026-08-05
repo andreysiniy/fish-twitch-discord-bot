@@ -13,6 +13,11 @@ from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRoule
 from infrastructure.models import UserProgress
 
 
+def _as_catch(entry: dict) -> Dict[str, Any]:
+    """Normalize a traced roll result into the engine's catch dict."""
+    return dict(entry)
+
+
 class CalculationStrategy(ABC):
     @abstractmethod
     def calculate(
@@ -124,7 +129,25 @@ class FishingEngine:
         )
         strategy = calculation_strategy or self._default_strategy
 
-        catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+        rng_stages: list[dict] = []
+        reward_trace = rng.roll_loot_traced(
+            loot_pool,
+            weight_transform=lambda entry: rng._default_entry_weight(entry),
+        )
+        rng_stages.append(
+            {
+                "stage": "ordinary_reward",
+                "algorithm": "weighted_choice_v2",
+                "roll": str(reward_trace.roll),
+                "total_weight": str(reward_trace.total_weight),
+                "selected_reward_id": str(reward_trace.selected_id),
+                "selected_probability": str(reward_trace.selected_probability),
+            }
+        )
+        if reward_trace.selected is not None:
+            catch = _as_catch(reward_trace.selected)
+        else:
+            catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
         empty_reroll_chance = min(
             max(
                 to_decimal(modifiers.get("empty_catch_reroll_chance_pct", 0)),
@@ -136,7 +159,24 @@ class FishingEngine:
             catch.get("type") == ActionType.NOTHING
             and random.random() < float(empty_reroll_chance)
         ):
-            catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+            reroll_trace = rng.roll_loot_traced(
+                loot_pool,
+                weight_transform=lambda entry: rng._default_entry_weight(entry),
+            )
+            rng_stages.append(
+                {
+                    "stage": "empty_reward_reroll",
+                    "triggered": True,
+                    "roll": str(reroll_trace.roll),
+                    "selected_reward_id": str(reroll_trace.selected_id),
+                }
+            )
+            if reroll_trace.selected is not None:
+                catch = _as_catch(reroll_trace.selected)
+            else:
+                # Empty or traced-less pool: fall back to the legacy picker so
+                # injected rolls keep working during tests and migrations.
+                catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
         catch = self._reroll_reward_effects(
             catch,
             loot_pool,
@@ -158,24 +198,53 @@ class FishingEngine:
             Decimal("1"),
         )
         rarity_luck = Decimal("1") + to_decimal(modifiers.get("item_rarity_luck_pct", 0))
-        if item_pool and random.random() < float(item_drop_chance):
-            item_catch = rng.roll_loot(item_pool, luck_modifier=float(rarity_luck))
-            if item_catch:
-                base_durability = item_catch.get("max_durability")
-
-                if not item_catch.get("title"):
-                    item_catch["title"] = item_catch.get("item_id", "Unknown Item")
-
-                item_catch.update(
-                    {
-                        "item_type": item_catch.get("item_type", "collectible"),
-                        "quantity": 1,
-                        "current_durability": int(base_durability)
-                        if base_durability is not None
-                        else None,
-                        "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    }
+        item_trace = None
+        item_gate_succeeded = False
+        if item_pool:
+            gate_roll = Decimal(str(random.random()))
+            item_gate_succeeded = gate_roll < item_drop_chance
+            rng_stages.append(
+                {
+                    "stage": "item_drop_gate",
+                    "roll": str(gate_roll),
+                    "threshold": str(item_drop_chance),
+                    "success": item_gate_succeeded,
+                }
+            )
+            if item_gate_succeeded:
+                item_trace = rng.roll_loot_traced(
+                    item_pool,
+                    weight_transform=lambda entry: rng._rarity_luck_weight(
+                        entry, float(rarity_luck)
+                    ),
                 )
+        if item_pool and item_gate_succeeded and item_trace is not None and item_trace.selected is not None:
+            item_catch = _as_catch(item_trace.selected)
+            rng_stages.append(
+                {
+                    "stage": "item_selection",
+                    "roll": str(item_trace.roll),
+                    "total_weight": str(item_trace.total_weight),
+                    "selected_entry_id": str(item_trace.selected_id),
+                    "selected_item_id": item_catch.get("item_id"),
+                    "selected_probability": str(item_trace.selected_probability),
+                }
+            )
+            base_durability = item_catch.get("max_durability")
+
+            if not item_catch.get("title"):
+                item_catch["title"] = item_catch.get("item_id", "Unknown Item")
+
+            item_catch.update(
+                {
+                    "item_type": item_catch.get("item_type", "collectible"),
+                    "quantity": 1,
+                    "current_durability": int(base_durability)
+                    if base_durability is not None
+                    else None,
+                    "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+            )
 
         base_xp_gain = formulas.calculate_xp_gain(
             base_xp=catch.get("xp", 0),
@@ -222,6 +291,8 @@ class FishingEngine:
             new_level=new_level,
             luck_used=float(luck),
             roulette_result=roulette_result,
+            reward_roll_trace=reward_trace.as_dict(),
+            rng_stages=rng_stages,
         )
 
     def calculate_mass_robbery(

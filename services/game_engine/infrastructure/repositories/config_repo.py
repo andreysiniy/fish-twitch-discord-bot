@@ -41,7 +41,7 @@ class ConfigRepository:
 
         db_items = self.db.query(LocationItem).filter(
             LocationItem.reward_pool_id == pool_obj.id,
-            or_(LocationItem.quantity == None, LocationItem.quantity > 0)
+            or_(LocationItem.quantity.is_(None), LocationItem.quantity > 0)
         ).all()
 
         items = [self._serialize_location_item(item) for item in db_items]

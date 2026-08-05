@@ -14,11 +14,12 @@ from domain.schemas.fishing import (
     FishTopResponse,
     RobberyResultDTO,
 )
-from infrastructure.models import UserProgress
+from infrastructure.models import FishingCast, UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from services.fishing.engine import FishingEngine
+from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
 from services.player_modifier_service import PlayerModifierService
@@ -40,6 +41,7 @@ class FishingService:
         self.presenter = FishingPresenter()
         self.strategy_resolver = FishingStrategyResolver(channel_repo=channel_repo)
         self.modifier_service = PlayerModifierService(user_repo.db)
+        self.ledger = FishingLedgerService(user_repo.db)
 
     def process_cast(
         self,
@@ -49,10 +51,22 @@ class FishingService:
         is_mod: bool = False,
         is_sub: bool = False,
         bypass_cooldown: bool = False,
+        source: str = "twitch",
+        source_request_id: str | None = None,
     ):
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
             user = self.user_repo.create(twitch_id, username, channel_id)
+
+        replay = self.ledger.find_replay(user.channel_id, source, source_request_id)
+        if replay is not None and replay.response_snapshot:
+            from domain.schemas.fishing import FishResponse
+
+            try:
+                return FishResponse(**replay.response_snapshot)
+            except Exception:
+                # Corrupt replay snapshot; fall through to process normally.
+                pass
 
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
@@ -188,7 +202,80 @@ class FishingService:
         if cooldown_duration > 0:
             self.cooldown_repo.set_cooldown(channel_id, twitch_id, cooldown_duration)
 
-        return self.presenter.build_response(user, result)
+        response = self.presenter.build_response(user, result)
+        if source_request_id:
+            cast = self._record_resolved_cast(
+                user=user,
+                result=result,
+                custom_params=custom_params,
+                is_mod=is_mod,
+                is_sub=is_sub,
+                bypass_cooldown=bypass_cooldown,
+                cooldown_duration=cooldown_duration,
+                source=source,
+                source_request_id=source_request_id,
+            )
+            if cast is not None:
+                response.cast_id = cast.id
+                cast.response_snapshot = response.model_dump(mode="json")
+        return response
+
+    def _record_resolved_cast(
+        self,
+        *,
+        user: UserProgress,
+        result,
+        custom_params: dict,
+        is_mod: bool,
+        is_sub: bool,
+        bypass_cooldown: bool,
+        cooldown_duration: int,
+        source: str,
+        source_request_id: str,
+    ) -> "FishingCast | None":
+        try:
+            event = self.strategy_resolver.channel_repo.get_active_fishing_event(user.channel_id)
+            event_snapshot = (
+                {
+                    "id": event.id,
+                    "title": event.event_title,
+                    "version": event.version,
+                }
+                if event
+                else {}
+            )
+            effective_params = dict(custom_params or {})
+            next_available = (
+                self.cooldown_repo.next_available_at(
+                    user.channel_id, user.user_twitch_id
+                )
+                if hasattr(self.cooldown_repo, "next_available_at")
+                else None
+            )
+            cast = self.ledger.record_resolved(
+                user=user,
+                result=result,
+                channel_config_version=user.channel.config_version,
+                event_snapshot=event_snapshot,
+                effective_params_snapshot=effective_params,
+                engine_version="unknown",
+                source=source,
+                source_request_id=source_request_id,
+                is_mod=is_mod,
+                is_sub=is_sub,
+                bypass_cooldown=bypass_cooldown,
+                cooldown_seconds_applied=cooldown_duration,
+                next_available_at=next_available,
+            )
+            cast.rng_trace = result.rng_stages or cast.rng_trace
+            return cast
+        except Exception as error:  # pragma: no cover - defensive
+            import logging
+
+            logging.getLogger("fishing.ledger").warning(
+                "Failed to record fishing cast", exc_info=error
+            )
+            return None
 
     def _resolve_cooldown_duration(self, custom_params: dict, is_mod: bool, is_sub: bool) -> int:
         if is_mod:
