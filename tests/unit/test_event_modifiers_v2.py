@@ -84,3 +84,38 @@ def test_legacy_event_contributions_still_resolve() -> None:
     assert values["loot_luck_pct"] == Decimal("0.40")
     assert values["positive_mass_bonus_pct"] == Decimal("5")
     assert values["xp_gain_bonus_pct"] == Decimal("1")
+
+
+def test_event_create_request_accepts_v2_human_percents() -> None:
+    from domain.schemas.discord_admin import DiscordEventCreateRequest
+
+    request = DiscordEventCreateRequest(
+        event_title="Lucky",
+        modifiers={
+            "schema_version": 2,
+            "fish_luck_change_percent": "40",
+            "positive_fish_reward_change_percent": "5",
+            "xp_gain_change_percent": "100",
+            "cooldown_change_percent": "-50",
+        },
+    )
+    assert isinstance(request.modifiers, EventModifiersV2)
+    assert request.modifiers.fish_luck_change_percent == Decimal("40")
+
+
+def test_event_create_request_still_accepts_legacy_modifiers() -> None:
+    from domain.schemas.discord_admin import DiscordEventCreateRequest
+
+    request = DiscordEventCreateRequest(
+        event_title="Lucky",
+        modifiers={"luck_mult": "1.4", "bonus_mass": "5"},
+    )
+    assert isinstance(request.modifiers, EventModifiers)
+    assert request.modifiers.bonus_mass == Decimal("5")
+
+
+def test_event_patch_request_passes_none_modifiers_through() -> None:
+    from domain.schemas.discord_admin import DiscordEventPatchRequest
+
+    request = DiscordEventPatchRequest(expected_version=1, event_title="New name")
+    assert request.modifiers is None
