@@ -34,6 +34,17 @@ ERROR_MESSAGES = {
     "EVENT_ALREADY_ACTIVE": "Another event is already active.",
     "IDEMPOTENCY_CONFLICT": "This operation was already submitted with different data.",
     "ENGINE_UNAVAILABLE": "The game service is temporarily unavailable. No settings were changed.",
+    "ITEM_NOT_FOUND": "Item not found in this channel.",
+    "ITEM_DROP_NOT_FOUND": "This item drop does not exist for the location.",
+    "ITEM_VERSION_CONFLICT": "Another administrator changed this item. Open the form again.",
+    "ITEM_INVALID_EFFECT": "One of the item effects is invalid.",
+    "INVENTORY_ITEM_NOT_FOUND": "Inventory item not found.",
+    "INVENTORY_FULL": "The viewer inventory is full.",
+    "INVENTORY_CAPACITY_CONFLICT": "Inventory capacity prevents this change.",
+    "ITEM_COMPATIBILITY": "The effect is not compatible with this item type.",
+    "PLAYER_NOT_FOUND": "Viewer not found.",
+    "PLAYER_MODIFIER_NOT_FOUND": "Player modifier not found.",
+    "EVENT_REQUIRES_REVIEW": "This event has unsafe inherited modifiers and must be reviewed before it can be started.",
 }
 
 

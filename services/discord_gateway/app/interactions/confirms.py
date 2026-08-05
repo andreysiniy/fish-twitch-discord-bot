@@ -9,7 +9,7 @@ class ConfirmView(discord.ui.View):
         initiator_id: int,
         on_confirm: Callable[[discord.Interaction], Awaitable[None]],
         *,
-        timeout: float = 120,
+        timeout: float = 180,
         danger: bool = False,
     ):
         super().__init__(timeout=timeout)

@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 
 
 class WizardSessionStore:
-    def __init__(self, redis: Redis, ttl_seconds: int = 900):
+    def __init__(self, redis: Redis, ttl_seconds: int = 600):
         self.redis = redis
         self.ttl_seconds = ttl_seconds
 

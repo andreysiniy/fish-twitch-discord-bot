@@ -455,7 +455,7 @@ class RouletteSettingsModal(discord.ui.Modal):
             label="Set success effect",
         )
         await interaction.response.send_message(
-            "Roulette settings saved. Configure the optional success effect.",
+            "Roulette draft updated. Configure the optional success effect.",
             view=view,
             ephemeral=True,
         )
@@ -534,7 +534,7 @@ class RouletteOutcomeModal(discord.ui.Modal):
                 label="Set failure effect",
             )
             await interaction.response.send_message(
-                "Success effect saved. Configure the optional failure effect.",
+                "Success effect draft updated. Configure the optional failure effect.",
                 view=view,
                 ephemeral=True,
             )
@@ -621,7 +621,7 @@ class EventModal(discord.ui.Modal):
             label="Set XP and cooldown",
         )
         await interaction.response.send_message(
-            "Event settings saved. Continue with XP and cooldown.",
+            "Event draft updated. Continue with XP and cooldown.",
             view=view,
             ephemeral=True,
         )
@@ -707,7 +707,7 @@ async def _show_reward_details_step(
         label="Open reward details",
     )
     await interaction.response.send_message(
-        "Type-specific settings saved. Continue with name, weight, XP, and message.",
+        "Type-specific draft updated. Continue with name, weight, XP, and message.",
         view=view,
         ephemeral=True,
     )
