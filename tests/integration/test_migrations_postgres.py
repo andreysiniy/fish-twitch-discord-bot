@@ -157,6 +157,12 @@ def test_fishing_cast_ledger_tables_upgrade_and_roundtrip() -> None:
         inspector = inspect(engine)
         tables = set(inspector.get_table_names())
         assert {"fishing_casts", "fishing_ruleset_snapshots", "fishing_cast_item_drops"} <= tables
+        assert "loot_table_entry_stock" in tables
+
+        loot_columns = {
+            column["name"] for column in inspector.get_columns("loot_table_entries")
+        }
+        assert {"xp_gain", "message"} <= loot_columns
 
         # Tenant isolation: cast is tied to its channel and user via FK constraints.
         cast_columns = {column["name"] for column in inspector.get_columns("fishing_casts")}
@@ -465,13 +471,19 @@ def test_economic_range_check_constraints_reject_invalid_state() -> None:
 
 def _convert_current_schema_to_legacy_snapshot(engine) -> None:
     statements = (
-        "DROP TABLE inventory_item_use_records, loot_table_entries, loot_tables, "
+        "DROP TABLE inventory_item_use_records, loot_table_entry_stock, loot_table_entries, "
+        "loot_tables, "
         "player_modifiers, equipped_items, idempotency_records, admin_audit_log, "
         "discord_guild_bindings, discord_account_links CASCADE",
         "ALTER TABLE channels DROP COLUMN config_version, DROP COLUMN config_updated_at",
-        "ALTER TABLE reward_pools DROP COLUMN version, DROP COLUMN updated_at",
+        "ALTER TABLE reward_pools DROP COLUMN version, DROP COLUMN updated_at, "
+        "DROP COLUMN item_loot_table_id",
         "ALTER TABLE fishing_events DROP COLUMN version, DROP COLUMN created_at, "
-        "DROP COLUMN updated_at",
+        "DROP COLUMN updated_at, DROP COLUMN status, DROP COLUMN starts_at, "
+        "DROP COLUMN ends_at, DROP COLUMN activated_at, DROP COLUMN deactivated_at, "
+        "DROP COLUMN modifier_schema_version, DROP COLUMN requires_review, "
+        "DROP COLUMN modifiers_history",
+        "ALTER TABLE users_progress DROP COLUMN base_inventory_slots",
         "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version",
         "ALTER TABLE location_items DROP COLUMN version, DROP COLUMN updated_at",
         "ALTER TABLE outbox_events DROP COLUMN lease_expires_at",
