@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -168,6 +169,8 @@ class InventoryItem(Base):
     __tablename__ = "inventory_items"
     __table_args__ = (
         UniqueConstraint("user_id", "slot_id", name="uq_inventory_item_user_slot"),
+        # Composite key used by equipped_items to enforce same-owner equip.
+        UniqueConstraint("id", "user_id", name="uq_inventory_item_id_user"),
         CheckConstraint("quantity > 0", name="ck_inventory_items_quantity_positive"),
         CheckConstraint("slot_id >= 1", name="ck_inventory_items_slot_positive"),
         CheckConstraint(
@@ -197,6 +200,7 @@ class InventoryItem(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
+        overlaps="owner,equipped_items",
     )
 
 
@@ -205,6 +209,12 @@ class EquippedItem(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "slot", name="uq_equipped_items_user_slot"),
         UniqueConstraint("inventory_item_id", name="uq_equipped_items_inventory_item"),
+        ForeignKeyConstraint(
+            ["inventory_item_id", "user_id"],
+            ["inventory_items.id", "inventory_items.user_id"],
+            name="fk_equipped_items_inventory_owner",
+            ondelete="CASCADE",
+        ),
         CheckConstraint(
             "slot IN ('rod','bait','defense','storage','charm_1','charm_2')",
             name="ck_equipped_items_slot",
@@ -214,9 +224,7 @@ class EquippedItem(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False)
     slot = Column(String, nullable=False)
-    inventory_item_id = Column(
-        Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"), nullable=False
-    )
+    inventory_item_id = Column(Integer, nullable=False)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -227,8 +235,15 @@ class EquippedItem(Base):
         nullable=False,
     )
 
-    owner = relationship("UserProgress", back_populates="equipped_items")
-    inventory_item = relationship("InventoryItem", back_populates="equipped_record", lazy="joined")
+    owner = relationship(
+        "UserProgress", back_populates="equipped_items", overlaps="equipped_record"
+    )
+    inventory_item = relationship(
+        "InventoryItem",
+        back_populates="equipped_record",
+        lazy="joined",
+        overlaps="owner,equipped_items",
+    )
 
 
 class RewardPool(Base):
