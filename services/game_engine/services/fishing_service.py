@@ -13,22 +13,6 @@ from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
 
 
-def _bonus_segment(emoji: str, label: str, percent_value) -> str:
-    """One '🍀 Label: +N% | ' segment, or empty when the stat is zero.
-
-    Zero-valued bonus stats are omitted from the stats line so the channel
-    owner does not see a wall of +0% entries; mass is never a bonus segment.
-    The value is already percentage points (5 means 5%).
-    """
-    try:
-        value = Decimal(str(percent_value))
-    except Exception:
-        return ""
-    if value == 0:
-        return ""
-    text = f"{abs(value):.2f}".rstrip("0").rstrip(".")
-    sign = "+" if value >= 0 else "-"
-    return f"{emoji} {label}: {sign}{text}% | "
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
@@ -47,6 +31,23 @@ from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
 from services.player_modifier_service import PlayerModifierService
+
+def _bonus_segment(emoji: str, label: str, percent_value) -> str:
+    """One '🍀 Label: +N% | ' segment, or empty when the stat is zero.
+
+    Zero-valued bonus stats are omitted from the stats line so the channel
+    owner does not see a wall of +0% entries; mass is never a bonus segment.
+    The value is already percentage points (5 means 5%).
+    """
+    try:
+        value = Decimal(str(percent_value))
+    except Exception:
+        return ""
+    if value == 0:
+        return ""
+    text = f"{abs(value):.2f}".rstrip("0").rstrip(".")
+    sign = "+" if value >= 0 else "-"
+    return f"{emoji} {label}: {sign}{text}% | "
 
 
 class FishingService:
