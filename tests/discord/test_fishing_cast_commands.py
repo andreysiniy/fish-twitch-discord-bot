@@ -173,3 +173,62 @@ def test_cast_recent_and_search_accept_username_kwargs() -> None:
     api2 = _FakeApi()
     _run_callback("search", api2, viewer="viewer_one", username="other")
     assert api2.search_kwargs["username"] == "viewer_one"
+
+
+def test_cast_detail_embed_rounds_reward_fields() -> None:
+    embed = cast_detail_embed(
+        {
+            "cast_id": "0198f72f-4bc5-7e90-9081-e7bf4df21d56",
+            "status": "resolved",
+            "username": "viewer_one",
+            "location_id": "abyss",
+            "state": {
+                "mass_before": "100.00",
+                "mass_after": "129.40",
+                "mass_delta_applied": "29.40",
+                "xp_before": 100,
+                "xp_after": 120,
+                "xp_gained": 20,
+                "level_before": 4,
+                "level_after": 4,
+            },
+            "reward": {
+                "reward_type": "fish",
+                "reward_id": "rew-1",
+                "weight": "1835.00000000",
+                "total_weight": "95951.00000000",
+                "probability": "0.019124344718",
+                "roll": "1597.907049000000",
+            },
+            "items": [],
+        }
+    )
+    fields = {f.name: f.value for f in embed.fields}
+    assert "probability: 1.91% • roll: 1,597.91" in fields["Reward"]
+    assert "weight: 1835 / 95951" in fields["Reward"]
+
+
+def test_cast_detail_embed_handles_missing_reward_trace() -> None:
+    embed = cast_detail_embed(
+        {
+            "cast_id": "0198f72f-4bc5-7e90-9081-e7bf4df21d56",
+            "status": "resolved",
+            "username": "viewer_one",
+            "location_id": "abyss",
+            "state": {
+                "mass_before": "100.00",
+                "mass_after": "129.40",
+                "mass_delta_applied": "29.40",
+                "xp_before": 100,
+                "xp_after": 120,
+                "xp_gained": 20,
+                "level_before": 4,
+                "level_after": 4,
+            },
+            "reward": {"reward_type": "fish", "reward_id": "rew-1"},
+            "items": [],
+        }
+    )
+    fields = {f.name: f.value for f in embed.fields}
+    assert "probability: n/a • roll: n/a" in fields["Reward"]
+    assert "weight:" not in fields["Reward"]
