@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -56,6 +57,45 @@ class FisherDiscordBot(discord.Client):
             "Discord gateway ready",
             extra={"discord_user_id": str(self.user.id if self.user else "")},
         )
+
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        """Ack clicks on stale or stopped forms so Discord never times out.
+
+        discord.py discards component interactions whose view is missing or
+        already stopped without answering them, which surfaces to the user as
+        "application did not respond in time". Live views respond themselves;
+        this only fires for interactions no live handler will answer.
+        """
+        if interaction.type is discord.InteractionType.component:
+            if not self._component_has_live_handler(interaction):
+                try:
+                    await interaction.response.send_message(
+                        "This form is no longer active. Run the command again.",
+                        ephemeral=True,
+                    )
+                except Exception:
+                    logger.debug("Stale component ack failed", exc_info=True)
+
+    def _component_has_live_handler(self, interaction: discord.Interaction) -> bool:
+        """Replicate the view-store lookup: is any live handler going to answer?"""
+        store = self._connection._view_store
+        data = interaction.data or {}
+        custom_id = data.get("custom_id")
+        component_type = data.get("component_type")
+        if not custom_id:
+            return False
+        for pattern, _item in store._dynamic_items.items():
+            if pattern.fullmatch(custom_id):
+                return True
+        key = (component_type, custom_id)
+        candidates: list[Any | None] = []
+        if interaction.message is not None:
+            candidates.append(store._views.get(interaction.message.id, {}).get(key))
+        candidates.append(store._views.get(None, {}).get(key))
+        for item in candidates:
+            if item is not None and item.view is not None and not item.view.is_finished():
+                return True
+        return False
 
     async def on_tree_error(
         self,

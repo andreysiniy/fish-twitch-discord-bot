@@ -137,3 +137,61 @@ def test_confirm_view_acks_and_reports_failed_mutation() -> None:
         assert second.response.defer_kwargs is None
 
     asyncio.run(run())
+
+
+def test_stale_component_click_is_acked_instead_of_timing_out() -> None:
+    """Clicks on removed/stopped views get a response, never a 3s timeout."""
+    import asyncio
+
+    from app.bot import FisherDiscordBot
+    from app.config import DiscordSettings
+
+    class FakeResponse:
+        def __init__(self):
+            self.sent = None
+
+        async def send_message(self, content=None, **kwargs):
+            self.sent = {"content": content, **kwargs}
+
+    class FakeInteraction:
+        def __init__(self, custom_id, component_type, message=None, data=None):
+            self.type = discord.InteractionType.component
+            self.message = message
+            self.data = {"custom_id": custom_id, "component_type": component_type}
+            self.response = FakeResponse()
+
+    class FakeMessage:
+        def __init__(self, mid):
+            self.id = mid
+
+    async def run():
+        bot = FisherDiscordBot(DiscordSettings())  # noqa: S106 - test settings
+        store = bot._connection._view_store
+
+        # A live view is left alone.
+        live_message = FakeMessage(101)
+        live = discord.ui.View()
+        live.add_item(discord.ui.Button(label="Go", custom_id="live_btn"))
+        store.add_view(live, message_id=101)
+        live_interaction = FakeInteraction("live_btn", 2, live_message)
+        assert bot._component_has_live_handler(live_interaction) is True
+
+        # A stopped view is treated as dead -> acked with a friendly message.
+        dead_message = FakeMessage(202)
+        dead = discord.ui.View()
+        dead.add_item(discord.ui.Button(label="Old", custom_id="dead_btn"))
+        store.add_view(dead, message_id=202)
+        dead.stop()
+        dead_interaction = FakeInteraction("dead_btn", 2, dead_message)
+        assert bot._component_has_live_handler(dead_interaction) is False
+        await bot.on_interaction(dead_interaction)
+        assert dead_interaction.response.sent is not None
+        assert "no longer active" in dead_interaction.response.sent["content"]
+
+        # Unknown custom id -> acked.
+        ghost = FakeInteraction("ghost_btn", 2, FakeMessage(303))
+        assert bot._component_has_live_handler(ghost) is False
+        await bot.on_interaction(ghost)
+        assert ghost.response.sent is not None
+
+    asyncio.run(run())
