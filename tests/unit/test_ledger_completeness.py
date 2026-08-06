@@ -203,7 +203,7 @@ def test_record_resolved_persists_modifiers_and_roll_columns() -> None:
     ledger = FishingLedgerService.__new__(FishingLedgerService)
     ledger.repo = repo
     ledger.db = MagicMock()
-    ledger._find_pool = lambda user: None
+    ledger._find_pool = lambda user, location_id=None: None
     ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
     result = _result()
     cast = ledger.record_resolved(
@@ -262,3 +262,156 @@ def test_record_rejected_keeps_no_rng_state() -> None:
     assert cast.error_code == "BAD_INPUT"
     assert cast.source_request_id == "m6"
     assert not hasattr(cast, "reward_roll") or cast.reward_roll is None
+
+
+def test_record_resolved_snapshots_the_whole_pool_and_actual_pool_location() -> None:
+    """The ruleset snapshot gets the full reward pool, not just the winner."""
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = MagicMock(return_value=SimpleNamespace(
+        id=9, version=3, location_name="river"
+    ))
+    captured: dict = {}
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: (
+        captured.update(kw) or ("snap-1", True)
+    )
+    pool_entries = [
+        {"reward_id": "r1", "type": "nothing", "weight": 90},
+        {"reward_id": "r2", "type": "fish", "weight": 10},
+    ]
+    result = _result(rng_stages=[])
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-1",
+        loot_pool=pool_entries,
+        pool_location_id="river",
+    )
+
+    assert captured["rewards"] == pool_entries
+    assert captured["pool"].id == 9
+    assert ledger._find_pool.call_args.args[1] == "river"
+
+
+def test_record_resolved_uses_reward_id_and_points_delta() -> None:
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = lambda user, location_id=None: None
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
+    result = _result(
+        loot={"type": "points", "reward_id": "p1", "value": 42},
+        rng_stages=[],
+    )
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-1",
+        loot_pool=[result.loot],
+    )
+
+    assert ledger.repo.create_cast.call_args.kwargs["points_delta"] == 42
+    assert ledger.repo.create_cast.call_args.kwargs["reward_id"] == "p1"
+
+
+def test_record_resolved_fills_item_drop_subflags_and_selection_trace() -> None:
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = lambda user, location_id=None: None
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
+    result = _result(
+        loot={"type": "fish", "reward_id": "r1"},
+        item_drop={
+            "item_id": "rod",
+            "title": "Rod",
+            "item_definition_id": 5,
+            "quantity": 2,
+            "stock_reserved": True,
+            "grant_success": True,
+        },
+        rng_stages=[
+            {"stage": "item_drop_gate", "roll": "0.1", "threshold": "0.3", "success": True},
+            {
+                "stage": "item_selection",
+                "roll": "0.5",
+                "total_weight": "10",
+                "selected_weight": "4",
+                "selected_probability": "0.4",
+            },
+        ],
+    )
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-1",
+        loot_pool=[result.loot],
+    )
+
+    cast_kwargs = ledger.repo.create_cast.call_args.kwargs
+    assert cast_kwargs["item_drop_gate_success"] is True
+    assert cast_kwargs["item_drop_selection_success"] is True
+    assert cast_kwargs["item_drop_stock_reserved"] is True
+    assert cast_kwargs["item_drop_grant_success"] is True
+    drop_kwargs = ledger.repo.add_item_drop.call_args.kwargs
+    assert drop_kwargs["selection_roll"] == Decimal("0.5")
+    assert drop_kwargs["selection_total_weight"] == Decimal("10")
+    assert drop_kwargs["selection_probability"] == Decimal("0.4")
+    assert drop_kwargs["quantity_requested"] == 2
+    assert drop_kwargs["quantity_granted"] == 2
+    assert drop_kwargs["grant_status"] == "granted"
+
+
+def test_record_resolved_marks_failed_grant_when_inventory_full() -> None:
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = lambda user, location_id=None: None
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
+    result = _result(
+        loot={"type": "fish", "reward_id": "r1"},
+        item_drop={
+            "item_id": "rod",
+            "title": "Rod",
+            "item_definition_id": 5,
+            "quantity": 1,
+            "stock_reserved": True,
+            "grant_success": False,
+        },
+        rng_stages=[
+            {"stage": "item_drop_gate", "roll": "0.1", "threshold": "0.3", "success": True}
+        ],
+    )
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-1",
+        loot_pool=[result.loot],
+    )
+
+    drop_kwargs = ledger.repo.add_item_drop.call_args.kwargs
+    assert drop_kwargs["grant_status"] == "failed"
+    assert drop_kwargs["quantity_granted"] == 0
+    cast_kwargs = ledger.repo.create_cast.call_args.kwargs
+    assert cast_kwargs["item_drop_grant_success"] is False

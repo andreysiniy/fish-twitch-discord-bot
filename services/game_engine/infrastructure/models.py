@@ -842,6 +842,7 @@ class FishingCast(Base):
 
     status = Column(String(32), nullable=False, default="resolved", index=True)
     error_code = Column(String(64), nullable=True)
+    error_message = Column(String(500), nullable=True)
 
     # User and context snapshots.
     twitch_user_id_snapshot = Column(String, nullable=False)
@@ -898,6 +899,13 @@ class FishingCast(Base):
     item_drop_roll = Column(Numeric(14, 12), nullable=True)
     item_drop_succeeded = Column(Boolean, nullable=False, default=False)
     item_drop_count = Column(Integer, nullable=False, default=0)
+    # Fine-grained drop outcome: gate roll, selection, stock reservation and
+    # the inventory grant are tracked separately so a failed grant (e.g. full
+    # inventory) is not confused with a failed gate roll.
+    item_drop_gate_success = Column(Boolean, nullable=True)
+    item_drop_selection_success = Column(Boolean, nullable=True)
+    item_drop_stock_reserved = Column(Boolean, nullable=True)
+    item_drop_grant_success = Column(Boolean, nullable=True)
 
     # Explanation.
     resolved_modifiers = Column(JSONB, default=dict, nullable=False)
@@ -982,14 +990,18 @@ class FishingStatsDaily(Base):
 
     __tablename__ = "fishing_stats_daily"
     __table_args__ = (
-        UniqueConstraint(
+        # NULLS NOT DISTINCT so a bucket with any NULL dimension stays unique
+        # under parallel rebuilds (PostgreSQL 15+).
+        Index(
+            "uq_fishing_stats_daily_bucket",
             "day",
             "channel_id",
             "location_id",
             "event_id",
             "reward_type",
             "item_definition_id",
-            name="uq_fishing_stats_daily_bucket",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
         ),
         Index(
             "ix_fishing_stats_daily_channel_day",

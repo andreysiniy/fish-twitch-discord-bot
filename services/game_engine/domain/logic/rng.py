@@ -110,6 +110,10 @@ def roll_loot_traced(
 
 
 def _entry_id(entry: dict) -> Any:
+    if "reward_id" in entry:
+        return entry["reward_id"]
+    if "identifier" in entry:
+        return entry["identifier"]
     if "id" in entry:
         return entry["id"]
     if "item_id" in entry:
@@ -136,11 +140,24 @@ def roll_loot(
     return result.selected
 
 
+def calculate_chance_traced(
+    chance: float,
+    random_source: Callable[[], float] = random.random,
+) -> tuple[bool, Decimal]:
+    """Chance roll that also returns the raw roll value for traceability."""
+    roll = Decimal(str(max(random_source(), 0.0)))
+    return roll < _to_decimal(chance), roll
+
+
 def calculate_chance(chance: float) -> bool:
-    return random.random() < chance
+    return calculate_chance_traced(chance)[0]
 
 
 def is_russian_roulette_hit(bullets: int, chambers: int) -> bool:
+    return is_russian_roulette_hit_traced(bullets, chambers)[0]
+
+
+def is_russian_roulette_hit_traced(bullets: int, chambers: int) -> tuple[bool, Decimal]:
     if chambers <= 0:
-        return False
-    return calculate_chance(bullets / chambers)
+        return False, Decimal("0")
+    return calculate_chance_traced(bullets / chambers)

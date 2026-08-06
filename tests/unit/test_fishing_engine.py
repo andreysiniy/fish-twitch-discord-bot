@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 from domain.schemas.fishing import FishingResult
+from domain.logic import rng
 from services.fishing.engine import EventLootStrategy, FishingEngine
 from services.fishing.presenter import FishingPresenter
 from services.fishing_service import FishingService
@@ -78,7 +79,10 @@ def test_positive_luck_and_mass_bonus_reduce_negative_fixed_mass_penalty() -> No
 def test_roulette_negative_mass_effects_are_reduced_by_positive_modifiers(
     monkeypatch, penalty
 ) -> None:
-    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.is_russian_roulette_hit_traced",
+        lambda **_: (True, Decimal("0")),
+    )
     strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
 
     result = FishingEngine().calculate_russian_roulette(
@@ -266,7 +270,10 @@ def test_typed_mass_modifiers_handle_sign_and_floor(
 
 
 def test_typed_roulette_penalty_uses_negative_reduction(monkeypatch) -> None:
-    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.is_russian_roulette_hit_traced",
+        lambda **_: (True, Decimal("0")),
+    )
     result = FishingEngine().calculate_result(
         user=make_user(current_mass=Decimal("100")),
         loot_pool=[
@@ -408,7 +415,7 @@ def test_fishing_service_persists_decimal_mass() -> None:
         id=1,
         user_twitch_id="1",
         channel_id=1,
-        channel=SimpleNamespace(config={}),
+        channel=SimpleNamespace(config={}, config_version=1),
         current_mass=Decimal("1.10"),
         total_mass_stat=Decimal("2.20"),
         total_fish_stat=0,
@@ -423,12 +430,14 @@ def test_fishing_service_persists_decimal_mass() -> None:
     channel_repo = Mock()
     channel_repo.get_active_fishing_event.return_value = None
     service = FishingService(user_repo, config_repo, cooldown_repo, channel_repo)
+    service.ledger.find_replay = Mock(return_value=None)
     service.modifier_service.resolve = Mock(
         return_value=SimpleNamespace(
             value=lambda _stat: Decimal("0"),
             values={},
             effects=(),
             mass_floor=lambda _scope: Decimal("0"),
+            explain=lambda: {},
         )
     )
     service.engine.calculate_result = Mock(
@@ -444,11 +453,19 @@ def test_fishing_service_persists_decimal_mass() -> None:
             fish_luck_factor_used=Decimal("1.0"),
         )
     )
-    service.presenter.build_response = Mock(side_effect=lambda _user, result: result)
+    from domain.schemas.fishing import FishResponse
 
-    result = service.process_cast("1", user.username, "channel", is_mod=True)
+    captured: dict = {}
 
-    assert result.mass_gained == Decimal("0.21")
+    def _fake_presenter(_user, result):
+        captured["result"] = result
+        return FishResponse(chat_message="", xp_gained=0, actions=[])
+
+    service.presenter.build_response = Mock(side_effect=_fake_presenter)
+
+    service.process_cast("1", user.username, "channel", is_mod=True)
+
+    assert captured["result"].mass_gained == Decimal("0.21")
     assert user.current_mass == Decimal("1.31")
     assert user.total_mass_stat == Decimal("2.41")
     assert isinstance(user.current_mass, Decimal)
@@ -483,8 +500,16 @@ def test_empty_catch_stat_rerolls_once(monkeypatch) -> None:
 
 def test_block_action_rerolls_matching_reward_and_tracks_durability(monkeypatch) -> None:
     monkeypatch.setattr(
-        "services.fishing.engine.rng.roll_loot",
-        lambda *_args, **_kwargs: {"type": "fish", "fixed_mass": "1"},
+        "services.fishing.engine.rng.roll_loot_traced",
+        lambda *_args, **_kwargs: rng.WeightedRollResult(
+            selected={"type": "fish", "fixed_mass": "1"},
+            selected_id="fish",
+            roll=Decimal("0"),
+            total_weight=Decimal("1"),
+            selected_weight=Decimal("1"),
+            selected_probability=Decimal("1"),
+            candidate_count=1,
+        ),
     )
     monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0)
     effect = {

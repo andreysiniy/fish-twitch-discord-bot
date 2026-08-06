@@ -57,9 +57,32 @@ class ConfigRepository:
                 )
                 .all()
             )
-            return [self._serialize_loot_table_entry(entry) for entry in entries]
+            return [
+                self._serialize_loot_table_entry(entry)
+                for entry in entries
+                if self._matches_rarity_filter(entry, pool_obj)
+            ]
         # No unified loot table: the location has no item drops.
         return []
+
+    @staticmethod
+    def _matches_rarity_filter(entry: LootTableEntry, pool_obj: RewardPool) -> bool:
+        """Apply an entry rarity gate against the current player context.
+
+        ``rarity_filter`` is a comma-separated list of accepted rarities
+        (e.g. ``"epic,legendary"``). An empty or null filter accepts every
+        entry. The definition's rarity is the only stable rarity source.
+        """
+        if not entry.rarity_filter:
+            return True
+        allowed = {
+            part.strip().lower()
+            for part in entry.rarity_filter.split(",")
+            if part.strip()
+        }
+        if not allowed:
+            return True
+        return str((entry.definition.rarity or "").lower()) in allowed
 
     def consume_item_stock(self, item: dict, amount: int = 1) -> bool:
         """Consume stock for a drop candidate.
@@ -115,6 +138,9 @@ class ConfigRepository:
             "weight": entry.weight,
             "xp_gain": entry.xp_gain,
             "quantity": None,
+            "min_quantity": entry.min_quantity,
+            "max_quantity": entry.max_quantity,
+            "rarity_filter": entry.rarity_filter,
             "message": entry.message or "You caught {name}!",
             "effects": definition.effects or [],
             "definition_version": definition.version,

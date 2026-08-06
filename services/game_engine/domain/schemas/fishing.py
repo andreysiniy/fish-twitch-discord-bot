@@ -98,12 +98,14 @@ class RobberyResultDTO(BaseModel):
     chance_used: float
     absorbed: bool = False
     counter_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    roll: Decimal | None = None
 
 
 class RussianRouletteResultDTO(BaseModel):
     is_hit: bool
     bullets: int
     chambers: int
+    roll: Decimal | None = None
     message: str
     mass_delta: Decimal = Decimal("0.00")
     penalty: Optional[Dict[str, Any]] = None
