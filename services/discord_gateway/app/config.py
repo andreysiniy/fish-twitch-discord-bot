@@ -22,7 +22,7 @@ class DiscordSettings(BaseSettings):
     COMMAND_SYNC_MODE: str = "global"
     DEV_GUILD_ID: int | None = None
     HTTP_TIMEOUT_SECONDS: float = 8.0
-    WIZARD_SESSION_TTL_SECONDS: int = 900
+    WIZARD_SESSION_TTL_SECONDS: int = 600
     OAUTH_LINK_TTL_SECONDS: int = 600
     HEALTH_PORT: int = 8081
 
