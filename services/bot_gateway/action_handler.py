@@ -44,7 +44,8 @@ class ActionHandler:
                 await self._handle_dupe(ctx, action)
         except Exception as error:
             logger.exception("Failed to execute action type=%s", action_type)
-            await ctx.send(f"Action '{action_type}' failed: {type(error).__name__}")
+            detail = str(error) or type(error).__name__
+            await ctx.send(f"Action '{action_type}' failed: {detail}"[:500])
             return
 
         action_message = action.get("action_message")
@@ -78,6 +79,8 @@ class ActionHandler:
         duration = max(min(int(action.get("duration", 60)), 1_209_600), 1)
         target_username = str(action.get("target_user") or "").strip()
         reason = str(action.get("reason") or "Fishing timeout")[:500]
+        if not target_username:
+            raise ValueError("timeout action is missing target_user")
         target_id = await self._resolve_user_id(target_username)
         moderator_id = await self._resolve_bot_user_id()
         broadcaster_id = await get_channel_id(ctx)
@@ -95,7 +98,11 @@ class ActionHandler:
             json={"data": {"user_id": target_id, "duration": duration, "reason": reason}},
         ) as response:
             if response.status >= 400:
-                raise RuntimeError(f"Twitch moderation API returned {response.status}")
+                body = (await response.text())[:300]
+                raise RuntimeError(
+                    f"Twitch moderation API returned {response.status}: {body} "
+                    f"(broadcaster={broadcaster_id}, moderator={moderator_id}, target={target_username})"
+                )
 
     async def _handle_points(self, ctx, action: Dict[str, Any], index: int) -> None:
         channel_id = await get_channel_id(ctx)

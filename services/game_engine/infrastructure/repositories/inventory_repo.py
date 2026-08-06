@@ -245,6 +245,7 @@ class InventoryRepository:
                     "type": "timeout",
                     "duration_seconds": int(effect["duration_seconds"]),
                     "reason": effect.get("reason", "Item effect"),
+                    "target_user": locked_user.username,
                 }
                 actions.append(action)
             elif effect_type == "loot_table_roll":
