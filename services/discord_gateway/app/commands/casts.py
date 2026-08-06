@@ -101,13 +101,13 @@ def cast_detail_embed(item: dict) -> discord.Embed:
     reward_lines = [
         f"`{reward.get('reward_type') or '?'}` "
         f"`{reward.get('reward_id') or ''}`",
-        f"probability: {reward.get('probability') or 'n/a'} • "
-        f"roll: {reward.get('roll') or 'n/a'}",
+        f"probability: {_fmt_probability(reward.get('probability'))} • "
+        f"roll: {_fmt_roll(reward.get('roll'))}",
     ]
     if reward.get("weight") or reward.get("total_weight"):
         reward_lines.append(
-            f"weight: {reward.get('weight') or 'n/a'} / "
-            f"{reward.get('total_weight') or 'n/a'}"
+            f"weight: {_fmt_weight(reward.get('weight'))} / "
+            f"{_fmt_weight(reward.get('total_weight'))}"
         )
     embed.add_field(name="Reward", value="\n".join(reward_lines), inline=False)
 
@@ -160,6 +160,30 @@ def _fmt_num(value) -> str:
         return f"{float(value):,.0f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def _fmt_probability(value) -> str:
+    """Ratio (0-1) rounded to a human percentage, e.g. 0.0191 -> '1.91%'."""
+    try:
+        return f"{float(value) * 100:.2f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _fmt_roll(value) -> str:
+    """Random roll rounded for display; the raw value stays in the backend."""
+    try:
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _fmt_weight(value) -> str:
+    """Weight shown without its fractional part."""
+    try:
+        return f"{float(value):.0f}"
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 def _allow_owner_only() -> bool:
