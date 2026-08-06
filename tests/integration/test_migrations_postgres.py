@@ -70,6 +70,7 @@ def test_latest_pre_alembic_snapshot_upgrades_without_data_loss() -> None:
             db.add(
                 InventoryItem(
                     user_id=user.id,
+                    channel_id=channel.id,
                     item_id=definition.id,
                     slot_id=1,
                     quantity=1,
@@ -353,7 +354,11 @@ def test_equipment_cannot_reference_another_users_inventory() -> None:
             db.flush()
             db.add(
                 InventoryItem(
-                    user_id=user_a.id, item_id=definition.id, slot_id=1, quantity=1
+                    user_id=user_a.id,
+                    channel_id=channel.id,
+                    item_id=definition.id,
+                    slot_id=1,
+                    quantity=1,
                 )
             )
             db.commit()
@@ -721,6 +726,168 @@ def test_modifier_stat_keys_are_renamed_with_sign_flips() -> None:
             assert float(effects[0]["value"]) == pytest.approx(0.05)
             assert effects[1]["stat"] == "cooldown_change_ratio"
             assert float(effects[1]["value"]) == pytest.approx(-0.1)
+        command.check(alembic_config)
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
+        admin.close()
+
+
+@pytest.mark.integration
+def test_cross_channel_references_are_rejected_by_composite_fks() -> None:
+    """PostgreSQL itself rejects inventory/player rows crossing channel borders."""
+    from sqlalchemy.exc import IntegrityError
+
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_tenant_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}\n").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "head")
+
+        with Session(engine) as db:
+            channel_a = Channel(twitch_id=f"tenant-a-{uuid.uuid4().hex[:6]}", name="A", config={})
+            channel_b = Channel(twitch_id=f"tenant-b-{uuid.uuid4().hex[:6]}", name="B", config={})
+            db.add_all([channel_a, channel_b])
+            db.flush()
+            user_a = UserProgress(
+                user_twitch_id="ua", username="ua", channel_id=channel_a.id
+            )
+            definition_a = ItemDefinition(
+                channel_id=channel_a.id,
+                item_id="rod-a",
+                title="Rod A",
+                type="equipment",
+                slot="rod",
+                stack_size=1,
+            )
+            definition_b = ItemDefinition(
+                channel_id=channel_b.id,
+                item_id="rod-b",
+                title="Rod B",
+                type="equipment",
+                slot="rod",
+                stack_size=1,
+            )
+            db.add_all([user_a, definition_a, definition_b])
+            db.flush()
+
+            # Inventory item whose definition belongs to another channel.
+            with pytest.raises(IntegrityError):
+                db.add(
+                    InventoryItem(
+                        user_id=user_a.id,
+                        channel_id=channel_a.id,
+                        item_id=definition_b.id,
+                        slot_id=1,
+                        quantity=1,
+                    )
+                )
+                db.flush()
+            db.rollback()
+
+            # Inventory item whose channel does not match the owner's channel.
+            with pytest.raises(IntegrityError):
+                db.add(
+                    InventoryItem(
+                        user_id=user_a.id,
+                        channel_id=channel_b.id,
+                        item_id=definition_a.id,
+                        slot_id=1,
+                        quantity=1,
+                    )
+                )
+                db.flush()
+            db.rollback()
+        command.check(alembic_config)
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
+        admin.close()
+
+
+@pytest.mark.integration
+def test_new_check_constraints_reject_invalid_state() -> None:
+    """Version/value/stock checks added by 0020 are enforced by the database."""
+    from sqlalchemy.exc import IntegrityError
+
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_checks_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}\n").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "head")
+
+        with engine.connect() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO channels (twitch_id, name, config, config_version, "
+                    "config_updated_at) VALUES ('ck','CK','{}',1,now())"
+                )
+            )
+            channel_id = connection.execute(
+                text("SELECT id FROM channels WHERE twitch_id='ck'")
+            ).scalar()
+            # Negative item value rejected.
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO item_definitions (channel_id, item_id, title, type, "
+                        "slot, stack_size, value) VALUES (:cid,'neg','Neg','equipment','rod',1,-5)"
+                    ),
+                    {"cid": channel_id},
+                )
+            connection.rollback()
+            # Zero base inventory slots rejected.
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO users_progress (user_twitch_id, username, channel_id, "
+                        "base_inventory_slots) VALUES ('u0','u0',:cid,0)"
+                    ),
+                    {"cid": channel_id},
+                )
+            connection.rollback()
+            # Negative loot-table stock rejected.
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO loot_table_entry_stock "
+                        "(loot_table_entry_id, remaining_quantity) VALUES (0,-1)"
+                    )
+                )
         command.check(alembic_config)
     finally:
         settings.DATABASE_URL_OVERRIDE = original_override

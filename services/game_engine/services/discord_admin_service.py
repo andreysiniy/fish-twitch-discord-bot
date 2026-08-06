@@ -791,7 +791,9 @@ class DiscordAdminService:
             else:
                 if data.expected_version is not None:
                     raise ApiProblem(409, "CONFIG_VERSION_CONFLICT", "Item drop does not exist")
-                row = LocationItem(reward_pool_id=pool.id, item_id=definition.id)
+                row = LocationItem(
+                    reward_pool_id=pool.id, channel_id=pool.channel_id, item_id=definition.id
+                )
                 self.db.add(row)
             row.weight = data.weight
             row.xp_gain = data.xp_gain

@@ -1,11 +1,13 @@
-"""Add Discord identity and versioned administration state."""
+"""Add Discord identity and versioned administration state.
 
+Historical revision kept as an explicit snapshot: it never imports current
+ORM models so future model changes cannot leak into a fresh migration chain.
+"""
+
+import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
-
-from infrastructure.database import Base
-import infrastructure.models  # noqa: F401
-
+from sqlalchemy.dialects import postgresql
 
 revision = "20260802_0002"
 down_revision = "20260802_0001"
@@ -60,13 +62,74 @@ def upgrade() -> None:
         "ALTER TABLE fishing_events ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
     )
 
-    for table_name in (
+    op.create_table(
         "discord_account_links",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("discord_user_id", sa.String(), nullable=False, unique=True),
+        sa.Column("twitch_user_id", sa.String(), nullable=False, unique=True),
+        sa.Column("twitch_login", sa.String(), nullable=False),
+        sa.Column("verified_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_verified_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.create_table(
         "discord_guild_bindings",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("discord_guild_id", sa.String(), nullable=False, unique=True),
+        sa.Column("channel_id", sa.Integer(), nullable=False, unique=True),
+        sa.Column("configured_by_discord_id", sa.String(), nullable=False),
+        sa.Column("management_channel_id", sa.String(), nullable=True),
+        sa.Column("locale", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["channel_id"], ["channels.id"]),
+    )
+    op.create_table(
         "admin_audit_log",
-        "idempotency_records",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("request_id", sa.String(), nullable=False),
+        sa.Column("idempotency_key", sa.String(), nullable=True),
+        sa.Column("channel_twitch_id", sa.String(), nullable=False),
+        sa.Column("actor_twitch_id", sa.String(), nullable=False),
+        sa.Column("actor_discord_id", sa.String(), nullable=True),
+        sa.Column("actor_service", sa.String(), nullable=False),
+        sa.Column("guild_id", sa.String(), nullable=True),
+        sa.Column("action", sa.String(), nullable=False),
+        sa.Column("entity_type", sa.String(), nullable=False),
+        sa.Column("entity_id", sa.String(), nullable=False),
+        sa.Column("before_json", postgresql.JSONB(), nullable=False),
+        sa.Column("after_json", postgresql.JSONB(), nullable=False),
+        sa.Column("result", sa.String(), nullable=False),
+        sa.Column("error_code", sa.String(), nullable=True),
+        sa.CheckConstraint("result IN ('success','error')", name="ck_admin_audit_log_result"),
+    )
+    for index_name, column in (
+        ("ix_admin_audit_log_created_at", "created_at"),
+        ("ix_admin_audit_log_request_id", "request_id"),
+        ("ix_admin_audit_log_idempotency_key", "idempotency_key"),
+        ("ix_admin_audit_log_channel_twitch_id", "channel_twitch_id"),
+        ("ix_admin_audit_log_actor_twitch_id", "actor_twitch_id"),
+        ("ix_admin_audit_log_actor_discord_id", "actor_discord_id"),
+        ("ix_admin_audit_log_guild_id", "guild_id"),
+        ("ix_admin_audit_log_action", "action"),
     ):
-        Base.metadata.tables[table_name].create(bind=bind, checkfirst=True)
+        op.create_index(index_name, "admin_audit_log", [column])
+    op.create_table(
+        "idempotency_records",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("actor_scope", sa.String(), nullable=False),
+        sa.Column("idempotency_key", sa.String(), nullable=False),
+        sa.Column("request_hash", sa.String(), nullable=False),
+        sa.Column("response_status", sa.Integer(), nullable=False),
+        sa.Column("response_json", postgresql.JSONB(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("actor_scope", "idempotency_key", name="uq_idempotency_actor_key"),
+    )
+    op.create_index("ix_idempotency_records_expires_at", "idempotency_records", ["expires_at"])
 
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute(

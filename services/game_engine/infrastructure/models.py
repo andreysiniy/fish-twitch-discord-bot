@@ -26,7 +26,7 @@ class Channel(Base):
     __table_args__ = (UniqueConstraint("twitch_id", name="uq_channels_twitch_id"),)
 
     id = Column(Integer, primary_key=True)
-    twitch_id = Column(String, nullable=False, index=True)
+    twitch_id = Column(String, nullable=False)
     name = Column(String)
     is_active = Column(Boolean, default=True, nullable=False)
     se_token = Column(String, nullable=True)
@@ -74,6 +74,8 @@ class UserProgress(Base):
     __tablename__ = "users_progress"
     __table_args__ = (
         UniqueConstraint("channel_id", "user_twitch_id", name="uq_user_progress_channel_user"),
+        # Tenant-aware composite key used by composite FKs from children.
+        UniqueConstraint("id", "channel_id", name="uq_users_progress_id_channel"),
         CheckConstraint("level >= 1", name="ck_users_progress_level_positive"),
         CheckConstraint("xp >= 0", name="ck_users_progress_xp_nonnegative"),
         CheckConstraint(
@@ -81,6 +83,10 @@ class UserProgress(Base):
         ),
         CheckConstraint(
             "current_mass >= 0", name="ck_users_progress_current_mass_nonnegative"
+        ),
+        CheckConstraint(
+            "base_inventory_slots >= 1",
+            name="ck_users_progress_base_inventory_slots_positive",
         ),
     )
 
@@ -116,6 +122,7 @@ class ItemDefinition(Base):
     __tablename__ = "item_definitions"
     __table_args__ = (
         UniqueConstraint("channel_id", "item_id", name="uq_item_definitions_channel_item"),
+        UniqueConstraint("id", "channel_id", name="uq_item_definitions_id_channel"),
         CheckConstraint("stack_size > 0", name="ck_item_definitions_stack_size_positive"),
         CheckConstraint(
             "type <> 'equipment' OR stack_size = 1",
@@ -155,6 +162,9 @@ class ItemDefinition(Base):
         CheckConstraint("version >= 1", name="ck_item_definitions_version_positive"),
         CheckConstraint(
             "schema_version >= 1", name="ck_item_definitions_schema_version_positive"
+        ),
+        CheckConstraint(
+            "value IS NULL OR value >= 0", name="ck_item_definitions_value_nonnegative"
         ),
     )
 
@@ -199,13 +209,29 @@ class InventoryItem(Base):
             "current_durability IS NULL OR current_durability >= 0",
             name="ck_inventory_items_durability_nonnegative",
         ),
+        CheckConstraint("version >= 1", name="ck_inventory_items_version_positive"),
+        CheckConstraint(
+            "definition_version >= 1", name="ck_inventory_items_definition_version_positive"
+        ),
+        # Tenant-aware composite FKs: an inventory row belongs to the same
+        # Twitch channel as its owner and its item definition.
+        ForeignKeyConstraint(
+            ["user_id", "channel_id"],
+            ["users_progress.id", "users_progress.channel_id"],
+            name="fk_inventory_items_user_channel",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["item_id", "channel_id"],
+            ["item_definitions.id", "item_definitions.channel_id"],
+            name="fk_inventory_items_item_channel",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(
-        Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    item_id = Column(Integer, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    channel_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    item_id = Column(Integer, nullable=False, index=True)
     slot_id = Column(Integer, nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     current_durability = Column(Integer, nullable=True)
@@ -213,8 +239,15 @@ class InventoryItem(Base):
     definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
 
-    definition = relationship("ItemDefinition", lazy="joined")
-    owner = relationship("UserProgress", back_populates="items")
+    definition = relationship(
+        "ItemDefinition",
+        lazy="joined",
+        primaryjoin="and_(InventoryItem.item_id == ItemDefinition.id, "
+        "InventoryItem.channel_id == ItemDefinition.channel_id)",
+        foreign_keys="[InventoryItem.item_id, InventoryItem.channel_id]",
+        overlaps="owner,items",
+    )
+    owner = relationship("UserProgress", back_populates="items", overlaps="definition")
     equipped_record = relationship(
         "EquippedItem",
         back_populates="inventory_item",
@@ -272,10 +305,12 @@ class RewardPool(Base):
     __tablename__ = "reward_pools"
     __table_args__ = (
         UniqueConstraint("channel_id", "location_id", name="uq_reward_pool_channel_location"),
+        UniqueConstraint("id", "channel_id", name="uq_reward_pools_id_channel"),
         CheckConstraint(
             "items_drop_rate BETWEEN 0 AND 1",
             name="ck_reward_pools_items_drop_rate_range",
         ),
+        CheckConstraint("version >= 1", name="ck_reward_pools_version_positive"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -318,11 +353,23 @@ class LocationItem(Base):
         CheckConstraint(
             "xp_gain >= 0", name="ck_location_items_xp_nonnegative"
         ),
+        CheckConstraint("version >= 1", name="ck_location_items_version_positive"),
+        ForeignKeyConstraint(
+            ["reward_pool_id", "channel_id"],
+            ["reward_pools.id", "reward_pools.channel_id"],
+            name="fk_location_items_pool_channel",
+        ),
+        ForeignKeyConstraint(
+            ["item_id", "channel_id"],
+            ["item_definitions.id", "item_definitions.channel_id"],
+            name="fk_location_items_item_channel",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
-    reward_pool_id = Column(Integer, ForeignKey("reward_pools.id"), nullable=False)
-    item_id = Column(Integer, ForeignKey("item_definitions.id"), nullable=False, index=True)
+    channel_id = Column(Integer, nullable=False)
+    reward_pool_id = Column(Integer, nullable=False)
+    item_id = Column(Integer, nullable=False, index=True)
     weight = Column(Integer, default=100, nullable=False)
     xp_gain = Column(Integer, default=0, nullable=False)
     quantity = Column(Integer, nullable=True)
@@ -335,8 +382,15 @@ class LocationItem(Base):
         nullable=False,
     )
 
-    pool = relationship("RewardPool", back_populates="items")
-    definition = relationship("ItemDefinition", lazy="joined")
+    pool = relationship("RewardPool", back_populates="items", overlaps="definition")
+    definition = relationship(
+        "ItemDefinition",
+        lazy="joined",
+        primaryjoin="and_(LocationItem.item_id == ItemDefinition.id, "
+        "LocationItem.channel_id == ItemDefinition.channel_id)",
+        foreign_keys="[LocationItem.item_id, LocationItem.channel_id]",
+        overlaps="pool,items",
+    )
 
 
 class FishingEvent(Base):
@@ -392,13 +446,18 @@ class EconomyOperation(Base):
             "'completed','compensated','failed','reconciliation_required','dead_letter')",
             name="ck_economy_operations_state",
         ),
+        ForeignKeyConstraint(
+            ["user_id", "channel_id"],
+            ["users_progress.id", "users_progress.channel_id"],
+            name="fk_economy_operations_user_channel",
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     idempotency_key = Column(String, unique=True, nullable=False)
     operation_type = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users_progress.id"), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
     twitch_username = Column(String, nullable=False)
     mass_delta = Column(Numeric(18, 2), nullable=False, default=0)
     points_delta = Column(Integer, nullable=False, default=0)
@@ -472,13 +531,19 @@ class PlayerModifier(Base):
             name="ck_player_modifiers_scope",
         ),
         Index("ix_player_modifiers_user", "user_progress_id"),
+        ForeignKeyConstraint(
+            ["user_progress_id", "channel_id"],
+            ["users_progress.id", "users_progress.channel_id"],
+            name="fk_player_modifiers_user_channel",
+            ondelete="CASCADE",
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
-    user_progress_id = Column(
-        Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False
+    channel_id = Column(
+        Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
     )
+    user_progress_id = Column(Integer, nullable=False)
     stat_key = Column(String, nullable=False)
     operation = Column(String, nullable=False)
     value = Column(Numeric(24, 8), nullable=False)
@@ -508,6 +573,7 @@ class LootTable(Base):
     __tablename__ = "loot_tables"
     __table_args__ = (
         UniqueConstraint("channel_id", "table_id", name="uq_loot_tables_channel_table"),
+        UniqueConstraint("id", "channel_id", name="uq_loot_tables_id_channel"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -536,25 +602,43 @@ class LootTableEntry(Base):
         CheckConstraint(
             "max_quantity >= min_quantity", name="ck_loot_table_entries_quantity_range"
         ),
+        CheckConstraint("xp_gain >= 0", name="ck_loot_table_entries_xp_nonnegative"),
+        UniqueConstraint(
+            "loot_table_id", "item_definition_id", name="uq_loot_table_entries_table_item"
+        ),
+        ForeignKeyConstraint(
+            ["loot_table_id", "channel_id"],
+            ["loot_tables.id", "loot_tables.channel_id"],
+            name="fk_loot_table_entries_table_channel",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["item_definition_id", "channel_id"],
+            ["item_definitions.id", "item_definitions.channel_id"],
+            name="fk_loot_table_entries_item_channel",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
-    loot_table_id = Column(
-        Integer,
-        ForeignKey("loot_tables.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    item_definition_id = Column(
-        Integer, ForeignKey("item_definitions.id", ondelete="RESTRICT"), nullable=False
-    )
+    channel_id = Column(Integer, nullable=False)
+    loot_table_id = Column(Integer, nullable=False)
+    item_definition_id = Column(Integer, nullable=False)
     weight = Column(Integer, nullable=False)
     min_quantity = Column(Integer, default=1, nullable=False)
     max_quantity = Column(Integer, default=1, nullable=False)
     rarity_filter = Column(String, nullable=True)
     xp_gain = Column(Integer, default=0, nullable=False)
     message = Column(String, nullable=True)
-    table = relationship("LootTable", back_populates="entries")
-    definition = relationship("ItemDefinition", lazy="joined")
+    config_version = Column(Integer, default=1, nullable=False)
+    table = relationship("LootTable", back_populates="entries", overlaps="definition")
+    definition = relationship(
+        "ItemDefinition",
+        lazy="joined",
+        primaryjoin="and_(LootTableEntry.item_definition_id == ItemDefinition.id, "
+        "LootTableEntry.channel_id == ItemDefinition.channel_id)",
+        foreign_keys="[LootTableEntry.item_definition_id, LootTableEntry.channel_id]",
+        overlaps="entries,table",
+    )
     stock = relationship(
         "LootTableEntryStock",
         back_populates="entry",
@@ -567,7 +651,12 @@ class LootTableEntryStock(Base):
     """Global remaining stock for a single loot-table entry."""
 
     __tablename__ = "loot_table_entry_stock"
-
+    __table_args__ = (
+        CheckConstraint(
+            "remaining_quantity >= 0",
+            name="ck_loot_table_entry_stock_remaining_nonnegative",
+        ),
+    )
     id = Column(Integer, primary_key=True)
     loot_table_entry_id = Column(
         Integer,
@@ -607,8 +696,8 @@ class DiscordAccountLink(Base):
     __tablename__ = "discord_account_links"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    discord_user_id = Column(String, unique=True, nullable=False, index=True)
-    twitch_user_id = Column(String, unique=True, nullable=False, index=True)
+    discord_user_id = Column(String, unique=True, nullable=False)
+    twitch_user_id = Column(String, unique=True, nullable=False)
     twitch_login = Column(String, nullable=False)
     verified_at = Column(DateTime(timezone=True), nullable=False)
     last_verified_at = Column(DateTime(timezone=True), nullable=False)
@@ -625,8 +714,8 @@ class DiscordGuildBinding(Base):
     __tablename__ = "discord_guild_bindings"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    discord_guild_id = Column(String, unique=True, nullable=False, index=True)
-    channel_id = Column(Integer, ForeignKey("channels.id"), unique=True, nullable=False, index=True)
+    discord_guild_id = Column(String, unique=True, nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id"), unique=True, nullable=False)
     configured_by_discord_id = Column(String, nullable=False)
     management_channel_id = Column(String, nullable=True)
     locale = Column(String, nullable=False, default="en")
@@ -724,6 +813,12 @@ class FishingCast(Base):
 
     __tablename__ = "fishing_casts"
     __table_args__ = (
+        UniqueConstraint("id", "channel_id", name="uq_fishing_casts_id_channel"),
+        ForeignKeyConstraint(
+            ["user_progress_id", "channel_id"],
+            ["users_progress.id", "users_progress.channel_id"],
+            name="fk_fishing_casts_user_channel",
+        ),
         # One idempotent source request may only produce one cast.
         Index(
             "uq_fishing_casts_source_request",
@@ -779,9 +874,7 @@ class FishingCast(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
-    user_progress_id = Column(
-        Integer, ForeignKey("users_progress.id"), nullable=False, index=True
-    )
+    user_progress_id = Column(Integer, nullable=False, index=True)
     ruleset_snapshot_id = Column(
         String,
         ForeignKey("fishing_ruleset_snapshots.id"),
@@ -886,12 +979,21 @@ class FishingCastItemDrop(Base):
             "item_id_snapshot",
             "created_at",
         ),
+        ForeignKeyConstraint(
+            ["cast_id", "channel_id"],
+            ["fishing_casts.id", "fishing_casts.channel_id"],
+            name="fk_fishing_cast_item_drops_cast_channel",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["item_definition_id", "channel_id"],
+            ["item_definitions.id", "item_definitions.channel_id"],
+            name="fk_fishing_cast_item_drops_item_channel",
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    cast_id = Column(
-        String, ForeignKey("fishing_casts.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    cast_id = Column(String, nullable=False, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     item_definition_id = Column(Integer, nullable=True)
     item_id_snapshot = Column(String, nullable=False)

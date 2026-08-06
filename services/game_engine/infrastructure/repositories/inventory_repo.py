@@ -357,6 +357,7 @@ class InventoryRepository:
             stack_quantity = min(stack_size, remaining) if can_stack else 1
             created = InventoryItem(
                 user_id=user.id,
+                channel_id=user.channel_id,
                 item_id=definition.id,
                 slot_id=slot_id,
                 quantity=stack_quantity,

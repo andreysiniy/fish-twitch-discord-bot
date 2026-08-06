@@ -18,6 +18,29 @@ def upgrade() -> None:
     }
     if "uq_location_items_pool_item" in constraints:
         return
+    # Preflight: duplicates with differing content must not be deleted
+    # silently. Identical duplicates are collapsed deterministically (keep
+    # the lowest id) without any data loss.
+    differing = bind.exec_driver_sql(
+        """
+        SELECT d.reward_pool_id, d.item_id, count(*) AS groups
+        FROM location_items d
+        GROUP BY d.reward_pool_id, d.item_id
+        HAVING count(*) > 1
+          AND (
+            count(DISTINCT weight) > 1
+            OR count(DISTINCT xp_gain) > 1
+            OR count(DISTINCT COALESCE(quantity, -1)) > 1
+            OR count(DISTINCT message) > 1
+          )
+        """
+    ).fetchall()
+    if differing:
+        raise RuntimeError(
+            "Cannot deduplicate location_items: rows with identical "
+            f"(reward_pool_id, item_id) have different weight/xp/quantity/message "
+            f"({len(differing)} group(s)); merge them manually first"
+        )
     bind.exec_driver_sql(
         """
         DELETE FROM location_items AS duplicate

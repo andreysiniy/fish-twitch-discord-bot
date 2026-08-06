@@ -12,6 +12,7 @@ from domain.item_schema import (
     StatKey,
     migrate_stat_key,
 )
+from domain.logic import rng as rng_module
 from domain.logic.formulas import apply_fish_reward_modifiers
 from services.fishing.engine import FishingEngine
 
@@ -183,8 +184,6 @@ def test_engine_applies_v2_control_example(monkeypatch) -> None:
 
 
 def test_fish_luck_does_not_change_reward_selection(monkeypatch) -> None:
-    from domain.logic import rng as rng_module
-
     pool = [
         {"type": "nothing", "weight": 50, "id": "nothing"},
         {"type": "points", "weight": 50, "id": "points"},
