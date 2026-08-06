@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Uuid,
     Boolean,
     CheckConstraint,
     Column,
@@ -784,7 +785,7 @@ class FishingRulesetSnapshot(Base):
         UniqueConstraint("channel_id", "ruleset_hash", name="uq_ruleset_snapshot_channel_hash"),
     )
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     ruleset_hash = Column(String(64), nullable=False)
     channel_config_version = Column(Integer, nullable=False)
@@ -872,11 +873,11 @@ class FishingCast(Base):
         ),
     )
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     user_progress_id = Column(Integer, nullable=False, index=True)
     ruleset_snapshot_id = Column(
-        String,
+        Uuid(as_uuid=True),
         ForeignKey("fishing_ruleset_snapshots.id"),
         nullable=True,
         index=True,
@@ -992,8 +993,8 @@ class FishingCastItemDrop(Base):
         ),
     )
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    cast_id = Column(String, nullable=False, index=True)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cast_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     item_definition_id = Column(Integer, nullable=True)
     item_id_snapshot = Column(String, nullable=False)

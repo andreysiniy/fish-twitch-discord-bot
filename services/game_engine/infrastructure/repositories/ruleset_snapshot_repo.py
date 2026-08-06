@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID as _UUID
 
 from infrastructure.models import FishingCast, FishingCastItemDrop, FishingRulesetSnapshot
 from sqlalchemy.orm import Session
@@ -99,6 +100,10 @@ class RulesetSnapshotRepository:
         )
 
     def get_cast(self, cast_id: str, channel_id: int) -> FishingCast | None:
+        try:
+            cast_id = _UUID(str(cast_id))
+        except ValueError:
+            return None
         return (
             self.db.query(FishingCast)
             .filter(FishingCast.id == cast_id, FishingCast.channel_id == channel_id)

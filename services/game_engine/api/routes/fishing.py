@@ -36,6 +36,7 @@ def cast_rod(
             bypass_cooldown=request.bypass_cooldown and auth_id == "BOT_SERVICE",
             source=request.source or "twitch",
             source_request_id=request.source_request_id,
+            requested_at=request.requested_at,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

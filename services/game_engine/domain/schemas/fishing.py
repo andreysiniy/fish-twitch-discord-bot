@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -16,7 +17,7 @@ class FishRequest(BaseModel):
     bypass_cooldown: bool = False
     source: Optional[str] = "twitch"
     source_request_id: Optional[str] = None
-    requested_at: Optional[Any] = None
+    requested_at: Optional[datetime] = None
 
 
 class FishCooldownRequest(BaseModel):
@@ -122,6 +123,8 @@ class FishingResult(BaseModel):
     positive_fish_factor_used: Decimal = Decimal("1")
     negative_fish_factor_used: Decimal = Decimal("1")
     effective_percentage: Optional[Decimal] = None
+    item_drop_probability: Optional[Decimal] = None
+    item_drop_roll: Optional[Decimal] = None
     durability_loss: int = 1
     broken_item_name: Optional[str] = None
     robbery_result: Optional[RobberyResultDTO] = None

@@ -250,6 +250,47 @@ def register_casts_group(
 
         await _deferred(interaction, operation)
 
+    @cast.command(name="search", description="Search fishing casts by filters")
+    async def cast_search(
+        interaction: discord.Interaction,
+        viewer: str | None = None,
+        username: str | None = None,
+        status: app_commands.Choice[str] | None = None,
+        location: str | None = None,
+        reward_type: str | None = None,
+        item_id: str | None = None,
+        has_item: bool | None = None,
+        min_mass: float | None = None,
+        max_mass: float | None = None,
+        limit: int = 20,
+    ) -> None:
+        _allow_owner_only()
+
+        async def operation() -> None:
+            result = await api.search_casts(
+                interaction,
+                user_twitch_id=viewer,
+                username=username,
+                status=status.value if status else None,
+                location_id=location,
+                reward_type=reward_type,
+                item_id=item_id,
+                has_item=has_item,
+                min_mass_delta=min_mass,
+                max_mass_delta=max_mass,
+                limit=max(5, min(limit, 25)),
+            )
+            view = PagedEmbedView(
+                interaction.user.id,
+                "Fishing cast search",
+                result.get("items", []),
+                cast_list_formatter,
+                page_size=10,
+            )
+            await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
+
+        await _deferred(interaction, operation)
+
     @cast.command(name="export", description="Export the raw fishing cast journal as JSON")
     async def cast_export(
         interaction: discord.Interaction,

@@ -20,7 +20,7 @@ def test_serialize_stat_multiply_preserves_trigger() -> None:
 
 def test_describe_passive_effect_shows_percent() -> None:
     text = describe_effect({"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"})
-    assert "Positive Mass Bonus" in text or "positive_mass_bonus_pct" in text
+    assert "Positive Fish Reward" in text or "positive_fish_reward_change_ratio" in text
     assert "5%" in text
 
 

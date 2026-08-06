@@ -247,9 +247,13 @@ class FishingEngine:
         )
         item_trace = None
         item_gate_succeeded = False
+        item_drop_probability: Decimal | None = None
+        item_drop_roll: Decimal | None = None
         if item_pool:
             gate_roll = Decimal(str(random.random()))
             item_gate_succeeded = gate_roll < item_drop_chance
+            item_drop_probability = item_drop_chance
+            item_drop_roll = gate_roll
             rng_stages.append(
                 {
                     "stage": "item_drop_gate",
@@ -360,6 +364,8 @@ class FishingEngine:
             positive_fish_factor_used=positive_fish_factor,
             negative_fish_factor_used=negative_fish_factor,
             effective_percentage=effective_percentage,
+            item_drop_probability=item_drop_probability,
+            item_drop_roll=item_drop_roll,
             roulette_result=roulette_result,
             reward_roll_trace=reward_trace.as_dict(),
             rng_stages=rng_stages,

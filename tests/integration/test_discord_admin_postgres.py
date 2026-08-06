@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -419,7 +420,7 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
         for idx in range(3):
             db.add(
                 FishingCast(
-                    id=f"11111111-2222-4333-8444-{idx:012d}",
+                    id=uuid.UUID(f"11111111-2222-4333-8444-{idx:012d}"),
                     channel_id=channel.id,
                     user_progress_id=user.id,
                     source="twitch",
@@ -435,7 +436,7 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
         # A cast on another channel must never be visible.
         db.add(
             FishingCast(
-                id="99999999-2222-4333-8444-000000000001",
+                id=uuid.UUID("99999999-2222-4333-8444-000000000001"),
                 channel_id=other.id,
                 user_progress_id=other_user.id,
                 source="twitch",

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from twitchio.ext import commands
 from twitchio import User
@@ -25,6 +26,7 @@ class FishingCog(commands.Cog):
             "is_sub": self._resolve_is_subscriber(ctx),
             "source": "twitch",
             "source_request_id": source_request_id,
+            "requested_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
             response = await self.bot.api_client.fish(payload)
