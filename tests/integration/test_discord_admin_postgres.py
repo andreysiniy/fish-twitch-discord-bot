@@ -23,6 +23,8 @@ from domain.schemas.discord_admin import (
 from infrastructure.database import SessionLocal
 from infrastructure.models import (
     ItemDefinition,
+    LootTable,
+    LootTableEntry,
     AdminAuditLog,
     Channel,
     DiscordAccountLink,
@@ -781,6 +783,86 @@ def test_item_upsert_existing_without_version_is_clean_conflict() -> None:
         with pytest.raises(ApiProblem) as exc_info:
             service.upsert_item(context, channel.twitch_id, request)
         assert exc_info.value.code == "ITEM_VERSION_CONFLICT"
+        assert exc_info.value.status_code == 409
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_item_drop_add_existing_row_returns_item_drop_exists() -> None:
+    """Adding a drop that already exists is a clear ITEM_DROP_EXISTS, not a version conflict."""
+    from domain.schemas.discord_admin import ItemDropUpsertRequest
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"drop-exists-{uuid.uuid4().hex[:8]}",
+            name="Drop Exists",
+            config={},
+            config_version=1,
+        )
+        db.add(channel)
+        db.flush()
+        db.add(
+            DiscordAccountLink(
+                discord_user_id="1001",
+                twitch_user_id=channel.twitch_id,
+                twitch_login=channel.name,
+                verified_at=now,
+                last_verified_at=now,
+            )
+        )
+        db.add(
+            DiscordGuildBinding(
+                discord_guild_id="2001",
+                channel_id=channel.id,
+                configured_by_discord_id="1001",
+                locale="en",
+            )
+        )
+        definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="dup_rod",
+            title="Dup Rod",
+            type="equipment",
+            slot="rod",
+            rarity="common",
+            stack_size=1,
+        )
+        db.add(definition)
+        db.flush()
+        table = LootTable(channel_id=channel.id, table_id="lake_items", title="Lake Items")
+        db.add(table)
+        db.flush()
+        pool = RewardPool(
+            channel_id=channel.id,
+            location_id="lake",
+            items_drop_rate=0.1,
+            rewards_data=[],
+            requirements={},
+            item_loot_table_id=table.id,
+        )
+        db.add(pool)
+        db.flush()
+        db.add(
+            LootTableEntry(
+                loot_table_id=table.id,
+                channel_id=channel.id,
+                item_definition_id=definition.id,
+                weight=50,
+                xp_gain=1,
+            )
+        )
+        db.flush()
+
+        service = DiscordAdminService(db)
+        context = _context("drop-exists")
+        request = ItemDropUpsertRequest(item_id="dup_rod", weight=75)
+        with pytest.raises(ApiProblem) as exc_info:
+            service.upsert_item_drop(context, channel.twitch_id, "lake", request)
+        assert exc_info.value.code == "ITEM_DROP_EXISTS"
         assert exc_info.value.status_code == 409
     finally:
         db.rollback()
