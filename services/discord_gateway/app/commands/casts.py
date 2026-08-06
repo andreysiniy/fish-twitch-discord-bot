@@ -98,16 +98,18 @@ def cast_detail_embed(item: dict) -> discord.Embed:
     )
 
     reward = item.get("reward") or {}
-    embed.add_field(
-        name="Reward",
-        value=(
-            f"`{reward.get('reward_type') or '?'}` "
-            f"`{reward.get('reward_id') or ''}`\n"
-            f"probability: {reward.get('probability') or '—'} • "
-            f"roll: {reward.get('roll') or '—'}"
-        ),
-        inline=False,
-    )
+    reward_lines = [
+        f"`{reward.get('reward_type') or '?'}` "
+        f"`{reward.get('reward_id') or ''}`",
+        f"probability: {reward.get('probability') or 'n/a'} • "
+        f"roll: {reward.get('roll') or 'n/a'}",
+    ]
+    if reward.get("weight") or reward.get("total_weight"):
+        reward_lines.append(
+            f"weight: {reward.get('weight') or 'n/a'} / "
+            f"{reward.get('total_weight') or 'n/a'}"
+        )
+    embed.add_field(name="Reward", value="\n".join(reward_lines), inline=False)
 
     drops = item.get("items") or []
     if drops:

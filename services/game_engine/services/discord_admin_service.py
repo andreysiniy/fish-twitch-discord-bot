@@ -2236,6 +2236,77 @@ class DiscordAdminService:
             raise ApiProblem(404, "CAST_NOT_FOUND", "Fishing cast not found")
         return self._serialize_cast_detail(cast, include_technical=include_technical)
 
+    @staticmethod
+    def _trace_stage(trace, stage: str) -> dict | None:
+        """Return one stage dict from the rng_trace JSONB array."""
+        if not isinstance(trace, list):
+            return None
+        for entry in trace:
+            if isinstance(entry, dict) and entry.get("stage") == stage:
+                return entry
+        return None
+
+    def _cast_reward_detail(self, cast) -> dict:
+        """Reward selection detail with read-time fallback to JSONB snapshots.
+
+        Old ledger rows keep the trace in rng_trace and the selected reward in
+        reward_snapshot; the dedicated columns were backfilled by migration
+        20260806_0024, and this fallback covers any row recorded before it.
+        """
+        probability = (
+            str(cast.reward_probability)
+            if cast.reward_probability is not None
+            else None
+        )
+        roll = str(cast.reward_roll) if cast.reward_roll is not None else None
+        total_weight = (
+            str(cast.reward_total_weight)
+            if cast.reward_total_weight is not None
+            else None
+        )
+        weight = (
+            str(cast.reward_weight) if cast.reward_weight is not None else None
+        )
+        reward_id = cast.reward_id
+        if probability is None:
+            trace = self._trace_stage(cast.rng_trace, "ordinary_reward")
+            snapshot = cast.reward_snapshot if isinstance(cast.reward_snapshot, dict) else {}
+            if trace:
+                probability = trace.get("selected_probability")
+                roll = trace.get("roll")
+                total_weight = trace.get("total_weight")
+            if weight is None and snapshot.get("weight") is not None:
+                weight = str(snapshot["weight"])
+            if reward_id is None and snapshot.get("reward_id"):
+                reward_id = str(snapshot["reward_id"])
+        return {
+            "reward_id": reward_id,
+            "reward_type": cast.reward_type,
+            "weight": weight,
+            "total_weight": total_weight,
+            "probability": probability,
+            "roll": roll,
+        }
+
+    def _cast_item_drop_detail(self, cast) -> dict:
+        probability = (
+            str(cast.item_drop_probability)
+            if cast.item_drop_probability is not None
+            else None
+        )
+        roll = str(cast.item_drop_roll) if cast.item_drop_roll is not None else None
+        if probability is None:
+            gate = self._trace_stage(cast.rng_trace, "item_drop_gate")
+            if gate:
+                probability = gate.get("threshold")
+                roll = gate.get("roll")
+        return {
+            "succeeded": cast.item_drop_succeeded,
+            "count": int(cast.item_drop_count or 0),
+            "probability": probability,
+            "roll": roll,
+        }
+
     def get_cast_summary_stats(
         self,
         context,
@@ -2283,6 +2354,8 @@ class DiscordAdminService:
             }
             for drop in cast.item_drops
         ]
+        reward = self._cast_reward_detail(cast)
+        item_drop = self._cast_item_drop_detail(cast)
         detail = {
             "cast_id": str(cast.id),
             "status": cast.status,
@@ -2300,14 +2373,7 @@ class DiscordAdminService:
                 if cast.event_id
                 else None
             ),
-            "reward": {
-                "reward_id": cast.reward_id,
-                "reward_type": cast.reward_type,
-                "probability": (
-                    str(cast.reward_probability) if cast.reward_probability is not None else None
-                ),
-                "roll": str(cast.reward_roll) if cast.reward_roll is not None else None,
-            },
+            "reward": reward,
             "state": {
                 "mass_before": _dec(cast.mass_before),
                 "mass_after": _dec(cast.mass_after),
@@ -2320,13 +2386,7 @@ class DiscordAdminService:
                 "was_level_up": cast.was_level_up,
             },
             "items": drops,
-            "item_drop": {
-                "succeeded": cast.item_drop_succeeded,
-                "count": int(cast.item_drop_count or 0),
-                "probability": (
-                    str(cast.item_drop_probability) if cast.item_drop_probability is not None else None
-                ),
-            },
+            "item_drop": item_drop,
         }
         if include_technical:
             detail["technical"] = {
