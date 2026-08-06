@@ -8,9 +8,27 @@ from core import metrics as metrics_module
 from core.action_types import ActionType
 from core.config import settings
 from core.game_params import GParam, resolve_param
-from core.messages import MsgKey, format_large_number_mass, format_percent_signed, resolve_message
+from core.messages import MsgKey, format_large_number_mass, resolve_message
 from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
+
+
+def _bonus_segment(emoji: str, label: str, percent_value) -> str:
+    """One '🍀 Label: +N% | ' segment, or empty when the stat is zero.
+
+    Zero-valued bonus stats are omitted from the stats line so the channel
+    owner does not see a wall of +0% entries; mass is never a bonus segment.
+    The value is already percentage points (5 means 5%).
+    """
+    try:
+        value = Decimal(str(percent_value))
+    except Exception:
+        return ""
+    if value == 0:
+        return ""
+    text = f"{abs(value):.2f}".rstrip("0").rstrip(".")
+    sign = "+" if value >= 0 else "-"
+    return f"{emoji} {label}: {sign}{text}% | "
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
@@ -595,13 +613,23 @@ class FishingService:
             xp=stats["xp"],
             xp_next=stats["xp_to_next_level"],
             rod_name=stats["rod_name"],
-            luck_fmt=format_percent_signed(stats["fish_luck_change_percent"]),
-            good_catch_fmt=format_percent_signed(stats["positive_fish_reward_change_percent"]),
-            bad_catch_fmt=format_percent_signed(stats["negative_fish_reward_change_percent"]),
-            cd_fmt=format_percent_signed(stats["cooldown_change_percent"]),
-            xp_fmt=format_percent_signed(stats["xp_gain_change_percent"]),
-            item_drop_fmt=format_percent_signed(stats["item_drop_chance_add_pp"]),
-            item_rarity_fmt=format_percent_signed(stats["item_rarity_luck_change_percent"]),
+            luck_fmt=_bonus_segment(
+                "🍀", "Fish Luck", stats["fish_luck_change_percent"]
+            ),
+            good_catch_fmt=_bonus_segment(
+                "🐟", "Good Catch", stats["positive_fish_reward_change_percent"]
+            ),
+            bad_catch_fmt=_bonus_segment(
+                "🛟", "Bad Catch", stats["negative_fish_reward_change_percent"]
+            ),
+            xp_fmt=_bonus_segment("✨", "XP", stats["xp_gain_change_percent"]),
+            cd_fmt=_bonus_segment("⏱", "CD", stats["cooldown_change_percent"]),
+            item_drop_fmt=_bonus_segment(
+                "📦", "Item Drop", stats["item_drop_chance_add_pp"]
+            ),
+            item_rarity_fmt=_bonus_segment(
+                "💎", "Item Rarity", stats["item_rarity_luck_change_percent"]
+            ),
             current_mass=format_large_number_mass(stats["current_mass"]),
             total_fish_stat=stats["total_fish_stat"],
             rank=rank,
