@@ -79,6 +79,7 @@ def build_ruleset_snapshot_payload(
         "item_entries": [
             {
                 "db_id": entry.get("db_id"),
+                "item_definition_id": entry.get("item_definition_id"),
                 "item_id": entry.get("item_id"),
                 "weight": entry.get("weight"),
                 "rarity": entry.get("rarity"),
