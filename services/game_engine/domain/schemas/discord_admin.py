@@ -106,27 +106,35 @@ class GuildBindRequest(StrictDTO):
 
 def _coerce_event_modifiers(
     value: Any,
-) -> EventModifiers | EventModifiersV2 | None:
-    """Accept either the v1 (legacy) or v2 (human-percent) modifier schema.
+) -> EventModifiersV2 | None:
+    """Accept only the v2 (human-percent) modifier schema.
 
-    v2 payloads carry ``schema_version: 2``; legacy payloads do not. ``None`` is
-    passed through untouched so partial patches do not reset to defaults.
+    Legacy v1 payloads (``luck_mult``/``xp_mult``/``cd_reduction``/``bonus_mass``)
+    are rejected with an explicit error: the Discord UI contract is v2-only and
+    legacy events were migrated in 0011. ``None`` is passed through untouched so
+    partial patches do not reset to defaults.
     """
     if value is None:
         return None
     if isinstance(value, EventModifiersV2):
         return value
     if isinstance(value, EventModifiers):
-        return value
+        raise ValueError(
+            "Legacy v1 event modifiers are no longer accepted; "
+            "use human-percent v2 fields (fish_luck_change_percent, etc.)"
+        )
     data = dict(value or {})
     if data.get("schema_version") == 2:
         return EventModifiersV2(**data)
-    return EventModifiers(**data)
+    raise ValueError(
+        "Event modifiers must be the v2 human-percent schema "
+        "(set schema_version=2 and use the *_change_percent fields)"
+    )
 
 
 class DiscordEventCreateRequest(StrictDTO):
     event_title: str = Field(..., min_length=1, max_length=120)
-    modifiers: Any = Field(default_factory=EventModifiers.model_construct)
+    modifiers: Any = Field(default_factory=EventModifiersV2.model_construct)
 
     @field_validator("modifiers", mode="before")
     @classmethod

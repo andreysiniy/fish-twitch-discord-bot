@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 import discord
@@ -294,3 +296,69 @@ def _entity_details(
 
 def _count_lines(counts: dict[str, Any]) -> str:
     return "\n".join(f"`{key}`: {value}" for key, value in counts.items()) or "None"
+
+
+def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
+    """Human-readable event card with v2 modifier percentages and factors."""
+    modifiers = item.get("modifiers") or {}
+    embed = discord.Embed(
+        title=item.get("event_title") or f"Event #{item.get('id')}",
+        color=discord.Color.green() if item.get("is_active") else discord.Color.blurple(),
+    )
+    status = item.get("status", "?")
+    embed.add_field(name="Status", value=f"`{status}`", inline=True)
+    embed.add_field(name="Version", value=f"v{item.get('version', '?')}", inline=True)
+    if item.get("modifier_schema_version"):
+        embed.add_field(
+            name="Modifier schema",
+            value=f"v{item['modifier_schema_version']}",
+            inline=True,
+        )
+    if item.get("starts_at"):
+        embed.add_field(name="Starts", value=f"<t:{_epoch(item['starts_at'])}:f>", inline=True)
+    if item.get("ends_at"):
+        embed.add_field(name="Ends", value=f"<t:{_epoch(item['ends_at'])}:f>", inline=True)
+    if item.get("override_loot_pool"):
+        embed.add_field(
+            name="Loot pool override",
+            value=f"`{item['override_loot_pool']}`",
+            inline=True,
+        )
+    if item.get("requires_review"):
+        embed.add_field(name="Review", value="⚠ requires review", inline=True)
+
+    segments = [
+        ("fish_luck_change_percent", "Fish Luck", "🍀"),
+        ("positive_fish_reward_change_percent", "Good Catch", "📈"),
+        ("negative_fish_reward_change_percent", "Bad Catch", "📉"),
+        ("xp_gain_change_percent", "XP", "✨"),
+        ("cooldown_change_percent", "Cooldown", "⏱"),
+    ]
+    lines = []
+    for key, label, emoji in segments:
+        raw = modifiers.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            pct = Decimal(str(raw))
+        except Exception:
+            lines.append(f"{emoji} **{label}**: `{raw}`")
+            continue
+        if pct == 0:
+            continue
+        factor = Decimal("1") + (pct / 100)
+        sign = "+" if pct >= 0 else ""
+        lines.append(f"{emoji} **{label}**: {sign}{pct}% (×{factor:.2f})")
+    if lines:
+        embed.add_field(name="Modifiers", value="\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Modifiers", value="No active modifiers.", inline=False)
+    embed.set_footer(text=f"ID: {item.get('id')} · updated {item.get('updated_at', '?')}")
+    return embed
+
+
+def _epoch(value: str) -> int:
+    try:
+        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return 0

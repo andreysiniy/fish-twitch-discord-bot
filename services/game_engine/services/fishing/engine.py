@@ -73,36 +73,6 @@ class DefaultLootStrategy(CalculationStrategy):
         return quantize_mass(raw_mass * safe_luck)
 
 
-class EventLootStrategy(DefaultLootStrategy):
-    def __init__(self, modifiers: Optional[Dict[str, Any]] = None):
-        modifiers = modifiers or {}
-        self._luck_mult = max(to_decimal(modifiers.get("luck_mult", 1) or 1), ZERO_MASS)
-        self._xp_mult = max(float(modifiers.get("xp_mult", 1.0) or 1.0), 0.0)
-        self._bonus_mass = to_decimal(modifiers.get("bonus_mass", 0) or 0)
-
-    def calculate(
-        self,
-        source: Dict[str, Any],
-        luck_modifier: float,
-        user_balance: Decimal,
-    ) -> Decimal:
-        raw_mass = self._resolve_raw_mass(source, to_decimal(user_balance))
-        effective_luck = max(to_decimal(luck_modifier or 1), Decimal("0.01"))
-        effective_luck *= self._luck_mult
-        mass_delta = self._apply_luck(raw_mass, float(max(effective_luck, ZERO_MASS)))
-
-        if self._bonus_mass != ZERO_MASS:
-            bonus_factor = Decimal("1") + self._bonus_mass
-            if mass_delta < ZERO_MASS:
-                mass_delta = quantize_mass(mass_delta / bonus_factor)
-            else:
-                mass_delta = quantize_mass(mass_delta * bonus_factor)
-        return mass_delta
-
-    def adjust_xp_gain(self, xp_gain: int) -> int:
-        return max(int(round(int(xp_gain) * self._xp_mult)), 0)
-
-
 class FishingEngine:
     def __init__(self, default_strategy: Optional[CalculationStrategy] = None):
         self._default_strategy = default_strategy or DefaultLootStrategy()
@@ -321,7 +291,7 @@ class FishingEngine:
         base_xp_gain = formulas.calculate_xp_gain(
             base_xp=catch.get("xp", 0),
             item_xp=item_catch.get("xp_gain", 0) if item_catch else 0,
-            bonus_pct=float(xp_bonus),
+            bonus_pct=xp_bonus,
         )
         xp_gain = strategy.adjust_xp_gain(base_xp_gain)
 

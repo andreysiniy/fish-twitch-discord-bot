@@ -68,3 +68,64 @@ def test_item_detail_embed_renders_sections() -> None:
     assert "Мощная удочка" == embed.description
     assert "stat_add" in fields["Effects (1)"]
     assert "schema 1" in embed.footer.text
+
+
+def test_event_detail_embed_renders_human_percentages_and_factors() -> None:
+    from app.presentation.embeds import event_detail_embed
+
+    embed = event_detail_embed(
+        {
+            "id": 7,
+            "event_title": "Storm",
+            "status": "active",
+            "is_active": True,
+            "version": 3,
+            "modifier_schema_version": 2,
+            "override_loot_pool": "river",
+            "modifiers": {
+                "fish_luck_change_percent": "40",
+                "positive_fish_reward_change_percent": "20",
+                "negative_fish_reward_change_percent": "-50",
+                "xp_gain_change_percent": "10",
+                "cooldown_change_percent": "0",
+            },
+            "updated_at": "2026-08-06T00:00:00+00:00",
+        }
+    )
+    text = "\n".join(field.value for field in embed.fields)
+    assert "Fish Luck" in text
+    assert "+40%" in text
+    assert "×1.40" in text
+    assert "Good Catch" in text
+    assert "×1.20" in text
+    assert "Bad Catch" in text
+    assert "-50%" in text
+    assert "×0.50" in text
+    assert "Cooldown" not in text  # zero-valued modifiers are hidden
+    assert "river" in text
+
+
+def test_strong_event_values_detects_large_modifiers() -> None:
+    from app.commands.events import _strong_event_values
+
+    assert _strong_event_values(
+        {
+            "modifiers": {
+                "fish_luck_change_percent": "50",
+                "positive_fish_reward_change_percent": "10",
+                "cooldown_change_percent": "-60",
+            }
+        }
+    ) == ["Fish Luck: **+50%**", "Cooldown: **-60%**"]
+
+    assert (
+        _strong_event_values(
+            {
+                "modifiers": {
+                    "fish_luck_change_percent": "49",
+                    "positive_fish_reward_change_percent": "-49",
+                }
+            }
+        )
+        == []
+    )

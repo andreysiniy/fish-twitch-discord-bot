@@ -1,17 +1,23 @@
 """Discord /fish events commands (module-per-domain)."""
 
+import io
+import json
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
+from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.modals import (
     EventModal,
     MessageTemplateModal,
 )
 from app.presentation.embeds import (
+    event_detail_embed,
     event_list_entry,
     placeholder_help_embeds,
 )
@@ -130,15 +136,41 @@ def register_events_group(tree, api, sessions, fish) -> None:
         async def event_show(interaction: discord.Interaction, event_id: int) -> None:
             async def operation() -> None:
                 item = await api.event(interaction, event_id)
-                await _send_json_embed(interaction, "Event", item)
+                await interaction.followup.send(
+                    embed=event_detail_embed(item), ephemeral=True
+                )
+
+            await _deferred(interaction, operation)
+
+        @event.command(name="export", description="Export all channel events as JSON")
+        async def event_export(interaction: discord.Interaction) -> None:
+            async def operation() -> None:
+                result = await api.events(interaction)
+                rows = result.get("items", [])
+                payload = {
+                    "exported_at": _utcnow_iso(),
+                    "channel": (
+                        interaction.guild.name if interaction.guild else None
+                    ),
+                    "count": len(rows),
+                    "events": rows,
+                }
+                raw = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+                file = discord.File(io.StringIO(raw), filename="events_export.json")
+                await interaction.followup.send(
+                    f"Exported {len(rows)} event record(s) as JSON.",
+                    file=file,
+                    ephemeral=True,
+                )
 
             await _deferred(interaction, operation)
 
         @event.command(name="create", description="Create a channel event")
         async def event_create(interaction: discord.Interaction) -> None:
             async def save(modal_interaction: discord.Interaction, payload: dict[str, Any]) -> None:
-                await _mutation_response(
+                await _maybe_confirm_strong_event(
                     modal_interaction,
+                    payload,
                     lambda: api.create_event(modal_interaction, payload),
                     "Event created.",
                 )
@@ -158,8 +190,9 @@ def register_events_group(tree, api, sessions, fish) -> None:
                         await sessions.delete(modal_interaction.user.id, flow_id)
                         return result
 
-                    await _mutation_response(
+                    await _maybe_confirm_strong_event(
                         modal_interaction,
+                        payload,
                         mutate,
                         "Event updated.",
                     )
@@ -220,9 +253,83 @@ def register_events_group(tree, api, sessions, fish) -> None:
             "placeholders_edit": placeholders_edit,
             "event_list": event_list,
             "event_show": event_show,
+            "event_export": event_export,
             "event_create": event_create,
             "event_edit": event_edit,
             "event_start": event_start,
             "event_stop": event_stop,
             "event_delete": event_delete,
         }
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# Modifier values whose magnitude is >= STRONG_PERCENT_THRESHOLD are treated as
+# potentially dangerous for gameplay balance; they need an explicit second
+# confirmation before the event is created or patched (UI audit 4.5).
+STRONG_PERCENT_THRESHOLD = 50
+
+_STRONG_MODIFIER_LABELS = (
+    ("fish_luck_change_percent", "Fish Luck"),
+    ("positive_fish_reward_change_percent", "Good Catch"),
+    ("negative_fish_reward_change_percent", "Bad Catch"),
+    ("xp_gain_change_percent", "XP"),
+    ("cooldown_change_percent", "Cooldown"),
+)
+
+
+def _strong_event_values(payload: dict[str, Any]) -> list[str]:
+    modifiers = payload.get("modifiers") or {}
+    strong: list[str] = []
+    for key, label in _STRONG_MODIFIER_LABELS:
+        raw = modifiers.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            value = Decimal(str(raw))
+        except Exception:
+            continue
+        if abs(value) >= STRONG_PERCENT_THRESHOLD:
+            sign = "+" if value >= 0 else ""
+            strong.append(f"{label}: **{sign}{value}%**")
+    return strong
+
+
+async def _maybe_confirm_strong_event(
+    modal_interaction: discord.Interaction,
+    payload: dict[str, Any],
+    mutate,
+    success: str,
+) -> None:
+    """Apply the event mutation, gated by a strong-value confirmation when needed."""
+    strong = _strong_event_values(payload)
+    if not strong:
+        await _mutation_response(modal_interaction, mutate, success)
+        return
+
+    async def confirm(confirmed: discord.Interaction) -> None:
+        await _mutation_response(confirmed, mutate, success)
+
+    embed = discord.Embed(
+        title="Unusually strong event values",
+        color=discord.Color.orange(),
+        description=(
+            "These modifier values are large and can strongly affect gameplay:\n\n"
+            + "\n".join(strong)
+            + "\n\nApply them anyway?"
+        ),
+    )
+    if modal_interaction.response.is_done():
+        await modal_interaction.followup.send(
+            embed=embed,
+            view=ConfirmView(modal_interaction.user.id, confirm),
+            ephemeral=True,
+        )
+    else:
+        await modal_interaction.response.send_message(
+            embed=embed,
+            view=ConfirmView(modal_interaction.user.id, confirm),
+            ephemeral=True,
+        )
