@@ -3,34 +3,33 @@
 import discord
 from app.commands.casts import (
     cast_detail_embed,
-    cast_list_formatter,
     cast_stats_embed,
     register_casts_group,
 )
 
 
-def test_cast_list_formatter_compacts_fields() -> None:
-    name, value = cast_list_formatter(
-        {
-            "cast_id": "0198f72f-4bc5-7e90-9081-e7bf4df21d56",
-            "username": "viewer_one",
-            "requested_at": "2026-08-04T08:42:15+00:00",
-            "mass_label": "+29.40",
-            "xp_gained": 20,
-            "location_id": "abyss",
-            "status": "resolved",
-        }
-    )
-    assert name == "viewer_one"
-    assert "abyss" in value
-    assert "+29.40" in value
-    assert "Cast: 0198f72f" in value
+def test_paged_embed_view_renders_one_detail_embed_per_page() -> None:
+    from app.presentation.pagination import PagedEmbedView
+
+    items = [
+        {"cast_id": "a", "reward": {"reward_type": "fish"}},
+        {"cast_id": "b", "reward": {"reward_type": "dupe"}},
+    ]
+    view = PagedEmbedView(111, "Casts", items, embed_builder=cast_detail_embed)
+    assert view.page_size == 1
+    assert view.page_count == 2
+    assert "a" in view.embed().title
+    assert "Page 1/2" in view.embed().footer.text
+    view.page = 1
+    assert "b" in view.embed().title
 
 
-def test_cast_list_formatter_handles_empty_fields() -> None:
-    name, value = cast_list_formatter({"cast_id": "abc123"})
-    assert name == "abc123"
-    assert value
+def test_paged_embed_view_empty_items() -> None:
+    from app.presentation.pagination import PagedEmbedView
+
+    view = PagedEmbedView(111, "Casts", [], embed_builder=cast_detail_embed)
+    assert view.page_count == 1
+    assert "No entries" in view.embed().description
 
 
 def test_cast_detail_embed_status_color() -> None:

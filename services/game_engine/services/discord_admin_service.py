@@ -2327,22 +2327,13 @@ class DiscordAdminService:
         return {"period": {"start": start, "end": end}, **stats}
 
     def _serialize_cast_summary(self, cast) -> dict:
-        reward_type = cast.reward_type
-        mass_label = _format_delta(cast.mass_delta_applied)
-        xp = int(cast.xp_gained or 0)
-        return {
-            "cast_id": str(cast.id),
-            "requested_at": _iso(cast.requested_at),
-            "status": cast.status,
-            "username": cast.username_snapshot,
-            "location_id": cast.location_id,
-            "reward_type": reward_type,
-            "mass_delta_applied": str(cast.mass_delta_applied) if cast.mass_delta_applied is not None else None,
-            "xp_gained": xp,
-            "mass_label": mass_label,
-            "item_drop_count": int(cast.item_drop_count or 0),
-            "event_title": cast.event_title_snapshot,
-        }
+        # List/export rows carry the full show-format payload so the Discord
+        # list views render every cast exactly like /fish cast show.
+        summary = self._serialize_cast_detail(cast, include_technical=False)
+        summary["mass_label"] = _format_delta(cast.mass_delta_applied)
+        summary["reward_type"] = cast.reward_type
+        summary["item_drop_count"] = int(cast.item_drop_count or 0)
+        return summary
 
     def _serialize_cast_detail(self, cast, *, include_technical: bool) -> dict:
         drops = [

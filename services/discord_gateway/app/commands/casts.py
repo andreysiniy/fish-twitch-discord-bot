@@ -31,21 +31,6 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def cast_list_formatter(item: dict) -> tuple[str, str]:
-    name = item.get("username") or item.get("cast_id", "?")
-    ts = item.get("requested_at") or ""
-    time_short = ts[11:19] if len(ts) >= 19 else ts
-    mass = item.get("mass_label") or ""
-    xp = int(item.get("xp_gained") or 0)
-    location = item.get("location_id") or ""
-    return (
-        name,
-        f"{time_short} • {location}\n"
-        f"mass: {mass} • XP: {xp} • status: {item.get('status')}\n"
-        f"Cast: {_short(item.get('cast_id', ''))}",
-    )
-
-
 def cast_detail_embed(item: dict) -> discord.Embed:
     color = STATUS_COLORS.get(item.get("status"), discord.Color.blurple())
     embed = discord.Embed(
@@ -242,8 +227,7 @@ def register_casts_group(
                 interaction.user.id,
                 "Recent fishing casts",
                 result.get("items", []),
-                cast_list_formatter,
-                page_size=10,
+                embed_builder=cast_detail_embed,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
@@ -315,8 +299,7 @@ def register_casts_group(
                 interaction.user.id,
                 "Fishing cast search",
                 result.get("items", []),
-                cast_list_formatter,
-                page_size=10,
+                embed_builder=cast_detail_embed,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
