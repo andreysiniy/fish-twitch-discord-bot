@@ -1,3 +1,6 @@
+import asyncio
+
+import discord
 from app.interactions.effect_builder import (
     describe_effect,
     effect_to_choice,
@@ -43,3 +46,38 @@ def test_serialize_draft_leaves_non_passive_untouched() -> None:
     effect = serialize_draft({"type": "grant_mass", "mass": "5.5"})
     assert effect["type"] == "grant_mass"
     assert effect["mass"] == "5.5"
+
+
+def test_every_selectable_effect_has_a_typed_modal() -> None:
+    """UI audit §5.2: no effect type may silently fall back to raw JSON."""
+    from app.interactions.effect_builder import EFFECT_SELECT_OPTIONS, modal_for_effect
+
+    for option in EFFECT_SELECT_OPTIONS:
+        modal = modal_for_effect(option.value, lambda payload: None)
+        assert modal is not None, f"{option.value} has no typed modal"
+        assert isinstance(modal, discord.ui.Modal)
+
+
+def test_reroll_reward_modal_builds_target_list() -> None:
+    from app.interactions.effect_builder import RerollRewardModal
+
+    saved = []
+
+    async def fake_submit(interaction):
+        modal = RerollRewardModal(saved.append)
+        modal.targets._value = "nothing, negative_mass"
+        modal.max_rerolls._value = "2"
+        modal.durability_cost._value = "1"
+        await modal.on_submit(interaction)
+
+    class FakeInteraction:
+        class response:
+            @staticmethod
+            async def send_message(*args, **kwargs):
+                return None
+
+    asyncio.run(fake_submit(FakeInteraction))
+    assert saved[0]["type"] == "reroll_reward"
+    assert saved[0]["target_action_types"] == ["nothing", "negative_mass"]
+    assert saved[0]["max_rerolls"] == 2
+    assert saved[0]["durability_cost"] == 1

@@ -835,7 +835,6 @@ def register_commands(
     )
     @app_commands.describe(
         item_id="Existing stable item ID",
-        effects_json="Strict JSON effect array; omit to preserve current effects",
         max_durability="Set the new maximum durability",
     )
     async def item_edit(
@@ -848,7 +847,6 @@ def register_commands(
         stack_size: app_commands.Range[int, 1, 1_000_000] | None = None,
         max_durability: app_commands.Range[int, 1, 1_000_000] | None = None,
         break_policy: app_commands.Choice[str] | None = None,
-        effects_json: str | None = None,
         description: str | None = None,
     ) -> None:
         async def operation() -> None:
@@ -875,11 +873,7 @@ def register_commands(
                 break_policy=(
                     break_policy.value if break_policy else current["break_policy"]
                 ),
-                effects=(
-                    _parse_effects(effects_json)
-                    if effects_json is not None
-                    else current["effects"]
-                ),
+                effects=current["effects"],
                 description=description if description is not None else current.get("description"),
             )
             payload.update(
@@ -977,7 +971,7 @@ def register_commands(
                 f"Item drops — {location_id}",
                 result["items"],
                 item_drop_list_entry,
-                page_size=1,
+                page_size=10,
             )
             await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
@@ -1067,24 +1061,26 @@ def register_commands(
                 None,
             )
             if not row:
-                raise ValueError(f"Item drop not found: {item_id}")
-            await api.upsert_item_drop(
+                raise EngineError(404, "ITEM_DROP_NOT_FOUND", "Item drop not found in this channel")
+            payload = {
+                "item_id": item_id,
+                "weight": weight if weight is not None else row["weight"],
+                "xp_gain": xp_gain if xp_gain is not None else row["xp_gain"],
+                "quantity": (
+                    None
+                    if unlimited_stock
+                    else quantity if quantity is not None else row["quantity"]
+                ),
+                "message": message if message is not None else row["message"],
+                "expected_version": row["version"],
+            }
+            await _json_confirmation(
                 interaction,
-                location_id,
-                {
-                    "item_id": item_id,
-                    "weight": weight if weight is not None else row["weight"],
-                    "xp_gain": xp_gain if xp_gain is not None else row["xp_gain"],
-                    "quantity": (
-                        None
-                        if unlimited_stock
-                        else quantity if quantity is not None else row["quantity"]
-                    ),
-                    "message": message if message is not None else row["message"],
-                    "expected_version": row["version"],
-                },
+                "Item drop update preview",
+                payload,
+                lambda confirmed: api.upsert_item_drop(confirmed, location_id, payload),
+                "Item drop updated.",
             )
-            await interaction.followup.send("Item drop updated.", ephemeral=True)
 
         await _deferred(interaction, operation)
 
@@ -1099,7 +1095,7 @@ def register_commands(
                 None,
             )
             if not row:
-                raise ValueError(f"Item drop not found: {item_id}")
+                raise EngineError(404, "ITEM_DROP_NOT_FOUND", "Item drop not found in this channel")
         except (EngineError, ValueError) as error:
             await _send_error(interaction, error)
             return
@@ -1162,7 +1158,7 @@ def register_commands(
                 None,
             )
             if not row:
-                raise ValueError(f"Inventory item not found: {inventory_item_id}")
+                raise EngineError(404, "INVENTORY_ITEM_NOT_FOUND", "Inventory item not found")
         except (EngineError, ValueError) as error:
             await _send_error(interaction, error)
             return
@@ -1292,7 +1288,7 @@ def register_commands(
                 None,
             )
             if not row:
-                raise ValueError(f"Player modifier not found: {modifier_id}")
+                raise EngineError(404, "PLAYER_MODIFIER_NOT_FOUND", "Player modifier not found")
         except (EngineError, ValueError) as error:
             await _send_error(interaction, error)
             return
@@ -1315,7 +1311,7 @@ def register_commands(
                 None,
             )
             if not row:
-                raise ValueError(f"Player modifier not found: {modifier_id}")
+                raise EngineError(404, "PLAYER_MODIFIER_NOT_FOUND", "Player modifier not found")
         except (EngineError, ValueError) as error:
             await _send_error(interaction, error)
             return
@@ -1533,9 +1529,14 @@ def _error_text(error: Exception) -> str:
 
 
 def _json_embed(title: str, item: dict[str, Any]) -> discord.Embed:
+    """Embed for JSON payloads; never silently truncates (callers attach files)."""
     rendered = json.dumps(item, ensure_ascii=False, indent=2, default=str)
     if len(rendered) > 3900:
-        rendered = f"{rendered[:3897]}…\n(полный JSON во вложении)"
+        return discord.Embed(
+            title=title,
+            description="(JSON слишком большой для embed — полный JSON во вложении)",
+            color=discord.Color.blurple(),
+        )
     return discord.Embed(
         title=title, description=f"```json\n{rendered}\n```", color=discord.Color.blurple()
     )
