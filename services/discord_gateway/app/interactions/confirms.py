@@ -1,8 +1,12 @@
 from collections.abc import Awaitable, Callable
+import logging
 
 import discord
 
+from app.api.errors import EngineError, localize_error
 from app.interactions.metrics import count_wizard_timeout
+
+logger = logging.getLogger("discord.confirm")
 
 
 class ConfirmView(discord.ui.View):
@@ -31,8 +35,31 @@ class ConfirmView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         for item in self.children:
             item.disabled = True
-        await self.on_confirm(interaction)
-        self.stop()
+        if not interaction.response.is_done():
+            # Buttons may only ack with DEFERRED_MESSAGE_UPDATE (type 6);
+            # discord.py's thinking defer maps to type 5, which Discord
+            # rejects, leaving the click unanswered (3s timeout).
+            await interaction.response.defer()
+        try:
+            await self.on_confirm(interaction)
+        except (EngineError, ValueError) as error:
+            content = localize_error(error) if isinstance(error, EngineError) else str(error)
+            await self._report_failure(interaction, content)
+        except Exception:
+            logger.exception("Confirm callback failed for interaction %s", interaction.id)
+            await self._report_failure(
+                interaction, "The operation could not be completed."
+            )
+        finally:
+            self.stop()
+
+    async def _report_failure(self, interaction: discord.Interaction, content: str) -> None:
+        try:
+            await interaction.edit_original_response(
+                content=content, embed=None, view=None
+            )
+        except Exception:
+            logger.exception("Failed to report confirm failure")
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
