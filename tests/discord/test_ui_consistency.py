@@ -42,9 +42,14 @@ def test_mutation_response_uses_valid_defer_for_component_interactions() -> None
         def __init__(self):
             self.defer_kwargs = None
             self.edits = []
+            self.done = False
+
+        def is_done(self):
+            return self.done
 
         async def defer(self, **kwargs):
             self.defer_kwargs = kwargs
+            self.done = True
 
         async def edit_original_response(self, **kwargs):
             self.edits.append(kwargs)
@@ -80,5 +85,55 @@ def test_mutation_response_uses_valid_defer_for_component_interactions() -> None
 
         await _mutation_response(errored, boom, "done")
         assert "nope" in errored.response.edits[0]["content"]
+
+    asyncio.run(run())
+
+
+def test_confirm_view_acks_and_reports_failed_mutation() -> None:
+    """A confirm whose callback raises shows the error instead of timing out."""
+    import asyncio
+
+    from app.api.errors import EngineError
+    from app.interactions.confirms import ConfirmView
+
+    class FakeResponse:
+        def __init__(self):
+            self.done = False
+            self.defer_kwargs = None
+
+        def is_done(self):
+            return self.done
+
+        async def defer(self, **kwargs):
+            self.defer_kwargs = kwargs
+            self.done = True
+
+    class FakeInteraction:
+        def __init__(self):
+            self.id = 42
+            self.user = type("U", (), {"id": 7})()
+            self.response = FakeResponse()
+            self.edited = None
+
+        async def edit_original_response(self, **kwargs):
+            self.edited = kwargs
+
+    async def boom(interaction):
+        raise EngineError(409, "VERSION_CONFLICT", "Version conflict detected")
+
+    async def run():
+        view = ConfirmView(7, boom)
+        interaction = FakeInteraction()
+        # Invoke the button callback directly with a fake interaction.
+        await view.confirm.callback(interaction)
+        assert interaction.response.defer_kwargs == {}  # type-6 ack, no flags
+        assert interaction.edited is not None
+        assert "Version conflict detected" in interaction.edited["content"]
+
+        # An already-acked interaction is not deferred twice.
+        second = FakeInteraction()
+        second.response.done = True
+        await view.confirm.callback(second)
+        assert second.response.defer_kwargs is None
 
     asyncio.run(run())
