@@ -8,6 +8,7 @@ import pytest
 
 from infrastructure.database import SessionLocal
 from infrastructure.models import (
+    EquippedItem,
     Channel,
     InventoryItem,
     ItemDefinition,
@@ -254,3 +255,75 @@ def test_concurrent_robbery_transfers_lock_the_shared_victim() -> None:
         assert attacker_masses == [Decimal("10.00"), Decimal("10.00")]
     finally:
         verify.close()
+
+
+@pytest.mark.integration
+def test_broken_retain_rod_announces_break_only_once() -> None:
+    """A retain_broken rod at zero durability stops emitting break messages."""
+    db = SessionLocal()
+    try:
+        channel = Channel(
+            twitch_id=f"break-once-{uuid.uuid4().hex[:8]}",
+            name="Break Once",
+            config={},
+        )
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id="break-user",
+            username="break_user",
+            channel_id=channel.id,
+            current_mass=Decimal("10"),
+            total_mass_stat=Decimal("10"),
+        )
+        db.add(user)
+        db.flush()
+        definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="retain_rod",
+            title="Retain Rod",
+            type="equipment",
+            slot="rod",
+            rarity="common",
+            stack_size=1,
+            max_durability=3,
+            break_policy="retain_broken",
+        )
+        db.add(definition)
+        db.flush()
+        inv = InventoryItem(
+            user_id=user.id,
+            channel_id=channel.id,
+            item_id=definition.id,
+            slot_id=1,
+            quantity=1,
+            current_durability=1,
+        )
+        db.add(inv)
+        db.flush()
+        equipped = EquippedItem(
+            user_id=user.id,
+            inventory_item_id=inv.id,
+            slot="rod",
+        )
+        db.add(equipped)
+        db.flush()
+
+        repo = InventoryRepository(db)
+        # First hit breaks the rod: 1 -> 0, break announced once.
+        broken = repo.consume_durability(user.id, "rod", 1)
+        assert broken == "Retain Rod"
+
+        # Subsequent casts at zero durability must not re-announce.
+        again = repo.consume_durability(user.id, "rod", 1)
+        assert again is None
+        third = repo.consume_durability(user.id, "rod", 1)
+        assert third is None
+        db.flush()
+
+        # The rod stays equipped (retain_broken) at zero durability.
+        db.refresh(inv)
+        assert int(inv.current_durability) == 0
+    finally:
+        db.rollback()
+        db.close()

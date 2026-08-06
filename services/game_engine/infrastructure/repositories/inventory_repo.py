@@ -159,7 +159,12 @@ class InventoryRepository:
         )
         if not item or item.current_durability is None or not item.definition:
             return None
-        item.current_durability = max(int(item.current_durability) - amount, 0)
+        previous = int(item.current_durability)
+        if previous <= 0:
+            # Already broken: retain_broken keeps the rod equipped at zero, but
+            # the break must be announced only once, on the transition to zero.
+            return None
+        item.current_durability = max(previous - amount, 0)
         item.version += 1
         if item.current_durability > 0:
             self.db.flush()
