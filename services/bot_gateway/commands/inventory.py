@@ -53,13 +53,20 @@ class InventoryCog(commands.Cog):
             await ctx.send("Inventory is empty.")
             return
 
+        max_slots = int(response.get("max_slots") or 0)
         lines = []
         for item in items[:8]:
             slot_id = item.get("slot_id", "?")
             name = item.get("title", "Unknown")
             qty = item.get("quantity", 1)
-            lines.append(f"[{slot_id}] {name} x{qty}")
+            durability = ""
+            max_durability = item.get("max_durability")
+            if max_durability is not None:
+                current = item.get("current_durability")
+                durability = f" (durability {current}/{max_durability})"
+            lines.append(f"[{slot_id}] {name} x{qty}{durability}")
 
-        message = "Inventory: " + ", ".join(lines)
+        header = f"Inventory {len(items)}/{max_slots} slots: " if max_slots else "Inventory: "
+        message = header + ", ".join(lines)
         await ctx.send(message)
 logger = logging.getLogger(__name__)
