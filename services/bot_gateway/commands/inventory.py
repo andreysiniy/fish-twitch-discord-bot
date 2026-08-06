@@ -26,12 +26,17 @@ class InventoryCog(commands.Cog):
             await ctx.send("Could not retrieve inventory.")
 
     @commands.command(name="fishequip")
-    async def fishequip(self, ctx: commands.Context, slot_id: int | None = None) -> None:
+    async def fishequip(self, ctx: commands.Context, slot_id: str | None = None) -> None:
         channel_id = await get_channel_id(ctx)
+        try:
+            parsed_slot = int(slot_id) if slot_id else None
+        except ValueError:
+            # Non-numeric input: the engine answers with the usage message.
+            parsed_slot = None
         payload = {
             "user_id": str(ctx.author.id),
             "channel_id": channel_id,
-            "slot_id": slot_id,
+            "slot_id": parsed_slot,
         }
         try:
             response = await self.bot.api_client.equip_item(payload)
