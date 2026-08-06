@@ -115,7 +115,11 @@ def register_items_group(tree, api, sessions, fish) -> None:
                 payload = build_item_payload(draft)
 
                 async def confirm(confirmed: discord.Interaction) -> None:
-                    await api.upsert_item(confirmed, payload)
+                    await _mutation_response(
+                        confirmed,
+                        lambda: api.upsert_item(confirmed, payload),
+                        "Item created.",
+                    )
 
                 view = ItemPreviewView(interaction.user.id, draft, confirm)
                 embed = view.embed()

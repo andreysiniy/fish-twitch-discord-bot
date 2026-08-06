@@ -630,13 +630,21 @@ class DiscordAdminService:
             )
             return after
 
+        def mutation_guarded() -> dict:
+            try:
+                return mutation()
+            except ValueError as error:
+                # Re-submitting a create for an item that already exists (or a
+                # stale version) is a conflict for the admin, not a 500.
+                raise ApiProblem(409, "ITEM_VERSION_CONFLICT", str(error))
+
         return self.idempotency.execute(
             context.actor_scope,
             context.idempotency_key,
             "item.upsert",
             data.model_dump(mode="json"),
             context.request_id,
-            mutation,
+            mutation_guarded,
         )
 
     def archive_item(

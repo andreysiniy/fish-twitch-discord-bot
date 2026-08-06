@@ -234,8 +234,12 @@ def register_players_group(tree, api, sessions, fish) -> None:
                     embed=embed,
                     view=ConfirmView(
                         interaction.user.id,
-                        lambda confirmed: api.set_player_modifier(
-                            confirmed, resolved, payload
+                        lambda confirmed: _mutation_response(
+                            confirmed,
+                            lambda: api.set_player_modifier(
+                                confirmed, resolved, payload
+                            ),
+                            "Player modifier updated.",
                         ),
                     ),
                 )

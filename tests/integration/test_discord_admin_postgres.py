@@ -22,6 +22,7 @@ from domain.schemas.discord_admin import (
 )
 from infrastructure.database import SessionLocal
 from infrastructure.models import (
+    ItemDefinition,
     AdminAuditLog,
     Channel,
     DiscordAccountLink,
@@ -714,6 +715,73 @@ def test_cast_detail_serializer_falls_back_to_jsonb_trace() -> None:
         assert detail["item_drop"]["probability"] == "0.1"
         assert detail["item_drop"]["roll"] == "0.7463573251180865"
         assert detail["item_drop"]["succeeded"] is False
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_item_upsert_existing_without_version_is_clean_conflict() -> None:
+    """Re-submitting an item create for an existing id is 409, not a 500."""
+    from domain.schemas.discord_admin import DiscordItemUpsertRequest
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"item-conflict-{uuid.uuid4().hex[:8]}",
+            name="Item Conflict",
+            config={},
+            config_version=1,
+        )
+        db.add(channel)
+        db.flush()
+        db.add(
+            DiscordAccountLink(
+                discord_user_id="1001",
+                twitch_user_id=channel.twitch_id,
+                twitch_login=channel.name,
+                verified_at=now,
+                last_verified_at=now,
+            )
+        )
+        db.add(
+            DiscordGuildBinding(
+                discord_guild_id="2001",
+                channel_id=channel.id,
+                configured_by_discord_id="1001",
+                locale="en",
+            )
+        )
+        db.add(
+            ItemDefinition(
+                channel_id=channel.id,
+                item_id="existing_rod",
+                title="Existing Rod",
+                type="equipment",
+                slot="rod",
+                rarity="common",
+                stack_size=1,
+            )
+        )
+        db.flush()
+
+        service = DiscordAdminService(db)
+        context = _context("item-conflict")
+        request = DiscordItemUpsertRequest(
+            item_id="existing_rod",
+            title="Existing Rod",
+            item_type="equipment",
+            rarity="common",
+            equipment_slot="rod",
+            stack_size=1,
+            break_policy="indestructible",
+            effects=[],
+        )
+        with pytest.raises(ApiProblem) as exc_info:
+            service.upsert_item(context, channel.twitch_id, request)
+        assert exc_info.value.code == "ITEM_VERSION_CONFLICT"
+        assert exc_info.value.status_code == 409
     finally:
         db.rollback()
         db.close()
