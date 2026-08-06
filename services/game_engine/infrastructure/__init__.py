@@ -4,7 +4,6 @@ from .models import (
     UserProgress,
     ItemDefinition,
     InventoryItem,
-    LocationItem,
     FishingEvent,
 )
 
@@ -13,7 +12,6 @@ __all__ = [
     "FishingEvent",
     "InventoryItem",
     "ItemDefinition",
-    "LocationItem",
     "RewardPool",
     "UserProgress",
 ]

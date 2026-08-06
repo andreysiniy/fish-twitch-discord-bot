@@ -11,7 +11,9 @@ from infrastructure.models import (
     Channel,
     InventoryItem,
     ItemDefinition,
-    LocationItem,
+    LootTable,
+    LootTableEntry,
+    LootTableEntryStock,
     RewardPool,
     UserProgress,
 )
@@ -117,17 +119,33 @@ def test_finite_location_stock_is_consumed_by_only_one_concurrent_grant() -> Non
         ]
         setup.add_all([pool, definition, *users])
         setup.flush()
-        drop = LocationItem(
-            reward_pool_id=pool.id,
+        table = LootTable(
             channel_id=channel.id,
-            item_id=definition.id,
+            table_id=f"stock-race-{suffix}",
+            title="Stock Race Table",
+            version=1,
+            is_active=True,
+        )
+        setup.add(table)
+        setup.flush()
+        entry = LootTableEntry(
+            channel_id=channel.id,
+            loot_table_id=table.id,
+            item_definition_id=definition.id,
             weight=1,
-            quantity=1,
+            min_quantity=1,
+            max_quantity=1,
             message="Last item dropped.",
         )
-        setup.add(drop)
+        setup.add(entry)
+        setup.flush()
+        stock = LootTableEntryStock(
+            loot_table_entry_id=entry.id, remaining_quantity=1, version=1
+        )
+        setup.add(stock)
+        pool.item_loot_table_id = table.id
         setup.commit()
-        drop_id = drop.id
+        entry_id = entry.id
         user_ids = [user.id for user in users]
     finally:
         setup.close()
@@ -139,7 +157,7 @@ def test_finite_location_stock_is_consumed_by_only_one_concurrent_grant() -> Non
         try:
             user = db.get(UserProgress, user_id)
             barrier.wait(timeout=10)
-            consumed = ConfigRepository(db).consume_location_item_stock(drop_id)
+            consumed = ConfigRepository(db).consume_loot_table_entry_stock(entry_id)
             if consumed:
                 InventoryRepository(db).grant_many(
                     user, [{"item_id": "last_item", "quantity": 1}]
@@ -157,14 +175,18 @@ def test_finite_location_stock_is_consumed_by_only_one_concurrent_grant() -> Non
 
     verify = SessionLocal()
     try:
-        drop = verify.get(LocationItem, drop_id)
+        stock = (
+            verify.query(LootTableEntryStock)
+            .filter(LootTableEntryStock.loot_table_entry_id == entry_id)
+            .one()
+        )
         inventory_count = (
             verify.query(InventoryItem)
             .filter(InventoryItem.user_id.in_(user_ids))
             .count()
         )
         assert sorted(results) == [False, True]
-        assert drop.quantity == 0
+        assert stock.remaining_quantity == 0
         assert inventory_count == 1
     finally:
         verify.close()

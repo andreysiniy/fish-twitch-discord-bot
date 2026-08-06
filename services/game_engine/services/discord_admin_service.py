@@ -37,13 +37,15 @@ from domain.schemas.discord_admin import (
 )
 from infrastructure.models import (
     AdminAuditLog,
+    LootTable,
+    LootTableEntry,
+    LootTableEntryStock,
     Channel,
     DiscordAccountLink,
     DiscordGuildBinding,
     FishingEvent,
     InventoryItem,
     ItemDefinition,
-    LocationItem,
     PlayerModifier,
     RewardPool,
     UserProgress,
@@ -675,6 +677,45 @@ class DiscordAdminService:
             mutation,
         )
 
+    def _ensure_pool_loot_table(self, pool) -> LootTable:
+        """Return (creating if needed) the unified loot table for a pool.
+
+        Legacy location_items rows are copied into the loot table exactly once
+        so the admin editor can operate exclusively on the unified schema.
+        """
+        if pool.item_loot_table_id is not None:
+            table = (
+                self.db.query(LootTable)
+                .filter(LootTable.id == pool.item_loot_table_id)
+                .first()
+            )
+            if table is not None:
+                return table
+        table = LootTable(
+            channel_id=pool.channel_id,
+            table_id=f"pool-{pool.id}",
+            title=pool.location_name or pool.location_id,
+            version=1,
+            is_active=True,
+        )
+        self.db.add(table)
+        self.db.flush()
+        pool.item_loot_table_id = table.id
+        self.db.flush()
+        return table
+
+    def _item_drop_rows(self, pool) -> list:
+        table = self._ensure_pool_loot_table(pool)
+        return (
+            self.db.query(LootTableEntry)
+            .filter(
+                LootTableEntry.loot_table_id == table.id,
+                LootTableEntry.item_definition_id.isnot(None),
+            )
+            .order_by(LootTableEntry.id.asc())
+            .all()
+        )
+
     def preview_item_drop(
         self, context, channel_twitch_id: str, location_id: str, item_weight: int
     ) -> dict:
@@ -686,11 +727,7 @@ class DiscordAdminService:
         pool, _, _ = self._resolve_pool(
             context, channel_twitch_id, location_id, ChannelPermission.ITEMS_READ
         )
-        rows = (
-            self.db.query(LocationItem)
-            .filter(LocationItem.reward_pool_id == pool.id)
-            .all()
-        )
+        rows = self._item_drop_rows(pool)
         total_weight = sum(int(row.weight) for row in rows) + max(int(item_weight), 1)
         if total_weight <= 0:
             probability = 0.0
@@ -713,12 +750,7 @@ class DiscordAdminService:
         pool, _, _ = self._resolve_pool(
             context, channel_twitch_id, location_id, ChannelPermission.ITEMS_READ
         )
-        rows = (
-            self.db.query(LocationItem)
-            .filter(LocationItem.reward_pool_id == pool.id)
-            .order_by(LocationItem.id.asc())
-            .all()
-        )
+        rows = self._item_drop_rows(pool)
         return {
             "location_id": pool.location_id,
             "items": self._serialize_item_drops_with_chance(rows, pool),
@@ -733,7 +765,7 @@ class DiscordAdminService:
         total_weight = sum(int(row.weight) for row in rows) or 0
         items = []
         for row in rows:
-            entry = self._serialize_item_drop(row)
+            entry = self._serialize_item_drop(row, db=self.db)
             if total_weight > 0:
                 entry["selection_weight_share"] = round(
                     int(row.weight) / total_weight, 6
@@ -769,16 +801,17 @@ class DiscordAdminService:
             definition = self._find_item_definition(channel.id, data.item_id)
             if not definition.is_active:
                 raise ApiProblem(422, "VALIDATION_ERROR", "Archived items cannot be dropped")
+            table = self._ensure_pool_loot_table(pool)
             row = (
-                self.db.query(LocationItem)
+                self.db.query(LootTableEntry)
                 .filter(
-                    LocationItem.reward_pool_id == pool.id,
-                    LocationItem.item_id == definition.id,
+                    LootTableEntry.loot_table_id == table.id,
+                    LootTableEntry.item_definition_id == definition.id,
                 )
-                .with_for_update(of=LocationItem)
+                .with_for_update(of=LootTableEntry)
                 .first()
             )
-            before = self._serialize_item_drop(row) if row else {}
+            before = self._serialize_item_drop(row, db=self.db) if row else {}
             if row:
                 if data.expected_version is None:
                     raise ApiProblem(
@@ -791,21 +824,49 @@ class DiscordAdminService:
             else:
                 if data.expected_version is not None:
                     raise ApiProblem(409, "CONFIG_VERSION_CONFLICT", "Item drop does not exist")
-                row = LocationItem(
-                    reward_pool_id=pool.id, channel_id=pool.channel_id, item_id=definition.id
+                row = LootTableEntry(
+                    channel_id=pool.channel_id,
+                    loot_table_id=table.id,
+                    item_definition_id=definition.id,
+                    weight=data.weight,
+                    min_quantity=1,
+                    max_quantity=1,
+                    xp_gain=data.xp_gain,
+                    message=data.message,
+                    config_version=1,
                 )
                 self.db.add(row)
+                self.db.flush()
             row.weight = data.weight
             row.xp_gain = data.xp_gain
-            row.quantity = data.quantity
             row.message = data.message
+            stock = (
+                self.db.query(LootTableEntryStock)
+                .filter(LootTableEntryStock.loot_table_entry_id == row.id)
+                .with_for_update(of=LootTableEntryStock)
+                .first()
+            )
+            if data.quantity is None:
+                if stock is not None:
+                    self.db.delete(stock)
+            else:
+                if stock is None:
+                    stock = LootTableEntryStock(
+                        loot_table_entry_id=row.id,
+                        remaining_quantity=int(data.quantity),
+                        version=1,
+                    )
+                    self.db.add(stock)
+                else:
+                    stock.remaining_quantity = int(data.quantity)
+                    stock.version += 1
             self.db.flush()
-            after = self._serialize_item_drop(row)
+            after = self._serialize_item_drop(row, db=self.db)
             self._audit(
                 context,
                 link.twitch_user_id,
                 "item_drop.upsert",
-                "location_item",
+                "loot_table_entry",
                 row.id,
                 before,
                 {**after, "channel_twitch_id": channel.twitch_id},
@@ -837,26 +898,27 @@ class DiscordAdminService:
                 ChannelPermission.ITEM_DROPS_WRITE,
             )
             definition = self._find_item_definition(channel.id, item_id)
+            table = self._ensure_pool_loot_table(pool)
             row = (
-                self.db.query(LocationItem)
+                self.db.query(LootTableEntry)
                 .filter(
-                    LocationItem.reward_pool_id == pool.id,
-                    LocationItem.item_id == definition.id,
+                    LootTableEntry.loot_table_id == table.id,
+                    LootTableEntry.item_definition_id == definition.id,
                 )
-                .with_for_update(of=LocationItem)
+                .with_for_update(of=LootTableEntry)
                 .first()
             )
             if not row:
                 raise ApiProblem(404, "ITEM_DROP_NOT_FOUND", "Item drop not found")
             self._check_version(row.version, expected_version, context)
-            before = self._serialize_item_drop(row)
+            before = self._serialize_item_drop(row, db=self.db)
             self.db.delete(row)
             self.db.flush()
             self._audit(
                 context,
                 link.twitch_user_id,
                 "item_drop.remove",
-                "location_item",
+                "loot_table_entry",
                 row.id,
                 {**before, "channel_twitch_id": channel.twitch_id},
                 {},
@@ -1798,14 +1860,21 @@ class DiscordAdminService:
         }
 
     @staticmethod
-    def _serialize_item_drop(row: LocationItem) -> dict:
+    def _serialize_item_drop(row: LootTableEntry, db=None) -> dict:
+        stock = None
+        if db is not None:
+            stock = (
+                db.query(LootTableEntryStock)
+                .filter(LootTableEntryStock.loot_table_entry_id == row.id)
+                .first()
+            )
         return {
             "id": row.id,
             "item_id": row.definition.item_id,
             "title": row.definition.title,
             "weight": row.weight,
             "xp_gain": row.xp_gain,
-            "quantity": row.quantity,
+            "quantity": stock.remaining_quantity if stock else None,
             "message": row.message,
             "version": row.version,
             "updated_at": row.updated_at.isoformat(),
