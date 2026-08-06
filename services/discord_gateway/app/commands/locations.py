@@ -10,6 +10,7 @@ from app.interactions.modals import (
     LocationModal,
 )
 from app.presentation.embeds import (
+    location_detail_embed,
     location_list_entry,
 )
 from app.presentation.pagination import PagedEmbedView
@@ -63,7 +64,9 @@ def register_locations_group(tree, api, sessions, fish) -> None:
         async def location_show(interaction: discord.Interaction, location_id: str) -> None:
             async def operation() -> None:
                 item = await api.location(interaction, location_id)
-                await _send_json_embed(interaction, "Location", item)
+                await interaction.followup.send(
+                    embed=location_detail_embed(item), ephemeral=True
+                )
 
             await _deferred(interaction, operation)
 

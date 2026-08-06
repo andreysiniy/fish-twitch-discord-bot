@@ -65,3 +65,50 @@ def test_resolve_viewer_prefers_argument_and_falls_back_to_own_account() -> None
             assert error.code == "LINK_REQUIRED"
 
     asyncio.run(run())
+
+
+def test_player_modifier_value_is_converted_to_ratio_for_percent_ops() -> None:
+    """10 means +10% for add/override/min/max, but a raw multiplier for multiply."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.commands.players import _player_modifier_payload
+
+    payload = _player_modifier_payload(
+        stat_key="fish_luck_change_ratio",
+        operation="add",
+        scope="fishing",
+        value="10",
+        source_key="promo",
+        reason="test",
+        expected_version=None,
+        expires_in=None,
+    )
+    assert payload["value"] == "0.1"
+
+    payload = _player_modifier_payload(
+        stat_key="fish_luck_change_ratio",
+        operation="multiply",
+        scope="fishing",
+        value="2",
+        source_key="promo",
+        reason="test",
+        expected_version=None,
+        expires_in=None,
+    )
+    assert payload["value"] == "2"
+
+    payload = _player_modifier_payload(
+        stat_key="fish_luck_change_ratio",
+        operation="add",
+        scope="fishing",
+        value="-50",
+        source_key="promo",
+        reason="test",
+        expected_version=None,
+        expires_in="2h",
+    )
+    assert payload["value"] == "-0.5"
+    expires_at = datetime.fromisoformat(payload["expires_at"].replace("+00:00", "+00:00"))
+    assert expires_at.tzinfo is not None
+    remaining = expires_at - datetime.now(timezone.utc)
+    assert timedelta(hours=1) < remaining < timedelta(hours=3)

@@ -7,6 +7,7 @@ one place.
 
 import io
 import json
+from datetime import datetime
 from typing import Any
 
 import discord
@@ -196,6 +197,7 @@ def _player_modifier_preview_embed(
     existing_source_count: int,
     source_key: str,
     reason: str,
+    expires_at: str | None = None,
 ) -> discord.Embed:
     embed = discord.Embed(
         title=f"Player modifier preview — {user_twitch_id}",
@@ -215,6 +217,12 @@ def _player_modifier_preview_embed(
         value=str(existing_source_count),
         inline=True,
     )
+    if expires_at:
+        embed.add_field(
+            name="Expires",
+            value=f"<t:{_epoch_from_iso(expires_at)}:f>",
+            inline=True,
+        )
     embed.add_field(
         name="Source",
         value=f"{source_key}\n{reason}",
@@ -312,3 +320,11 @@ def _item_payload(
         "image_url": None,
         "value": None,
     }
+
+
+def _epoch_from_iso(value: str) -> int:
+    """Unix timestamp for a backend ISO datetime (used for Discord <t:> tags)."""
+    try:
+        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return 0

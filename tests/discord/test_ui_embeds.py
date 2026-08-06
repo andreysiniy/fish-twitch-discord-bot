@@ -129,3 +129,44 @@ def test_strong_event_values_detects_large_modifiers() -> None:
         )
         == []
     )
+
+
+def test_location_detail_embed_is_human_readable() -> None:
+    from app.presentation.embeds import location_detail_embed
+
+    embed = location_detail_embed(
+        {
+            "location_id": "lake",
+            "location_name": "Lake",
+            "requirements": {"level": 3},
+            "rewards": [{"type": "fish", "weight": 90}, {"type": "nothing", "weight": 10}],
+            "item_drops": [{"item_id": "rod", "weight": 5}],
+        }
+    )
+    text = "\n".join(field.value for field in embed.fields)
+    assert "fish: 1" in text
+    assert "nothing: 1" in text
+    assert "`rod`" in text
+
+
+def test_player_modifiers_embed_lists_rows_without_raw_json() -> None:
+    from app.presentation.embeds import player_modifiers_embed
+
+    embed = player_modifiers_embed(
+        {
+            "viewer": "srakjopa",
+            "items": [
+                {
+                    "stat_key": "fish_luck_change_ratio",
+                    "operation": "add",
+                    "value": "0.1",
+                    "source_key": "promo",
+                }
+            ],
+        }
+    )
+    text = "\n".join(field.value for field in embed.fields)
+    assert "fish_luck_change_ratio" in text
+    assert "add" in text
+    assert "promo" in text
+    assert "{" not in text

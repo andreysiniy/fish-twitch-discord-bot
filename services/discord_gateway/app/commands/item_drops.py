@@ -158,12 +158,47 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                     "message": message if message is not None else row["message"],
                     "expected_version": row["version"],
                 }
-                await _json_confirmation(
-                    interaction,
-                    "Item drop update preview",
-                    payload,
-                    lambda confirmed: api.upsert_item_drop(confirmed, location_id, payload),
-                    "Item drop updated.",
+                # Same calculated preview as add: chance per cast, expected
+                # casts, XP, stock and message (audit 10.11).
+                preview = await api.preview_item_drop(
+                    interaction, location_id, payload["weight"]
+                )
+                probability = preview.get("drop_probability", 0.0)
+                expected = preview.get("expected_casts_to_drop")
+
+                async def confirm(confirmed: discord.Interaction) -> None:
+                    await _mutation_response(
+                        confirmed,
+                        lambda: api.upsert_item_drop(
+                            confirmed, location_id, payload
+                        ),
+                        "Item drop updated.",
+                    )
+
+                embed = discord.Embed(
+                    title=f"Edit item drop: {item_id}",
+                    description=f"Location `{location_id}` · weight `{payload['weight']}`",
+                    color=discord.Color.orange(),
+                )
+                embed.add_field(name="Chance per cast", value=f"{float(probability):.2%}")
+                if expected is not None:
+                    embed.add_field(name="Expected casts to drop", value=str(expected))
+                embed.add_field(name="XP", value=str(payload["xp_gain"]))
+                embed.add_field(
+                    name="Stock",
+                    value="unlimited"
+                    if payload["quantity"] is None
+                    else str(payload["quantity"]),
+                )
+                embed.add_field(name="Message", value=str(payload["message"] or "")[:200])
+                view = ConfirmView(
+                    interaction.user.id,
+                    confirm,
+                )
+                await interaction.edit_original_response(
+                    content=None,
+                    embed=embed,
+                    view=view,
                 )
 
             await _deferred(interaction, operation)
