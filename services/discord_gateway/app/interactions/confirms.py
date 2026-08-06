@@ -40,3 +40,16 @@ class ConfirmView(discord.ui.View):
             content="Operation cancelled.", embed=None, view=self
         )
         self.stop()
+
+    async def on_timeout(self) -> None:
+        """Audit §12: a timeout disables controls and tells the admin to restart."""
+        for item in self.children:
+            item.disabled = True
+        message = self.message
+        if message is not None:
+            await message.edit(
+                content="⏱ Confirmation expired. Run the command again.",
+                embed=None,
+                view=self,
+            )
+        self.stop()

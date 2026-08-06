@@ -173,12 +173,291 @@ class GrantMassModal(discord.ui.Modal):
         )
 
 
+class RerollRewardModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Reroll Reward")
+        self.on_save = on_save
+        self.targets = discord.ui.TextInput(
+            label="Target actions (comma separated)",
+            placeholder="nothing, negative_mass, negative_percentage",
+            max_length=120,
+            required=True,
+        )
+        self.max_rerolls = discord.ui.TextInput(
+            label="Max rerolls", max_length=2, default="1", required=True
+        )
+        self.durability_cost = discord.ui.TextInput(
+            label="Durability cost", max_length=4, default="0", required=True
+        )
+        for item in (self.targets, self.max_rerolls, self.durability_cost):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "reroll_reward",
+            "trigger": "after_reward_roll",
+            "target_action_types": [
+                part.strip() for part in self.targets.value.split(",") if part.strip()
+            ],
+            "max_rerolls": int(self.max_rerolls.value.strip() or "1"),
+            "durability_cost": int(self.durability_cost.value.strip() or "0"),
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class BlockActionModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Block Action")
+        self.on_save = on_save
+        self.targets = discord.ui.TextInput(
+            label="Target actions (comma separated)",
+            placeholder="nothing, negative_mass",
+            max_length=120,
+            required=True,
+        )
+        self.trigger = discord.ui.TextInput(
+            label="Trigger", placeholder="after_reward_roll", default="after_reward_roll",
+            max_length=30, required=True,
+        )
+        self.chance = discord.ui.TextInput(
+            label="Chance (0..1)", default="1", max_length=8, required=True
+        )
+        self.durability_cost = discord.ui.TextInput(
+            label="Durability cost", max_length=4, default="0", required=True
+        )
+        for item in (self.targets, self.trigger, self.chance, self.durability_cost):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "block_action",
+            "trigger": self.trigger.value.strip() or "after_reward_roll",
+            "target_action_types": [
+                part.strip() for part in self.targets.value.split(",") if part.strip()
+            ],
+            "chance": self.chance.value.strip() or "1",
+            "durability_cost": int(self.durability_cost.value.strip() or "0"),
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class RobberyCounterModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Robbery Counter")
+        self.on_save = on_save
+        self.trigger = discord.ui.TextInput(
+            label="Trigger", default="on_robbery_attempt", max_length=30, required=True
+        )
+        self.chance = discord.ui.TextInput(
+            label="Chance (0..1)", default="1", max_length=8, required=True
+        )
+        self.action_type = discord.ui.TextInput(
+            label="Counter action", placeholder="timeout", default="timeout",
+            max_length=20, required=True,
+        )
+        self.duration = discord.ui.TextInput(
+            label="Timeout duration (seconds)", default="60", max_length=9, required=True
+        )
+        for item in (self.trigger, self.chance, self.action_type, self.duration):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        action_type = (self.action_type.value.strip() or "timeout").lower()
+        if action_type not in ("timeout", "add_mass"):
+            await interaction.response.send_message(
+                "Counter action must be `timeout` or `add_mass`.", ephemeral=True
+            )
+            return
+        action = (
+            {"type": "timeout", "duration_seconds": int(self.duration.value.strip() or "60")}
+            if action_type == "timeout"
+            else {"type": "add_mass", "mass": self.duration.value.strip() or "0"}
+        )
+        payload = {
+            "type": "robbery_counter",
+            "trigger": self.trigger.value.strip() or "on_robbery_attempt",
+            "chance": self.chance.value.strip() or "1",
+            "action": action,
+            "durability_cost": 1,
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class AbsorbRobberyModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Absorb Robbery")
+        self.on_save = on_save
+        self.chance = discord.ui.TextInput(
+            label="Chance (0..1)", default="1", max_length=8, required=True
+        )
+        self.attacker_delta = discord.ui.TextInput(
+            label="Attacker mass delta", default="0", max_length=24, required=True
+        )
+        self.durability_cost = discord.ui.TextInput(
+            label="Durability cost", max_length=4, default="1", required=True
+        )
+        for item in (self.chance, self.attacker_delta, self.durability_cost):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "absorb_robbery",
+            "trigger": "on_robbery_attempt",
+            "chance": self.chance.value.strip() or "1",
+            "attacker_mass_delta": self.attacker_delta.value.strip() or "0",
+            "durability_cost": int(self.durability_cost.value.strip() or "1"),
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class MassFloorModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Mass Floor")
+        self.on_save = on_save
+        self.protected_mass = discord.ui.TextInput(
+            label="Protected mass", max_length=24, required=True
+        )
+        self.scopes = discord.ui.TextInput(
+            label="Scopes (comma separated)",
+            placeholder="robbery, negative_rewards, roulette",
+            max_length=80,
+            required=True,
+        )
+        self.add_item(self.protected_mass)
+        self.add_item(self.scopes)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "mass_floor",
+            "protected_mass": self.protected_mass.value.strip(),
+            "scopes": [
+                part.strip()
+                for part in self.scopes.value.split(",")
+                if part.strip() in ("robbery", "negative_rewards", "roulette")
+            ],
+        }
+        if not payload["scopes"]:
+            await interaction.response.send_message(
+                "Scopes must be from: robbery, negative_rewards, roulette.",
+                ephemeral=True,
+            )
+            return
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class ApplyTimeoutModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Apply Timeout")
+        self.on_save = on_save
+        self.duration = discord.ui.TextInput(
+            label="Duration (seconds)", max_length=9, required=True
+        )
+        self.reason = discord.ui.TextInput(
+            label="Reason", max_length=200, default="Item effect", required=True
+        )
+        self.add_item(self.duration)
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "apply_timeout",
+            "duration_seconds": int(self.duration.value.strip()),
+            "reason": self.reason.value.strip() or "Item effect",
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class LootTableRollModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Loot Table Roll")
+        self.on_save = on_save
+        self.table_id = discord.ui.TextInput(
+            label="Loot table ID", max_length=120, required=True
+        )
+        self.rolls = discord.ui.TextInput(
+            label="Rolls", default="1", max_length=2, required=True
+        )
+        self.add_item(self.table_id)
+        self.add_item(self.rolls)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "loot_table_roll",
+            "loot_table_id": self.table_id.value.strip(),
+            "rolls": int(self.rolls.value.strip() or "1"),
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
+class ConsumeChargeModal(discord.ui.Modal):
+    def __init__(self, on_save: Callable[[dict[str, Any]], None]):
+        super().__init__(title="Consume Charge")
+        self.on_save = on_save
+        self.trigger = discord.ui.TextInput(
+            label="Trigger", placeholder="after_cast", default="after_cast",
+            max_length=30, required=True,
+        )
+        self.amount = discord.ui.TextInput(
+            label="Amount", default="1", max_length=4, required=True
+        )
+        self.add_item(self.trigger)
+        self.add_item(self.amount)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        payload = {
+            "type": "consume_charge",
+            "trigger": self.trigger.value.strip() or "after_cast",
+            "amount": int(self.amount.value.strip() or "1"),
+        }
+        self.on_save(payload)
+        await interaction.response.send_message(
+            f"Effect added: {describe_effect(payload)}", ephemeral=True
+        )
+
+
 def modal_for_effect(effect_type: str, on_save: Callable[[dict[str, Any]], None]):
-    """Return the typed modal for an effect type."""
+    """Return the typed modal for an effect type (never None)."""
     if effect_type in ("stat_add", "stat_multiply"):
         return PassiveEffectModal(effect_type, on_save)
     if effect_type == "grant_item":
         return GrantItemModal(on_save)
     if effect_type == "grant_mass":
         return GrantMassModal(on_save)
-    return None
+    if effect_type == "reroll_reward":
+        return RerollRewardModal(on_save)
+    if effect_type == "block_action":
+        return BlockActionModal(on_save)
+    if effect_type == "robbery_counter":
+        return RobberyCounterModal(on_save)
+    if effect_type == "absorb_robbery":
+        return AbsorbRobberyModal(on_save)
+    if effect_type == "mass_floor":
+        return MassFloorModal(on_save)
+    if effect_type == "apply_timeout":
+        return ApplyTimeoutModal(on_save)
+    if effect_type == "loot_table_roll":
+        return LootTableRollModal(on_save)
+    if effect_type == "consume_charge":
+        return ConsumeChargeModal(on_save)
+    return PassiveEffectModal("stat_add", on_save)

@@ -1,3 +1,4 @@
+import io
 import json
 from decimal import Decimal
 from typing import Any
@@ -730,11 +731,33 @@ async def _show_preview(
     payload: dict[str, Any],
     on_confirm,
 ) -> None:
-    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    limit = 3800
+    if len(rendered) > limit:
+        # Never truncate silently: technical JSON beyond the embed limit is
+        # attached as a file with a compact summary in the embed.
+        summary = json.dumps(payload, ensure_ascii=False, indent=2)[:1000]
+        file = discord.File(
+            io.BytesIO(rendered.encode("utf-8")), filename="preview.json"
+        )
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title=title,
+                description=(
+                    "Full JSON is attached as `preview.json` "
+                    f"({len(rendered)} chars).\n```json\n{summary}\n```"
+                ),
+                color=discord.Color.orange(),
+            ),
+            file=file,
+            view=ConfirmView(interaction.user.id, on_confirm),
+            ephemeral=True,
+        )
+        return
     await interaction.response.send_message(
         embed=discord.Embed(
             title=title,
-            description=f"```json\n{rendered[:3800]}\n```",
+            description=f"```json\n{rendered}\n```",
             color=discord.Color.orange(),
         ),
         view=ConfirmView(interaction.user.id, on_confirm),

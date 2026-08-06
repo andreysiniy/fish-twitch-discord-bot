@@ -27,3 +27,15 @@ class ModalLauncherView(discord.ui.View):
     @discord.ui.button(label="Open form", style=discord.ButtonStyle.primary)
     async def open_form(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.send_modal(self.modal_factory())
+
+    async def on_timeout(self) -> None:
+        """Audit §12: a timeout disables controls and tells the admin to restart."""
+        for item in self.children:
+            item.disabled = True
+        message = self.message
+        if message is not None:
+            await message.edit(
+                content="⏱ Форма истекла. Запустите команду заново.",
+                view=self,
+            )
+        self.stop()
