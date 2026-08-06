@@ -200,13 +200,8 @@ DEFAULT_MESSAGES = {
         "🐟 Current Mass: {current_mass} | "
         "🎯 Total Catches: {total_fish_stat} | "
         "🎣 Rod: {rod_name} | "
-        "🍀 Fish Luck: {luck_fmt} | "
-        "🐟 Good Catch: {good_catch_fmt} | "
-        "🛟 Bad Catch: {bad_catch_fmt} | "
-        "✨ XP: {xp_fmt} | "
-        "⏱ CD: {cd_fmt} | "
-        "📦 Item Drop: {item_drop_fmt} | "
-        "💎 Item Rarity: {item_rarity_fmt} | "
+        "{luck_fmt}{good_catch_fmt}{bad_catch_fmt}{xp_fmt}{cd_fmt}"
+        "{item_drop_fmt}{item_rarity_fmt}"
         "🏆 Rank: #{rank} (Total: {total_mass})"
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
@@ -236,12 +231,12 @@ PLACEHOLDER_DESCRIPTIONS = {
     "location_name": "Fishing location display name.",
     "location_number": "Location number entered by the user.",
     "locations": "Formatted list of available locations.",
-    "bad_catch_fmt": "Formatted negative catch reduction.",
-    "cd_fmt": "Formatted fishing cooldown change.",
-    "good_catch_fmt": "Formatted positive catch bonus.",
-    "item_drop_fmt": "Formatted item drop chance change.",
-    "item_rarity_fmt": "Formatted item rarity luck change.",
-    "luck_fmt": "Formatted luck bonus.",
+    "bad_catch_fmt": "Whole 'Bad Catch' segment (empty when 0)",
+    "cd_fmt": "Whole cooldown segment (empty when 0)",
+    "good_catch_fmt": "Whole 'Good Catch' segment (empty when 0)",
+    "item_drop_fmt": "Whole 'Item Drop' segment (empty when 0)",
+    "item_rarity_fmt": "Whole 'Item Rarity' segment (empty when 0)",
+    "luck_fmt": "Whole 'Fish Luck' segment (empty when 0)",
     "mass": "Fish mass involved in the operation.",
     "max": "Maximum inventory capacity.",
     "mode": "Leaderboard mode.",
@@ -267,7 +262,7 @@ PLACEHOLDER_DESCRIPTIONS = {
     "victim_loss": "Mass lost by the robbery victim.",
     "victim_mass": "Victim's mass after the robbery.",
     "xp": "Current or awarded experience points.",
-    "xp_fmt": "Formatted experience bonus.",
+    "xp_fmt": "Whole XP bonus segment (empty when 0)",
     "xp_next": "Experience required for the next level.",
 }
 
