@@ -113,8 +113,7 @@ def register_items_group(tree, api, sessions, fish) -> None:
                     "description": description,
                     "effects": [],
                 }
-                flow_id = "item:create"
-                await sessions.create(interaction.user.id, flow_id, draft)
+                flow_id = await sessions.create(interaction.user.id, draft)
                 await _show_item_preview(
                     interaction=interaction,
                     sessions=sessions,
@@ -186,8 +185,7 @@ def register_items_group(tree, api, sessions, fish) -> None:
                     "image_url": current.get("image_url"),
                     "value": current.get("value"),
                 }
-                flow_id = f"item:edit:{item_id}"
-                await sessions.create(interaction.user.id, flow_id, draft)
+                flow_id = await sessions.create(interaction.user.id, draft)
                 await _show_item_preview(
                     interaction=interaction,
                     sessions=sessions,
@@ -251,8 +249,7 @@ def register_items_group(tree, api, sessions, fish) -> None:
                         "image_url": current.get("image_url"),
                         "value": current.get("value"),
                     }
-                    flow_id = f"item:effects:{item_id}"
-                    await sessions.create(done_interaction.user.id, flow_id, draft)
+                    flow_id = await sessions.create(done_interaction.user.id, draft)
                     await _show_item_preview(
                         interaction=done_interaction,
                         sessions=sessions,

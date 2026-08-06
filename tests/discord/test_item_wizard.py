@@ -1,3 +1,5 @@
+import pytest
+
 import discord
 
 from app.interactions.item_wizard import (
@@ -123,3 +125,51 @@ def test_item_preview_view_has_effects_button_and_cancel_hook() -> None:
 
     embed = view.embed()
     assert any(field.name == "Effects" for field in embed.fields)
+
+
+@pytest.mark.asyncio
+async def test_item_preview_flow_uses_generated_session_flow_id() -> None:
+    """sessions.create returns the flow id; the preview flow must use it (regression:
+    a previous version passed a third positional arg and crashed the command)."""
+    from app.commands.items import _show_item_preview
+
+    calls: list[tuple] = []
+
+    class FakeSessions:
+        async def create(self, user_id, data):  # noqa: ANN001
+            calls.append(("create", user_id))
+            return "flow-123"
+
+        async def get(self, user_id, flow_id):  # noqa: ANN001
+            calls.append(("get", user_id, flow_id))
+            return {"item_id": "smth", "title": "Some item idk", "effects": []}
+
+        async def update(self, user_id, flow_id, data):  # noqa: ANN001
+            calls.append(("update", user_id, flow_id))
+
+        async def delete(self, user_id, flow_id):  # noqa: ANN001
+            calls.append(("delete", user_id, flow_id))
+
+    class FakeInteraction:
+        user = type("U", (), {"id": 1})()
+
+        async def edit_original_response(self, **kwargs):  # noqa: ANN001
+            calls.append(("edit", kwargs.get("embed").title if kwargs.get("embed") else None))
+
+    async def mutate(confirmed, payload):  # noqa: ANN001
+        calls.append(("mutate", payload["item_id"]))
+
+    await _show_item_preview(
+        interaction=FakeInteraction(),
+        sessions=FakeSessions(),
+        api=None,
+        flow_id="flow-123",
+        title="Create item: Some item idk",
+        draft={"item_id": "smth", "title": "Some item idk", "effects": []},
+        mutation=mutate,
+        success="Item created.",
+    )
+
+    assert ("edit", "Create item: Some item idk") in calls
+    # No crash, preview rendered.
+    assert calls[0][0] == "edit"
