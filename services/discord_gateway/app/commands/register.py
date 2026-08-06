@@ -56,6 +56,11 @@ def register_commands(tree, api, sessions) -> None:
             "`location` — fishing locations\n"
             "`reward` — weighted channel rewards\n"
             "`event` — channel events\n"
+            "`item` — typed item definitions and effects\n"
+            "`item-drop` — location item drops\n"
+            "`player` — viewer inventory and stats\n"
+            "`player-modifier` — per-player stat modifiers\n"
+            "`player-stats` — resolved player stat explanation\n"
             "`placeholders` — message placeholder reference\n"
             "`cast` — fishing cast history, search, and statistics"
         )

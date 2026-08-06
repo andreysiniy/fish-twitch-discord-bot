@@ -1,11 +1,16 @@
 """Discord /fish players commands (module-per-domain)."""
 
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Any
 
 import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
 from app.interactions.confirms import ConfirmView
+from app.presentation.embeds import player_modifiers_embed
+from app.presentation.formatting import parse_duration
 
 from app.commands.shared import (  # noqa: F401  (shared helpers)
     BREAK_POLICY_CHOICES,
@@ -142,7 +147,9 @@ def register_players_group(tree, api, sessions, fish) -> None:
             async def operation() -> None:
                 resolved = await _resolve_viewer(api, interaction, viewer)
                 result = await api.player_modifiers(interaction, resolved)
-                await _send_json_embed(interaction, "Player modifiers", result)
+                await interaction.followup.send(
+                    embed=player_modifiers_embed(result), ephemeral=True
+                )
 
             await _deferred(interaction, operation)
 
@@ -160,7 +167,8 @@ def register_players_group(tree, api, sessions, fish) -> None:
         )
         @app_commands.describe(
             viewer="Viewer Twitch username; omit to use your own account",
-            value="Modifier value (ratio, e.g. 0.10 = +10%)",
+            value="Human percentage for add/override/min/max (10 = +10%); multiplier for multiply (2 = x2)",
+            expires_in="Optional duration for this modifier, e.g. 10m, 2h, 1d",
         )
         async def player_modifier_set(
             interaction: discord.Interaction,
@@ -172,16 +180,19 @@ def register_players_group(tree, api, sessions, fish) -> None:
             reason: str,
             expected_version: app_commands.Range[int, 1] | None = None,
             viewer: str | None = None,
+            expires_in: str | None = None,
         ) -> None:
-            payload = {
-                "stat_key": stat_key.value,
-                "operation": operation.value,
-                "scope": scope.value,
-                "value": value,
-                "source_key": source_key,
-                "reason": reason,
-                "expected_version": expected_version,
-            }
+            payload = _player_modifier_payload(
+                stat_key=stat_key.value,
+                operation=operation.value,
+                scope=scope.value,
+                value=value,
+                source_key=source_key,
+                reason=reason,
+                expected_version=expected_version,
+                expires_in=expires_in,
+            )
+            expires_at = payload.get("expires_at")
             op_label = {
                 "add": "Add",
                 "multiply": "Multiply",
@@ -218,16 +229,22 @@ def register_players_group(tree, api, sessions, fish) -> None:
                 if isinstance(current_resolved, dict) and "value" in current_resolved:
                     resolved_text = str(current_resolved["value"])
 
+                display_value = (
+                    value.strip()
+                    if operation.value == "multiply"
+                    else f"{value.strip()}%"
+                )
                 embed = _player_modifier_preview_embed(
                     user_twitch_id=resolved,
                     scope=scope.value,
                     stat_key=stat_key.value,
                     op_label=op_label,
-                    value=value,
+                    value=display_value,
                     current_resolved=resolved_text,
                     existing_source_count=len(existing_sources),
                     source_key=source_key,
                     reason=reason,
+                    expires_at=expires_at,
                 )
                 await interaction.edit_original_response(
                     content=None,
@@ -333,3 +350,54 @@ def register_players_group(tree, api, sessions, fish) -> None:
             "player_modifier_remove": player_modifier_remove,
             "player_stats_explain": player_stats_explain,
         }
+
+
+# Stats whose value is an absolute count, not a ratio; human-percent
+# conversion must not apply to them.
+_INTEGER_STATS = {
+    "inventory_slots_add",
+    "cooldown_seconds_flat",
+}
+
+_STAT_IS_RATIO = {name: False for name in _INTEGER_STATS}
+
+
+def _player_modifier_payload(
+    *,
+    stat_key: str,
+    operation: str,
+    scope: str,
+    value: str,
+    source_key: str,
+    reason: str,
+    expected_version: int | None,
+    expires_in: str | None,
+) -> dict[str, Any]:
+    """Build the backend payload; human percentages become ratios (10 -> 0.10).
+
+    ``multiply`` keeps a raw multiplier (2 = x2) because the backend bounds a
+    multiplier in 0..100, not a ratio. Integer-valued stats (e.g. inventory
+    slots) keep the raw count. ``expires_in`` is a duration string such as
+    "2h" that turns into an absolute ``expires_at`` timestamp.
+    """
+    is_ratio_stat = _STAT_IS_RATIO.get(stat_key, True)
+    if operation == "multiply":
+        ratio_value = str(Decimal(value.strip()))
+    elif is_ratio_stat:
+        ratio_value = str((Decimal(value.strip()) / 100))
+    else:
+        ratio_value = str(Decimal(value.strip()))
+    expires_at = None
+    if expires_in:
+        seconds = parse_duration(expires_in)
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+    return {
+        "stat_key": stat_key,
+        "operation": operation,
+        "scope": scope,
+        "value": ratio_value,
+        "source_key": source_key,
+        "reason": reason,
+        "expected_version": expected_version,
+        "expires_at": expires_at,
+    }

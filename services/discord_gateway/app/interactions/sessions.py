@@ -20,8 +20,14 @@ class WizardSessionStore:
         return flow_id
 
     async def get(self, discord_user_id: int | str, flow_id: str) -> dict[str, Any] | None:
-        raw = await self.redis.get(self._key(discord_user_id, flow_id))
-        return json.loads(raw) if raw else None
+        key = self._key(discord_user_id, flow_id)
+        raw = await self.redis.get(key)
+        if not raw:
+            return None
+        # Every valid wizard step refreshes the TTL so an active session never
+        # expires while the admin is still editing (audit 10.5).
+        await self.redis.expire(key, self.ttl_seconds)
+        return json.loads(raw)
 
     async def update(self, discord_user_id: int | str, flow_id: str, data: dict[str, Any]) -> None:
         key = self._key(discord_user_id, flow_id)

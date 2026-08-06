@@ -362,3 +362,64 @@ def _epoch(value: str) -> int:
         return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
     except Exception:
         return 0
+
+
+def location_detail_embed(item: dict[str, Any]) -> discord.Embed:
+    """Human-readable location card: requirements, drops summary, rewards."""
+    embed = discord.Embed(
+        title=item.get("location_name") or item.get("location_id") or "Location",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(name="Location ID", value=f"`{item.get('location_id')}`", inline=True)
+    if item.get("description"):
+        embed.add_field(name="Description", value=str(item["description"]), inline=False)
+    requirements = item.get("requirements") or {}
+    if requirements:
+        lines = "\n".join(f"`{key}`: {value}" for key, value in requirements.items())
+        embed.add_field(name="Requirements", value=lines[:1024], inline=False)
+
+    rewards = item.get("rewards") or item.get("rewards_data") or []
+    counts: dict[str, int] = {}
+    for reward in rewards:
+        reward_type = str(reward.get("type") or "?")
+        counts[reward_type] = counts.get(reward_type, 0) + 1
+    if counts:
+        embed.add_field(
+            name="Rewards",
+            value="\n".join(f"{reward_type}: {count}" for reward_type, count in counts.items())
+            or "None",
+            inline=True,
+        )
+    drops = item.get("item_drops") or []
+    if drops:
+        embed.add_field(
+            name="Item drops",
+            value="\n".join(f"`{drop.get('item_id')}` · w{drop.get('weight')}" for drop in drops[:8])[:1024],
+            inline=True,
+        )
+    if item.get("updated_at"):
+        embed.set_footer(text=f"updated {item['updated_at']}")
+    return embed
+
+
+def player_modifiers_embed(result: dict[str, Any]) -> discord.Embed:
+    """Human-readable player modifier list (no raw JSON in the primary UI)."""
+    items = result.get("items") or []
+    embed = discord.Embed(
+        title="Player modifiers",
+        description=f"Viewer: `{result.get('viewer') or result.get('username') or '?'}` · {len(items)} modifier(s)",
+        color=discord.Color.blurple(),
+    )
+    if not items:
+        embed.add_field(name="Modifiers", value="No modifiers set for this viewer.", inline=False)
+        return embed
+    lines = []
+    for entry in items[:10]:
+        stat = entry.get("stat_key") or entry.get("stat") or "?"
+        op = entry.get("operation") or "?"
+        value = entry.get("value")
+        lines.append(f"`{stat}` **{op}** {value} · `{entry.get('source_key') or '?'}`")
+    embed.add_field(name="Modifiers", value="\n".join(lines)[:1024], inline=False)
+    if len(items) > 10:
+        embed.set_footer(text=f"Showing 10 of {len(items)}")
+    return embed

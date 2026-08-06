@@ -52,6 +52,10 @@ class FakeRedis:
     async def delete(self, key):
         self.values.pop(key, None)
 
+    async def expire(self, key, ttl):
+        if key in self.values:
+            self.ttls[key] = ttl
+
 
 @pytest.mark.parametrize(
     ("value", "seconds"),

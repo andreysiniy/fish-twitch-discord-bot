@@ -1,5 +1,6 @@
 """Discord /fish items commands (module-per-domain)."""
 
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -112,23 +113,19 @@ def register_items_group(tree, api, sessions, fish) -> None:
                     "description": description,
                     "effects": [],
                 }
-                payload = build_item_payload(draft)
-
-                async def confirm(confirmed: discord.Interaction) -> None:
-                    await _mutation_response(
-                        confirmed,
-                        lambda: api.upsert_item(confirmed, payload),
-                        "Item created.",
-                    )
-
-                view = ItemPreviewView(interaction.user.id, draft, confirm)
-                embed = view.embed()
-                embed.title = f"Create item: {title}"
-                embed.set_footer(text="Effects can be added afterwards with /fish item effect-edit")
-                await interaction.edit_original_response(
-                    content=None,
-                    embed=embed,
-                    view=view,
+                flow_id = "item:create"
+                await sessions.create(interaction.user.id, flow_id, draft)
+                await _show_item_preview(
+                    interaction=interaction,
+                    sessions=sessions,
+                    api=api,
+                    flow_id=flow_id,
+                    title=f"Create item: {title}",
+                    draft=draft,
+                    mutation=lambda confirmed, payload: api.upsert_item(
+                        confirmed, payload
+                    ),
+                    success="Item created.",
                 )
 
             await _deferred(interaction, operation)
@@ -159,44 +156,49 @@ def register_items_group(tree, api, sessions, fish) -> None:
             async def operation() -> None:
                 current = await api.item(interaction, item_id)
                 resolved_type = item_type.value if item_type else current["item_type"]
-                payload = _item_payload(
-                    item_id=item_id,
-                    title=title or current["title"],
-                    item_type=resolved_type,
-                    rarity=rarity.value if rarity else current["rarity"],
-                    equipment_slot=(
+                draft = {
+                    "item_id": item_id,
+                    "title": title or current["title"],
+                    "item_type": resolved_type,
+                    "rarity": rarity.value if rarity else current["rarity"],
+                    "equipment_slot": (
                         equipment_slot.value
                         if equipment_slot
                         else current.get("equipment_slot")
                         if resolved_type == "equipment"
                         else None
                     ),
-                    stack_size=stack_size or current["stack_size"],
-                    max_durability=(
+                    "stack_size": stack_size or current["stack_size"],
+                    "max_durability": (
                         max_durability
                         if max_durability is not None
                         else current.get("max_durability")
                     ),
-                    break_policy=(
+                    "break_policy": (
                         break_policy.value if break_policy else current["break_policy"]
                     ),
-                    effects=current["effects"],
-                    description=description if description is not None else current.get("description"),
-                )
-                payload.update(
-                    {
-                        "expected_version": current["version"],
-                        "schema_version": current["schema_version"],
-                        "image_url": current.get("image_url"),
-                        "value": current.get("value"),
-                    }
-                )
-                await _json_confirmation(
-                    interaction,
-                    "Item update preview",
-                    payload,
-                    lambda confirmed: api.upsert_item(confirmed, payload),
-                    "Item definition updated.",
+                    "effects": list(current.get("effects") or []),
+                    "description": description
+                    if description is not None
+                    else current.get("description"),
+                    "expected_version": current["version"],
+                    "schema_version": current.get("schema_version", 1),
+                    "image_url": current.get("image_url"),
+                    "value": current.get("value"),
+                }
+                flow_id = f"item:edit:{item_id}"
+                await sessions.create(interaction.user.id, flow_id, draft)
+                await _show_item_preview(
+                    interaction=interaction,
+                    sessions=sessions,
+                    api=api,
+                    flow_id=flow_id,
+                    title=f"Edit item: {item_id}",
+                    draft=draft,
+                    mutation=lambda confirmed, payload: api.upsert_item(
+                        confirmed, payload
+                    ),
+                    success="Item definition updated.",
                 )
 
             await _deferred(interaction, operation)
@@ -233,12 +235,35 @@ def register_items_group(tree, api, sessions, fish) -> None:
                             "value": current.get("value"),
                         }
                     )
-                    await _json_confirmation(
-                        done_interaction,
-                        "Item effect update preview",
-                        payload,
-                        lambda confirmed: api.upsert_item(confirmed, payload),
-                        "Item effects updated.",
+                    draft = {
+                        "item_id": item_id,
+                        "title": current["title"],
+                        "item_type": current["item_type"],
+                        "rarity": current["rarity"],
+                        "equipment_slot": current.get("equipment_slot"),
+                        "stack_size": current["stack_size"],
+                        "max_durability": current.get("max_durability"),
+                        "break_policy": current.get("break_policy", "indestructible"),
+                        "effects": final_effects,
+                        "description": current.get("description"),
+                        "expected_version": current["version"],
+                        "schema_version": current["schema_version"],
+                        "image_url": current.get("image_url"),
+                        "value": current.get("value"),
+                    }
+                    flow_id = f"item:effects:{item_id}"
+                    await sessions.create(done_interaction.user.id, flow_id, draft)
+                    await _show_item_preview(
+                        interaction=done_interaction,
+                        sessions=sessions,
+                        api=api,
+                        flow_id=flow_id,
+                        title=f"Update effects: {item_id}",
+                        draft=draft,
+                        mutation=lambda confirmed, payload: api.upsert_item(
+                            confirmed, payload
+                        ),
+                        success="Item effects updated.",
                     )
 
                 view = EffectsEditorView(
@@ -276,3 +301,80 @@ def register_items_group(tree, api, sessions, fish) -> None:
             "item_effect_edit": item_effect_edit,
             "item_archive": item_archive,
         }
+
+
+async def _show_item_preview(
+    *,
+    interaction: discord.Interaction,
+    sessions,
+    api,
+    flow_id: str,
+    title: str,
+    draft: dict[str, Any],
+    mutation,
+    success: str,
+) -> None:
+    """Show the item preview card with an effects editor and session cleanup.
+
+    The draft lives in the Redis wizard session (TTL refreshed on every read);
+    confirming deletes the session, cancelling and timeouts remove it too so a
+    half-finished item never lingers (audit 10.4/10.6).
+    """
+
+    async def _delete_session() -> None:
+        try:
+            await sessions.delete(interaction.user.id, flow_id)
+        except Exception:
+            pass
+
+    async def confirm(confirmed: discord.Interaction) -> None:
+        payload = build_item_payload(draft)
+        await _mutation_response(confirmed, lambda: mutation(confirmed, payload), success)
+        await _delete_session()
+
+    async def on_cancel(cancel_interaction: discord.Interaction) -> None:
+        await _delete_session()
+
+    async def on_edit_effects(editor_interaction: discord.Interaction) -> None:
+        state = await sessions.get(interaction.user.id, flow_id)
+        effects = list((state or {}).get("effects") or [])
+
+        async def on_done(done_interaction: discord.Interaction, final_effects) -> None:
+            if final_effects is None:
+                await done_interaction.followup.send(
+                    "Effect editing cancelled; the item draft is unchanged.",
+                    ephemeral=True,
+                )
+                return
+            refreshed = await sessions.get(interaction.user.id, flow_id)
+            refreshed = refreshed or dict(draft)
+            refreshed["effects"] = final_effects
+            await sessions.update(interaction.user.id, flow_id, refreshed)
+            await _show_item_preview(
+                interaction=done_interaction,
+                sessions=sessions,
+                api=api,
+                flow_id=flow_id,
+                title=title,
+                draft=refreshed,
+                mutation=mutation,
+                success=success,
+            )
+
+        editor = EffectsEditorView(interaction.user.id, effects, on_done)
+        await editor_interaction.response.edit_message(
+            content=editor.message_text,
+            embed=editor._embed(),
+            view=editor,
+        )
+
+    view = ItemPreviewView(
+        interaction.user.id,
+        draft,
+        confirm,
+        on_edit_effects=on_edit_effects,
+        on_cancel=on_cancel,
+    )
+    embed = view.embed()
+    embed.title = title
+    await interaction.edit_original_response(content=None, embed=embed, view=view)

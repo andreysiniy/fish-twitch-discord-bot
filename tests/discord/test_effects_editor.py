@@ -39,3 +39,40 @@ def test_effects_editor_remove_last() -> None:
     view._update_buttons()
     assert len(view.effects) == 1
     assert view.effects[0]["type"] == "grant_mass"
+
+
+def test_effects_editor_selects_removes_and_reorders_effects() -> None:
+    view = EffectsEditorView(
+        initiator_id=1,
+        effects=[
+            {"type": "grant_mass", "mass": "5"},
+            {"type": "grant_item", "item_id": "x"},
+            {"type": "stat_add", "stat": "xp_gain_change_ratio", "value": "0.1"},
+        ],
+        on_done=lambda *_: None,
+    )
+    assert len(view.pick_effect.options) == 3
+
+    view._selected_index = 1
+    view._update_buttons()
+    assert view.remove_selected.disabled is False
+    assert view.move_up.disabled is False
+    assert view.move_down.disabled is False
+
+    # Move down swaps with the next effect.
+    view._selected_index = 0
+    view.move_down.disabled = False
+    view.effects[0], view.effects[1] = view.effects[1], view.effects[0]
+    assert view.effects[0]["type"] == "grant_item"
+
+    # Replacing (editing) the selected effect updates the list in place.
+    view._replace_effect(0, {"type": "grant_mass", "mass": "9"})
+    assert view.effects[0] == {"type": "grant_mass", "mass": "9"}
+
+    # Removing the selected effect deletes exactly that entry.
+    view._selected_index = 0
+    del view.effects[view._selected_index]
+    view._selected_index = None
+    view._rebuild_pick_options()
+    assert len(view.effects) == 2
+    assert len(view.pick_effect.options) == 2
