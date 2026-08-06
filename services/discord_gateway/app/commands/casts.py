@@ -193,6 +193,7 @@ def register_casts_group(
             app_commands.Choice(name="Cooldown", value="cooldown_rejected"),
         ]
     )
+    @app_commands.describe(viewer="Viewer Twitch username; omit for all viewers")
     async def cast_recent(
         interaction: discord.Interaction,
         viewer: str | None = None,
@@ -206,7 +207,7 @@ def register_casts_group(
             result = await api.recent_casts(
                 interaction,
                 limit=max(5, min(limit, 25)),
-                user_twitch_id=viewer,
+                username=viewer,
                 location_id=location,
                 status=status.value if status else None,
             )
@@ -251,6 +252,10 @@ def register_casts_group(
         await _deferred(interaction, operation)
 
     @cast.command(name="search", description="Search fishing casts by filters")
+    @app_commands.describe(
+        viewer="Viewer Twitch username; omit for all viewers",
+        username="Also filter by viewer username",
+    )
     async def cast_search(
         interaction: discord.Interaction,
         viewer: str | None = None,
@@ -269,8 +274,7 @@ def register_casts_group(
         async def operation() -> None:
             result = await api.search_casts(
                 interaction,
-                user_twitch_id=viewer,
-                username=username,
+                username=viewer or username,
                 status=status.value if status else None,
                 location_id=location,
                 reward_type=reward_type,
@@ -292,6 +296,7 @@ def register_casts_group(
         await _deferred(interaction, operation)
 
     @cast.command(name="export", description="Export the raw fishing cast journal as JSON")
+    @app_commands.describe(viewer="Viewer Twitch username; omit for all viewers")
     async def cast_export(
         interaction: discord.Interaction,
         viewer: str | None = None,
@@ -303,7 +308,7 @@ def register_casts_group(
             result = await api.recent_casts(
                 interaction,
                 limit=25,
-                user_twitch_id=viewer,
+                username=viewer,
                 status=status.value if status else None,
             )
             rows = result.get("items", [])

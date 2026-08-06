@@ -365,20 +365,20 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "item_drop.remove"),
         )
 
-    async def player_inventory(self, interaction, user_twitch_id: str):
+    async def player_inventory(self, interaction, viewer: str):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "GET",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/inventory",
+            f"/v1/admin/channels/{channel}/players/{viewer}/inventory",
         )
 
-    async def grant_player_item(self, interaction, user_twitch_id: str, payload: dict[str, Any]):
+    async def grant_player_item(self, interaction, viewer: str, payload: dict[str, Any]):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "POST",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/items",
+            f"/v1/admin/channels/{channel}/players/{viewer}/items",
             json=payload,
             idempotency_key=interaction_key(interaction.id, "player.item_grant"),
         )
@@ -386,7 +386,7 @@ class AdminApi:
     async def revoke_player_item(
         self,
         interaction,
-        user_twitch_id: str,
+        viewer: str,
         inventory_item_id: int,
         quantity: int,
         version: int,
@@ -395,28 +395,28 @@ class AdminApi:
         return await self.client.request(
             interaction,
             "POST",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/items/"
+            f"/v1/admin/channels/{channel}/players/{viewer}/items/"
             f"{inventory_item_id}/revoke",
             json={"quantity": quantity, "expected_version": version},
             idempotency_key=interaction_key(interaction.id, "player.item_revoke"),
         )
 
-    async def player_modifiers(self, interaction, user_twitch_id: str):
+    async def player_modifiers(self, interaction, viewer: str):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "GET",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers",
+            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers",
         )
 
     async def set_player_modifier(
-        self, interaction, user_twitch_id: str, payload: dict[str, Any]
+        self, interaction, viewer: str, payload: dict[str, Any]
     ):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "PUT",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers",
+            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers",
             json=payload,
             idempotency_key=interaction_key(interaction.id, "player_modifier.set"),
         )
@@ -424,7 +424,7 @@ class AdminApi:
     async def set_player_modifier_state(
         self,
         interaction,
-        user_twitch_id: str,
+        viewer: str,
         modifier_id: str,
         version: int,
         is_enabled: bool,
@@ -433,32 +433,32 @@ class AdminApi:
         return await self.client.request(
             interaction,
             "PATCH",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers/"
+            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers/"
             f"{modifier_id}/state",
             json={"expected_version": version, "is_enabled": is_enabled},
             idempotency_key=interaction_key(interaction.id, "player_modifier.state"),
         )
 
     async def remove_player_modifier(
-        self, interaction, user_twitch_id: str, modifier_id: str, version: int
+        self, interaction, viewer: str, modifier_id: str, version: int
     ):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "DELETE",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/modifiers/"
+            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers/"
             f"{modifier_id}?expected_version={version}",
             idempotency_key=interaction_key(interaction.id, "player_modifier.remove"),
         )
 
     async def explain_player_stats(
-        self, interaction, user_twitch_id: str, scope: str = "fishing"
+        self, interaction, viewer: str, scope: str = "fishing"
     ):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "GET",
-            f"/v1/admin/channels/{channel}/players/{user_twitch_id}/stats/explain"
+            f"/v1/admin/channels/{channel}/players/{viewer}/stats/explain"
             f"?scope={scope}",
         )
 
@@ -468,7 +468,7 @@ class AdminApi:
         *,
         limit: int = 20,
         cursor: str | None = None,
-        user_twitch_id: str | None = None,
+        viewer: str | None = None,
         status: str | None = None,
         location_id: str | None = None,
         reward_type: str | None = None,
@@ -477,8 +477,8 @@ class AdminApi:
         query: list[str] = [f"limit={limit}"]
         if cursor:
             query.append(f"cursor={cursor}")
-        if user_twitch_id:
-            query.append(f"user_twitch_id={user_twitch_id}")
+        if viewer:
+            query.append(f"username={viewer}")
         if status:
             query.append(f"status={status}")
         if location_id:
@@ -496,7 +496,7 @@ class AdminApi:
         interaction,
         *,
         limit: int = 20,
-        user_twitch_id: str | None = None,
+        viewer: str | None = None,
         username: str | None = None,
         status: str | None = None,
         location_id: str | None = None,
@@ -508,8 +508,8 @@ class AdminApi:
     ) -> dict[str, Any]:
         channel = await self.channel_id(interaction)
         query: list[str] = [f"limit={limit}"]
-        if user_twitch_id:
-            query.append(f"user_twitch_id={user_twitch_id}")
+        if viewer:
+            query.append(f"username={viewer}")
         if username:
             query.append(f"username={username}")
         if status:

@@ -366,12 +366,12 @@ class DiscordAdminService:
         )
 
     def list_player_modifiers(
-        self, context, channel_twitch_id: str, user_twitch_id: str
+        self, context, channel_twitch_id: str, viewer: str
     ) -> dict[str, Any]:
         channel, _ = self._authorize(
             context, ChannelPermission.PLAYER_MODIFIERS_READ, channel_twitch_id
         )
-        user = self._find_player(channel.id, user_twitch_id)
+        user = self._find_player_viewer(channel.id, viewer)
         rows = (
             self.db.query(PlayerModifier)
             .filter(PlayerModifier.user_progress_id == user.id)
@@ -388,7 +388,7 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         data: PlayerModifierSetRequest,
     ) -> dict[str, Any]:
         payload = data.model_dump(mode="json")
@@ -400,7 +400,7 @@ class DiscordAdminService:
                 channel_twitch_id,
                 for_update=True,
             )
-            user = self._find_player(channel.id, user_twitch_id, for_update=True)
+            user = self._find_player_viewer(channel.id, viewer, for_update=True)
             row = (
                 self.db.query(PlayerModifier)
                 .filter(
@@ -473,7 +473,7 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         modifier_id: str,
         data: VersionedStateRequest,
     ) -> dict[str, Any]:
@@ -481,7 +481,7 @@ class DiscordAdminService:
             channel, link = self._authorize(
                 context, ChannelPermission.PLAYER_MODIFIERS_WRITE, channel_twitch_id
             )
-            user = self._find_player(channel.id, user_twitch_id)
+            user = self._find_player_viewer(channel.id, viewer)
             row = self._find_player_modifier(user.id, modifier_id, for_update=True)
             self._check_version(row.version, data.expected_version, context)
             before = self._serialize_player_modifier(row)
@@ -513,7 +513,7 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         modifier_id: str,
         expected_version: int,
     ) -> dict[str, Any]:
@@ -521,7 +521,7 @@ class DiscordAdminService:
             channel, link = self._authorize(
                 context, ChannelPermission.PLAYER_MODIFIERS_WRITE, channel_twitch_id
             )
-            user = self._find_player(channel.id, user_twitch_id)
+            user = self._find_player_viewer(channel.id, viewer)
             row = self._find_player_modifier(user.id, modifier_id, for_update=True)
             self._check_version(row.version, expected_version, context)
             before = self._serialize_player_modifier(row)
@@ -551,13 +551,13 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         scope: ModifierScope,
     ) -> dict[str, Any]:
         channel, _ = self._authorize(
             context, ChannelPermission.PLAYER_MODIFIERS_READ, channel_twitch_id
         )
-        user = self._find_player(channel.id, user_twitch_id)
+        user = self._find_player_viewer(channel.id, viewer)
         resolved = PlayerModifierService(self.db).resolve(user, scope)
         return {
             "channel_twitch_id": channel.twitch_id,
@@ -935,12 +935,12 @@ class DiscordAdminService:
         )
 
     def get_player_inventory_admin(
-        self, context, channel_twitch_id: str, user_twitch_id: str
+        self, context, channel_twitch_id: str, viewer: str
     ) -> dict:
         channel, _ = self._authorize(
             context, ChannelPermission.PLAYER_INVENTORY_READ, channel_twitch_id
         )
-        user = self._find_player(channel.id, user_twitch_id)
+        user = self._find_player_viewer(channel.id, viewer)
         response = InventoryService(UserRepository(self.db)).get_inventory_msg(
             user.user_twitch_id, channel.twitch_id
         )
@@ -950,14 +950,14 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         data: PlayerItemGrantRequest,
     ) -> dict:
         def mutation() -> dict:
             channel, link = self._authorize(
                 context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
             )
-            user = self._find_player(channel.id, user_twitch_id)
+            user = self._find_player_viewer(channel.id, viewer)
             slot_bonus = PlayerModifierService(self.db).inventory_slot_bonus(user)
             items = InventoryRepository(
                 self.db, max_slots_add=slot_bonus
@@ -989,7 +989,7 @@ class DiscordAdminService:
         self,
         context,
         channel_twitch_id: str,
-        user_twitch_id: str,
+        viewer: str,
         inventory_item_id: int,
         data: PlayerItemRevokeRequest,
     ) -> dict:
@@ -997,7 +997,7 @@ class DiscordAdminService:
             channel, link = self._authorize(
                 context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
             )
-            user = self._find_player(channel.id, user_twitch_id)
+            user = self._find_player_viewer(channel.id, viewer)
             row = (
                 self.db.query(InventoryItem)
                 .filter(
@@ -1908,6 +1908,28 @@ class DiscordAdminService:
         if not user:
             raise ApiProblem(404, "PLAYER_NOT_FOUND", "Player not found")
         return user
+
+    def _find_player_viewer(
+        self, channel_id: int, viewer: str, *, for_update: bool = False
+    ) -> UserProgress:
+        """Resolve an admin-supplied viewer to a player row.
+
+        The owner types the viewer's Twitch username (case-insensitive exact
+        match first); the legacy numeric twitch id keeps working as a fallback
+        so existing links and scripts are not broken.
+        """
+        query = self.db.query(UserProgress).filter(
+            UserProgress.channel_id == channel_id,
+            UserProgress.username.ilike(viewer.strip()),
+        )
+        if for_update:
+            query = query.with_for_update(of=UserProgress)
+        user = query.first()
+        if user is not None:
+            return user
+        return self._find_player(
+            channel_id, viewer.strip(), for_update=for_update
+        )
 
     def _find_player_modifier(
         self, user_id: int, modifier_id: str, *, for_update: bool = False
