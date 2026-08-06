@@ -562,3 +562,56 @@ def test_player_admin_commands_resolve_viewer_username() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_cast_detail_rejects_malformed_and_unknown_ids_cleanly() -> None:
+    """Non-UUID or unknown cast ids return CAST_NOT_FOUND, never a DataError 500."""
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"cast-detail-{uuid.uuid4().hex[:8]}",
+            name="Cast Detail",
+            config={},
+            config_version=1,
+        )
+        db.add(channel)
+        db.flush()
+        db.add(
+            DiscordAccountLink(
+                discord_user_id="1001",
+                twitch_user_id=channel.twitch_id,
+                twitch_login=channel.name,
+                verified_at=now,
+                last_verified_at=now,
+            )
+        )
+        db.add(
+            DiscordGuildBinding(
+                discord_guild_id="2001",
+                channel_id=channel.id,
+                configured_by_discord_id="1001",
+                locale="en",
+            )
+        )
+        db.flush()
+
+        service = DiscordAdminService(db)
+        context = _context("cast-detail")
+
+        # Malformed id (not a UUID) -> CAST_NOT_FOUND, not a DB DataError.
+        with pytest.raises(ApiProblem) as exc_info:
+            service.get_cast_detail(context, channel.twitch_id, "20")
+        assert exc_info.value.code == "CAST_NOT_FOUND"
+        assert exc_info.value.status_code == 404
+
+        # Well-formed but unknown UUID -> CAST_NOT_FOUND.
+        with pytest.raises(ApiProblem) as exc_info:
+            service.get_cast_detail(
+                context, channel.twitch_id, "00000000-0000-0000-0000-000000000000"
+            )
+        assert exc_info.value.code == "CAST_NOT_FOUND"
+    finally:
+        db.rollback()
+        db.close()

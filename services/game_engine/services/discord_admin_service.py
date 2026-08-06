@@ -2224,8 +2224,14 @@ class DiscordAdminService:
             else ChannelPermission.CASTS_READ
         )
         channel, _ = self._authorize(context, permission, channel_twitch_id)
+        try:
+            cast_uuid = uuid.UUID(cast_id)
+        except (ValueError, AttributeError, TypeError):
+            # Malformed ids must surface as a clean not-found, never as a
+            # database DataError / HTTP 500 (fishing_casts.id is a native UUID).
+            raise ApiProblem(404, "CAST_NOT_FOUND", "Fishing cast not found")
         query_repo = FishingCastQueryRepository(self.db)
-        cast = query_repo.get_cast(cast_id, channel.id)
+        cast = query_repo.get_cast(str(cast_uuid), channel.id)
         if not cast:
             raise ApiProblem(404, "CAST_NOT_FOUND", "Fishing cast not found")
         return self._serialize_cast_detail(cast, include_technical=include_technical)
