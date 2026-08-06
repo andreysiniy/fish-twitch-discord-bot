@@ -88,22 +88,24 @@ async def test_fishbag_shows_durability_and_inventory_limit() -> None:
         {
             "items": [
                 {
+                    "id": 10,
                     "slot_id": 1,
                     "title": "Shit rod",
                     "quantity": 1,
                     "max_durability": 5,
                     "current_durability": 2,
                 },
-                {"slot_id": 2, "title": "Bait", "quantity": 7, "max_durability": None},
+                {"id": 11, "slot_id": 2, "title": "Bait", "quantity": 7, "max_durability": None},
             ],
+            "equipped_slots": {"rod": 10},
             "max_slots": 20,
         },
     )
     sent = ctx.send.await_args.args[0]
     assert "Inventory 2/20 slots:" in sent
-    assert "[1] Shit rod x1 (durability 2/5)" in sent
+    assert "[1] Shit rod x1 [EQUIPPED] (durability 2/5)" in sent
     assert "[2] Bait x7" in sent
-    assert "(durability" not in sent.split("[2]")[1]
+    assert "EQUIPPED" not in sent.split("[2]")[1]
 
 
 @pytest.mark.asyncio
