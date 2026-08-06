@@ -25,6 +25,10 @@ ERROR_MESSAGES = {
     "PERMISSION_DENIED": "You do not have permission to perform this operation.",
     "VALIDATION_ERROR": "Check the entered values.",
     "CONFIG_VERSION_CONFLICT": "Another administrator changed the settings. Open the form again.",
+    "ITEM_DROP_EXISTS": (
+        "This item drop already exists for the location. "
+        "Use item-drop edit to modify it."
+    ),
     "LOCATION_NOT_FOUND": "Location not found.",
     "LOCATION_IN_USE": "This location is in use and cannot be deleted.",
     "REWARD_NOT_FOUND": "Reward not found.",

@@ -824,8 +824,9 @@ class DiscordAdminService:
                 if data.expected_version is None:
                     raise ApiProblem(
                         409,
-                        "CONFIG_VERSION_CONFLICT",
-                        "expected_version is required when editing an item drop",
+                        "ITEM_DROP_EXISTS",
+                        "Item drop already exists for this location; "
+                        "use the item-drop edit command to change it",
                     )
                 self._check_version(row.version, data.expected_version, context)
                 row.version += 1
