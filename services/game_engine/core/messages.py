@@ -8,6 +8,7 @@ class MsgKey(str, Enum):
     EQUIP_SUCCESS = "equip_success"
     EQUIP_FAIL_NOT_FOUND = "equip_fail_not_found"
     EQUIP_FAIL_WRONG_TYPE = "equip_fail_wrong_type"
+    EQUIP_HELP = "equip_help"
     INV_FULL = "inv_full"
     INV_EMPTY = "inv_empty"
     INV_LIST_HEADER = "inv_list_header"
@@ -133,6 +134,10 @@ DEFAULT_MESSAGES = {
     MsgKey.EQUIP_SUCCESS: "Equipped {item_name} [{slot_id}].",
     MsgKey.EQUIP_FAIL_NOT_FOUND: "Item in slot #{slot_id} not found.",
     MsgKey.EQUIP_FAIL_WRONG_TYPE: "Item {item_name} — is not a rod!",
+    MsgKey.EQUIP_HELP: (
+        "Usage: !fishequip <slot_id> — e.g. !fishequip 1 "
+        "(slot numbers are shown by !fishbag)."
+    ),
     MsgKey.INV_FULL: "Your inventory is full ({current}/{max})! You couldn't keep {item_name}.",
     MsgKey.INV_EMPTY: "Inventory of {username} is empty.",
     MsgKey.INV_LIST_HEADER: "🎒 {username}'s Inventory:",

@@ -55,7 +55,7 @@ class InventoryResponseDTO(InventoryDTO):
 class EquipRequestDTO(BaseModel):
     user_id: str
     channel_id: str
-    slot_id: int = Field(..., ge=1)
+    slot_id: int | None = Field(None)
     equipment_slot: EquipmentSlot | None = None
 
 

@@ -239,3 +239,71 @@ def test_equipped_storage_expands_effective_inventory_capacity() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_equip_without_slot_returns_editable_usage_message() -> None:
+    """Missing slot answers with the configurable equip_help message."""
+    from domain.schemas.rpg import EquipRequestDTO
+
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        channel = Channel(
+            twitch_id=f"equip-usage-{suffix}",
+            name="Equip Usage",
+            config={"messages": {"equip_help": "Custom usage: !fishequip <N>"}},
+        )
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"usage-user-{suffix}",
+            username="usage_user",
+            channel_id=channel.id,
+        )
+        db.add(user)
+        db.flush()
+
+        service = InventoryService(UserRepository(db))
+
+        # No slot -> the custom usage message from the channel config.
+        missing = service.equip_item(
+            EquipRequestDTO(
+                user_id=f"usage-user-{suffix}",
+                channel_id=channel.twitch_id,
+                slot_id=None,
+            )
+        )
+        assert missing.success is False
+        assert missing.message == "Custom usage: !fishequip <N>"
+
+        # Invalid (non-positive) slot -> same usage message.
+        zero = service.equip_item(
+            EquipRequestDTO(
+                user_id=f"usage-user-{suffix}",
+                channel_id=channel.twitch_id,
+                slot_id=0,
+            )
+        )
+        assert zero.success is False
+        assert zero.message == "Custom usage: !fishequip <N>"
+
+        # A channel without a custom message falls back to the default.
+        plain = Channel(
+            twitch_id=f"equip-plain-{suffix}",
+            name="Equip Plain",
+            config={},
+        )
+        db.add(plain)
+        db.flush()
+        default_usage = service.equip_item(
+            EquipRequestDTO(
+                user_id=f"usage-user-{suffix}",
+                channel_id=plain.twitch_id,
+                slot_id=None,
+            )
+        )
+        assert "!fishequip" in default_usage.message
+    finally:
+        db.rollback()
+        db.close()

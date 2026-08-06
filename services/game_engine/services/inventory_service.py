@@ -1,3 +1,4 @@
+from core.messages import MsgKey, resolve_message
 from domain.schemas.rpg import (
     EquipRequestDTO,
     EquipResponseDTO,
@@ -18,6 +19,13 @@ class InventoryService:
         self.modifier_service = PlayerModifierService(user_repo.db)
 
     def equip_item(self, data: EquipRequestDTO) -> EquipResponseDTO:
+        if data.slot_id is None or data.slot_id <= 0:
+            return EquipResponseDTO(
+                success=False,
+                message=self._channel_message(
+                    data.channel_id, MsgKey.EQUIP_HELP
+                ),
+            )
         user = self.user_repo.get_progress(data.user_id, data.channel_id)
         if not user:
             return EquipResponseDTO(success=False, message="You have no inventory.")
@@ -28,12 +36,41 @@ class InventoryService:
                 data.equipment_slot.value if data.equipment_slot else None,
             )
         except ValueError as error:
-            return EquipResponseDTO(success=False, message=str(error))
+            return EquipResponseDTO(
+                success=False,
+                message=self._equip_failure_message(
+                    data.channel_id, str(error), data.slot_id
+                ),
+            )
         title = equipped.inventory_item.definition.title
         return EquipResponseDTO(
             success=True,
-            message=f"Equipped [{data.slot_id}] {title} in {equipped.slot}.",
+            message=self._channel_message(
+                data.channel_id,
+                MsgKey.EQUIP_SUCCESS,
+                item_name=title,
+                slot_id=data.slot_id,
+            ),
             equipped_item_name=title,
+        )
+
+    def _channel_message(self, channel_twitch_id: str, key: MsgKey, **kwargs) -> str:
+        channel = self.user_repo.get_channel(channel_twitch_id)
+        config = (channel.config or {}) if channel else {}
+        return resolve_message(config, key, **kwargs)
+
+    def _equip_failure_message(
+        self, channel_twitch_id: str, error_text: str, slot_id: int
+    ) -> str:
+        if "is empty" in error_text:
+            return self._channel_message(
+                channel_twitch_id, MsgKey.EQUIP_FAIL_NOT_FOUND, slot_id=slot_id
+            )
+        if "is broken" in error_text:
+            return error_text
+        title = error_text.split(" is not equipment")[0].split(" can only be equipped")[0]
+        return self._channel_message(
+            channel_twitch_id, MsgKey.EQUIP_FAIL_WRONG_TYPE, item_name=title
         )
 
     def unequip_item(self, data: UnequipRequestDTO) -> EquipResponseDTO:
