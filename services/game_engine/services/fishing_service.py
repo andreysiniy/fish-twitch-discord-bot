@@ -50,6 +50,19 @@ def _bonus_segment(emoji: str, label: str, percent_value) -> str:
     return f"{emoji} {label}: {sign}{text}% | "
 
 
+def _without_timeout_rewards(loot_pool: list[dict]) -> list[dict]:
+    """Drop timeout rewards for channel moderators.
+
+    A moderator cannot be timed out, so the timeout reward is excluded from
+    their pool; a pool that becomes empty falls back to a neutral catch so the
+    weighted roll never sees an empty table.
+    """
+    pool = [reward for reward in loot_pool if reward.get("type") != ActionType.TIMEOUT]
+    if not pool:
+        return [{"type": "nothing", "weight": 100, "message": "No fish here..."}]
+    return pool
+
+
 class FishingService:
     def __init__(
         self,
@@ -148,6 +161,12 @@ class FishingService:
                 override_result = self.config_repo.get_dual_pool(channel_id, override_location_id)
                 if override_result:
                     loot_pool, item_pool, rate = override_result
+
+        if is_mod:
+            # Channel moderators cannot be timed out by the bot, so the timeout
+            # reward must never be selectable while they fish. The weighted roll
+            # renormalizes over the remaining entries automatically.
+            loot_pool = _without_timeout_rewards(loot_pool)
 
         behavioral_effects = list(fishing_modifiers.effects)
         result = self.engine.calculate_result(

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from infrastructure.database import SessionLocal
-from infrastructure.models import Channel, FishingCast, UserProgress
+from infrastructure.models import Channel, FishingCast, RewardPool, UserProgress
 from services.fishing_service import FishingService
 
 
@@ -39,10 +39,12 @@ def _make_service(db):
     from infrastructure.repositories.cooldown_repo import CooldownRepository
     from infrastructure.repositories.user_repo import UserRepository
 
+    from infrastructure.redis_client import RedisClient
+
     service = FishingService(
         user_repo=UserRepository(db),
         config_repo=ConfigRepository(db),
-        cooldown_repo=CooldownRepository(db),
+        cooldown_repo=CooldownRepository(redis_client=RedisClient.get_client()),
         channel_repo=ChannelRepository(db),
     )
     return service
@@ -260,6 +262,53 @@ def test_retention_runner_deletes_expired_idempotency_rows() -> None:
         )
         assert remaining == 0
         assert stats["idempotency_records"] >= 1
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_moderator_never_draws_timeout_reward_from_the_pool() -> None:
+    """A channel moderator fishing must not get the timeout reward."""
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "mod")
+        # Pool containing only a timeout reward.
+        pool = RewardPool(
+            channel_id=channel.id,
+            location_id="default",
+            rewards_data=[
+                {"type": "timeout", "weight": 100, "message": "Timed out!"}
+            ],
+            requirements={},
+        )
+        db.add(pool)
+        db.flush()
+
+        service = _make_service(db)
+        response = service.process_cast(
+            twitch_id=user.user_twitch_id,
+            username=user.username,
+            channel_id=channel.twitch_id,
+            is_mod=True,
+        )
+        actions = response.model_dump(mode="json").get("actions", [])
+        assert all(action.get("type") != "timeout" for action in actions)
+        assert not any(
+            str(action).find("Timed out!") != -1 for action in actions
+        )
+
+        # The same user WITHOUT mod flag can draw the timeout reward.
+        non_mod = service.process_cast(
+            twitch_id=user.user_twitch_id,
+            username=user.username,
+            channel_id=channel.twitch_id,
+            is_mod=False,
+        )
+        non_mod_actions = non_mod.model_dump(mode="json").get("actions", [])
+        assert any(
+            action.get("type") == "timeout" for action in non_mod_actions
+        )
     finally:
         db.rollback()
         db.close()
