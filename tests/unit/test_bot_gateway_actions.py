@@ -88,16 +88,22 @@ async def test_fishbag_shows_durability_and_inventory_limit() -> None:
         {
             "items": [
                 {
-                    "id": 10,
                     "slot_id": 1,
+                    "equipment_slot": "rod",
                     "title": "Shit rod",
                     "quantity": 1,
                     "max_durability": 5,
                     "current_durability": 2,
                 },
-                {"id": 11, "slot_id": 2, "title": "Bait", "quantity": 7, "max_durability": None},
+                {
+                    "slot_id": 2,
+                    "equipment_slot": "bait",
+                    "title": "Bait",
+                    "quantity": 7,
+                    "max_durability": None,
+                },
             ],
-            "equipped_slots": {"rod": 10},
+            "equipped_slots": {"rod": 1},
             "max_slots": 20,
         },
     )
