@@ -535,3 +535,26 @@ def test_counter_stat_adds_to_item_counter_chance(monkeypatch) -> None:
             "message": "",
         }
     ]
+
+
+def test_mod_pool_excludes_timeout_rewards() -> None:
+    """Moderators must never draw the timeout reward from the fishing pool."""
+    from services.fishing_service import _without_timeout_rewards
+
+    pool = [
+        {"type": "fish", "weight": 100},
+        {"type": "timeout", "weight": 50},
+        {"type": "gold", "weight": 5},
+    ]
+    filtered = _without_timeout_rewards(pool)
+    assert all(r.get("type") != "timeout" for r in filtered)
+    assert {r["type"] for r in filtered} == {"fish", "gold"}
+
+
+def test_mod_pool_with_only_timeout_falls_back_to_nothing() -> None:
+    from services.fishing_service import _without_timeout_rewards
+
+    fallback = _without_timeout_rewards([{"type": "timeout", "weight": 100}])
+    assert fallback == [
+        {"type": "nothing", "weight": 100, "message": "No fish here..."}
+    ]
