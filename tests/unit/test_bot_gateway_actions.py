@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from action_handler import ActionHandler
@@ -127,3 +127,86 @@ async def test_fishbag_without_limit_still_lists_items() -> None:
     sent = ctx.send.await_args.args[0]
     assert "[3] Rod x1" in sent
     assert "Inventory 1/0" not in sent
+
+
+@pytest.mark.asyncio
+async def test_timeout_action_without_target_user_raises_clear_error(monkeypatch) -> None:
+    """A timeout action must name its target; missing target_user fails fast."""
+    bot = SimpleNamespace(
+        cfg=SimpleNamespace(
+            twitch_token="oauth:tok",
+            twitch_client_id="cid",
+            bot_nick="fishdaddy",
+        )
+    )
+    ctx = SimpleNamespace(send=AsyncMock())
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "456"
+
+    monkeypatch.setattr("action_handler.get_channel_id", channel_id)
+
+    await ActionHandler(bot).handle_engine_response(
+        ctx, {"actions": [{"type": "timeout", "duration": 60}]}
+    )
+
+    sent = ctx.send.await_args.args[0]
+    assert "target_user" in sent
+    assert "missing target_user" in sent
+
+
+@pytest.mark.asyncio
+async def test_timeout_api_error_includes_status_and_context(monkeypatch) -> None:
+    """A Twitch API rejection is surfaced with status, body and resolved ids."""
+    response = SimpleNamespace(status=403, text=AsyncMock(return_value='{"error":"Forbidden"}'))
+
+    class _FakeResponse:
+        def __init__(self, inner):
+            self._inner = inner
+
+        async def __aenter__(self):
+            return self._inner
+
+        async def __aexit__(self, *args):  # noqa: ANN002
+            return False
+
+    session = SimpleNamespace(post=MagicMock(return_value=_FakeResponse(response)))
+    bot = SimpleNamespace(
+        user_id="1141045443",
+        cfg=SimpleNamespace(
+            twitch_token="oauth:tok",
+            twitch_client_id="cid",
+            bot_nick="fishdaddy",
+        ),
+        fetch_users=AsyncMock(
+            return_value=[SimpleNamespace(id="1138645097")]
+        ),
+    )
+    ctx = SimpleNamespace(send=AsyncMock())
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "464887139"
+
+    monkeypatch.setattr("action_handler.get_channel_id", channel_id)
+    monkeypatch.setattr(ActionHandler, "_get_session", AsyncMock(return_value=session))
+
+    await ActionHandler(bot).handle_engine_response(
+        ctx,
+        {
+            "actions": [
+                {
+                    "type": "timeout",
+                    "duration": 60,
+                    "reason": "fishing",
+                    "target_user": "srakjopa_2",
+                }
+            ]
+        },
+    )
+
+    sent = ctx.send.await_args.args[0]
+    assert "403" in sent
+    assert "Forbidden" in sent
+    assert "broadcaster=464887139" in sent
+    assert "moderator=1141045443" in sent
+    assert "target=srakjopa_2" in sent
