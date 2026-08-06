@@ -3,6 +3,8 @@ from typing import Any
 
 import discord
 
+from app.interactions.metrics import count_wizard_timeout
+
 
 class PagedEmbedView(discord.ui.View):
     def __init__(
@@ -84,6 +86,16 @@ class PagedEmbedView(discord.ui.View):
         self.page = min(self.page_count - 1, self.page + 1)
         self._update_buttons()
         await interaction.response.edit_message(embed=self.embed(), view=self)
+
+
+    async def on_timeout(self) -> None:
+        """Audit 10.7: a timeout disables controls and tells the admin to restart."""
+        for item in self.children:
+            item.disabled = True
+        count_wizard_timeout("pagination")
+        if self.message is not None:
+            await self.message.edit(content=None, view=self)
+        self.stop()
 
 
 def _field_chunks(value: str, limit: int = 1024) -> list[str]:

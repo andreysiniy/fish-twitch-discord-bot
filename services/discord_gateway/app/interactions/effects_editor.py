@@ -2,6 +2,7 @@
 
 import discord
 
+from app.interactions.metrics import count_wizard_timeout
 from app.interactions.effect_builder import (
     EFFECT_SELECT_OPTIONS,
     describe_effect,
@@ -64,6 +65,15 @@ class EffectsEditorView(discord.ui.View):
             )
             return False
         return True
+
+    async def on_timeout(self) -> None:
+        """Audit 10.7: a timeout disables controls and tells the admin to restart."""
+        for item in self.children:
+            item.disabled = True
+        count_wizard_timeout("effects_editor")
+        if self.message is not None:
+            await self.message.edit(content=None, embed=None, view=self)
+        self.stop()
 
     def _update_buttons(self) -> None:
         self.remove_effect.disabled = not self.effects
