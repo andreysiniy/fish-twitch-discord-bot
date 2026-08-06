@@ -335,64 +335,7 @@ class RewardPool(Base):
         ForeignKey("loot_tables.id", ondelete="SET NULL"),
         nullable=True,
     )
-    items = relationship("LocationItem", back_populates="pool")
-
     channel = relationship("Channel", back_populates="reward_pools")
-
-class LocationItem(Base):
-    __tablename__ = "location_items"
-    __table_args__ = (
-        UniqueConstraint(
-            "reward_pool_id", "item_id", name="uq_location_items_pool_item"
-        ),
-        CheckConstraint(
-            "weight > 0", name="ck_location_items_weight_positive"
-        ),
-        CheckConstraint(
-            "quantity IS NULL OR quantity >= 0", name="ck_location_items_stock_nonnegative"
-        ),
-        CheckConstraint(
-            "xp_gain >= 0", name="ck_location_items_xp_nonnegative"
-        ),
-        CheckConstraint("version >= 1", name="ck_location_items_version_positive"),
-        ForeignKeyConstraint(
-            ["reward_pool_id", "channel_id"],
-            ["reward_pools.id", "reward_pools.channel_id"],
-            name="fk_location_items_pool_channel",
-        ),
-        ForeignKeyConstraint(
-            ["item_id", "channel_id"],
-            ["item_definitions.id", "item_definitions.channel_id"],
-            name="fk_location_items_item_channel",
-        ),
-    )
-
-    id = Column(Integer, primary_key=True)
-    channel_id = Column(Integer, nullable=False)
-    reward_pool_id = Column(Integer, nullable=False)
-    item_id = Column(Integer, nullable=False, index=True)
-    weight = Column(Integer, default=100, nullable=False)
-    xp_gain = Column(Integer, default=0, nullable=False)
-    quantity = Column(Integer, nullable=True)
-    message = Column(String, default="You caught {name}!", nullable=False)
-    version = Column(Integer, default=1, nullable=False)
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
-
-    pool = relationship("RewardPool", back_populates="items", overlaps="definition")
-    definition = relationship(
-        "ItemDefinition",
-        lazy="joined",
-        primaryjoin="and_(LocationItem.item_id == ItemDefinition.id, "
-        "LocationItem.channel_id == ItemDefinition.channel_id)",
-        foreign_keys="[LocationItem.item_id, LocationItem.channel_id]",
-        overlaps="pool,items",
-    )
-
 
 class FishingEvent(Base):
     __tablename__ = "fishing_events"
@@ -401,6 +344,11 @@ class FishingEvent(Base):
             "uq_fishing_events_active_per_channel",
             "channel_id",
             unique=True,
+            postgresql_where=text("is_active = true"),
+        ),
+        Index(
+            "ix_fishing_events_active_ends_at",
+            "ends_at",
             postgresql_where=text("is_active = true"),
         ),
     )
@@ -631,6 +579,13 @@ class LootTableEntry(Base):
     xp_gain = Column(Integer, default=0, nullable=False)
     message = Column(String, nullable=True)
     config_version = Column(Integer, default=1, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     table = relationship("LootTable", back_populates="entries", overlaps="definition")
     definition = relationship(
         "ItemDefinition",

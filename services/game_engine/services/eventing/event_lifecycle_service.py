@@ -33,6 +33,36 @@ class FishingEventLifecycleService:
         self.scheduler.cancel_scheduled_disable(channel_twitch_id)
 
     def apply_due_jobs(self, limit: int = 50) -> None:
+        """End due fishing events.
+
+        PostgreSQL is authoritative: every active event whose durable
+        ``ends_at`` has passed is ended with FOR UPDATE SKIP LOCKED. The Redis
+        schedule is only a fallback/reconciliation path, never the sole source
+        of the deadline (plan §15).
+        """
+        self._end_due_events_from_postgres(limit=limit)
+        self._apply_redis_schedule(limit=limit)
+
+    def _end_due_events_from_postgres(self, limit: int = 50) -> int:
+        now = datetime.now(timezone.utc)
+        due = (
+            self.channel_repo.db.query(FishingEvent)
+            .filter(
+                FishingEvent.is_active.is_(True),
+                FishingEvent.ends_at.isnot(None),
+                FishingEvent.ends_at <= now,
+            )
+            .with_for_update(skip_locked=True)
+            .limit(limit)
+            .all()
+        )
+        for event in due:
+            self.channel_repo.set_active_fishing_event(event.channel_id, None)
+            self._mark_event_ended(event)
+            self.scheduler.cancel_scheduled_disable(str(event.channel_id))
+        return len(due)
+
+    def _apply_redis_schedule(self, limit: int = 50) -> None:
         due_jobs = self.scheduler.get_due_jobs(limit=limit)
         for job in due_jobs:
             if str(job.get("kind", "")).strip().lower() != "disable_fishing_event":

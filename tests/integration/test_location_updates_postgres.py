@@ -2,7 +2,14 @@ import os
 
 import pytest
 from infrastructure.database import SessionLocal
-from infrastructure.models import Channel, ItemDefinition, LocationItem, RewardPool
+from infrastructure.models import (
+    Channel,
+    ItemDefinition,
+    LootTable,
+    LootTableEntry,
+    LootTableEntryStock,
+    RewardPool,
+)
 from infrastructure.repositories.channel_repo import ChannelRepository
 
 
@@ -36,19 +43,35 @@ def test_reward_update_preserves_item_drop_identity_and_stock() -> None:
         )
         db.add_all([pool, definition])
         db.flush()
-        drop = LocationItem(
-            reward_pool_id=pool.id,
+        table = LootTable(
             channel_id=channel.id,
-            item_id=definition.id,
+            table_id="preserved-table",
+            title="Preserved Table",
+            version=1,
+            is_active=True,
+        )
+        db.add(table)
+        db.flush()
+        entry = LootTableEntry(
+            channel_id=channel.id,
+            loot_table_id=table.id,
+            item_definition_id=definition.id,
             weight=25,
+            min_quantity=1,
+            max_quantity=1,
             xp_gain=3,
-            quantity=7,
             message="You found an item!",
         )
-        db.add(drop)
+        db.add(entry)
         db.flush()
-        original_id = drop.id
-        original_version = drop.version
+        stock = LootTableEntryStock(
+            loot_table_entry_id=entry.id, remaining_quantity=7, version=1
+        )
+        db.add(stock)
+        pool.item_loot_table_id = table.id
+        db.flush()
+        original_id = entry.id
+        original_version = entry.version
 
         ChannelRepository(db).update_rewards(
             channel.id,
@@ -59,8 +82,13 @@ def test_reward_update_preserves_item_drop_identity_and_stock() -> None:
             "Updated Lake",
         )
 
-        preserved = db.query(LocationItem).filter(LocationItem.id == original_id).one()
-        assert preserved.quantity == 7
+        preserved = db.query(LootTableEntry).filter(LootTableEntry.id == original_id).one()
+        preserved_stock = (
+            db.query(LootTableEntryStock)
+            .filter(LootTableEntryStock.loot_table_entry_id == original_id)
+            .one()
+        )
+        assert preserved_stock.remaining_quantity == 7
         assert preserved.version == original_version
         assert preserved.weight == 25
         assert preserved.message == "You found an item!"
