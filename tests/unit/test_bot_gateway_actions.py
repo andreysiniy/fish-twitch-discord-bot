@@ -75,3 +75,47 @@ async def test_fish_command_passes_stable_source_request_id(monkeypatch) -> None
     await fish_callback(cog, ctx)
     payload2 = api_client.fish.await_args.args[0]
     assert payload2["source_request_id"] == payload["source_request_id"]
+
+
+@pytest.mark.asyncio
+async def test_fishbag_shows_durability_and_inventory_limit() -> None:
+    from commands.inventory import InventoryCog
+
+    ctx = SimpleNamespace(send=AsyncMock())
+    cog = InventoryCog(SimpleNamespace())
+    await cog._send_inventory(
+        ctx,
+        {
+            "items": [
+                {
+                    "slot_id": 1,
+                    "title": "Shit rod",
+                    "quantity": 1,
+                    "max_durability": 5,
+                    "current_durability": 2,
+                },
+                {"slot_id": 2, "title": "Bait", "quantity": 7, "max_durability": None},
+            ],
+            "max_slots": 20,
+        },
+    )
+    sent = ctx.send.await_args.args[0]
+    assert "Inventory 2/20 slots:" in sent
+    assert "[1] Shit rod x1 (durability 2/5)" in sent
+    assert "[2] Bait x7" in sent
+    assert "(durability" not in sent.split("[2]")[1]
+
+
+@pytest.mark.asyncio
+async def test_fishbag_without_limit_still_lists_items() -> None:
+    from commands.inventory import InventoryCog
+
+    ctx = SimpleNamespace(send=AsyncMock())
+    cog = InventoryCog(SimpleNamespace())
+    await cog._send_inventory(
+        ctx,
+        {"items": [{"slot_id": 3, "title": "Rod", "quantity": 1}], "max_slots": 0},
+    )
+    sent = ctx.send.await_args.args[0]
+    assert "[3] Rod x1" in sent
+    assert "Inventory 1/0" not in sent
