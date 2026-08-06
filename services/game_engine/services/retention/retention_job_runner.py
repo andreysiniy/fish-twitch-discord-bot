@@ -10,9 +10,17 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+from core import metrics as metrics_module
 from core.config import settings
 from infrastructure.database import SessionLocal
-from infrastructure.models import FishingCast, IdempotencyRecord
+from infrastructure.models import (
+    AdminAuditLog,
+    EconomyOperation,
+    FishingCast,
+    IdempotencyRecord,
+    InventoryItemUseRecord,
+    OutboxEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +71,10 @@ class RetentionJobRunner:
             "resolved_casts": 0,
             "rejected_casts": 0,
             "idempotency_records": 0,
+            "admin_audit_log": 0,
+            "economy_operations": 0,
+            "outbox_events": 0,
+            "inventory_item_use_records": 0,
         }
         db = SessionLocal()
         try:
@@ -102,8 +114,53 @@ class RetentionJobRunner:
                     ),
                 )
 
+            audit_days = settings.RETENTION_AUDIT_LOG_DAYS
+            if audit_days > 0:
+                cutoff = now - timedelta(days=audit_days)
+                stats["admin_audit_log"] = self._delete(
+                    db,
+                    db.query(AdminAuditLog).filter(AdminAuditLog.created_at < cutoff),
+                )
+
+            economy_days = settings.RETENTION_ECONOMY_OPERATIONS_DAYS
+            if economy_days > 0:
+                cutoff = now - timedelta(days=economy_days)
+                stats["economy_operations"] = self._delete(
+                    db,
+                    db.query(EconomyOperation).filter(
+                        EconomyOperation.created_at < cutoff,
+                        EconomyOperation.state.in_(
+                            ("completed", "failed", "dead_letter", "compensated")
+                        ),
+                    ),
+                )
+
+            outbox_days = settings.RETENTION_OUTBOX_EVENTS_DAYS
+            if outbox_days > 0:
+                cutoff = now - timedelta(days=outbox_days)
+                stats["outbox_events"] = self._delete(
+                    db,
+                    db.query(OutboxEvent).filter(
+                        OutboxEvent.created_at < cutoff,
+                        OutboxEvent.state.in_(("completed", "dead_letter", "failed")),
+                    ),
+                )
+
+            use_records_days = settings.RETENTION_INVENTORY_USE_RECORDS_DAYS
+            if use_records_days > 0:
+                cutoff = now - timedelta(days=use_records_days)
+                stats["inventory_item_use_records"] = self._delete(
+                    db,
+                    db.query(InventoryItemUseRecord).filter(
+                        InventoryItemUseRecord.created_at < cutoff
+                    ),
+                )
+
             if any(stats.values()):
                 logger.info("Retention cleanup: %s", stats)
+                metrics_module.inc(
+                    "fishing_retention_deleted_total", {"category": "ledger"}
+                )
             return stats
         finally:
             db.close()

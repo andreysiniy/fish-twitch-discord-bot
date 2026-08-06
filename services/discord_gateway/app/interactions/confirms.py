@@ -2,6 +2,8 @@ from collections.abc import Awaitable, Callable
 
 import discord
 
+from app.interactions.metrics import count_wizard_timeout
+
 
 class ConfirmView(discord.ui.View):
     def __init__(
@@ -46,6 +48,7 @@ class ConfirmView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         message = self.message
+        count_wizard_timeout("confirm")
         if message is not None:
             await message.edit(
                 content="⏱ Confirmation expired. Run the command again.",

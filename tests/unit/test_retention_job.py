@@ -52,9 +52,17 @@ def test_runner_constructs_with_interval() -> None:
     assert runner.interval_seconds == 120.0
 
 
-def test_run_once_executes_all_three_passes() -> None:
+def test_run_once_executes_all_passes() -> None:
     runner = RetentionJobRunner(interval_seconds=60.0)
     db = _FakeDb()
     runner.run_once.__globals__["SessionLocal"] = lambda: db
     stats = asyncio.run(runner.run_once())
-    assert {"resolved_casts", "rejected_casts", "idempotency_records"} <= stats.keys()
+    assert {
+        "resolved_casts",
+        "rejected_casts",
+        "idempotency_records",
+        "admin_audit_log",
+        "economy_operations",
+        "outbox_events",
+        "inventory_item_use_records",
+    } <= stats.keys()
