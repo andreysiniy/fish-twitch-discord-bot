@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 
@@ -18,6 +18,42 @@ def is_level_up(
 
 def calculate_xp_gain(base_xp: int, item_xp: int, bonus_pct: float) -> int:
     return int((base_xp + item_xp) * (1 + bonus_pct))
+
+
+def apply_fish_reward_modifiers(
+    raw_delta: Decimal,
+    fish_luck_change_ratio: Decimal,
+    positive_fish_reward_change_ratio: Decimal,
+    negative_fish_reward_change_ratio: Decimal,
+    mass_floor: Decimal = ZERO_MASS,
+    user_balance: Decimal = ZERO_MASS,
+    round_places: int = 2,
+) -> Decimal:
+    """Pure modifiers v2 formula for a fish reward (spec sections 7.2-7.4).
+
+    Positive delta:  raw × max(0.01, 1 + luck) × max(0, 1 + positive)
+    Negative delta:  raw ÷ max(0.01, 1 + luck) × max(0, 1 + negative)
+
+    Rounds exactly once at the end (``round_places`` decimals). A
+    ``mass_floor`` protects negative rewards from dropping the balance below
+    the floor.
+    """
+    luck_factor = max(Decimal("0.01"), Decimal("1") + to_decimal(fish_luck_change_ratio))
+    quantum = Decimal("1").scaleb(-round_places)
+    if to_decimal(raw_delta) >= ZERO_MASS:
+        positive_factor = max(
+            Decimal("0"), Decimal("1") + to_decimal(positive_fish_reward_change_ratio)
+        )
+        return (to_decimal(raw_delta) * luck_factor * positive_factor).quantize(
+            quantum, rounding=ROUND_HALF_UP
+        )
+    negative_factor = max(
+        Decimal("0"), Decimal("1") + to_decimal(negative_fish_reward_change_ratio)
+    )
+    delta = to_decimal(raw_delta) / luck_factor * negative_factor
+    if to_decimal(mass_floor) > ZERO_MASS:
+        delta = max(delta, to_decimal(mass_floor) - to_decimal(user_balance))
+    return delta.quantize(quantum, rounding=ROUND_HALF_UP)
 
 
 def calculate_robbery_chance(

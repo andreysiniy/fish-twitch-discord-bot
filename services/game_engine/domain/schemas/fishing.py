@@ -118,7 +118,10 @@ class FishingResult(BaseModel):
     is_level_up: bool
     old_level: int
     new_level: int
-    luck_used: float
+    fish_luck_factor_used: Decimal = Decimal("1")
+    positive_fish_factor_used: Decimal = Decimal("1")
+    negative_fish_factor_used: Decimal = Decimal("1")
+    effective_percentage: Optional[Decimal] = None
     durability_loss: int = 1
     broken_item_name: Optional[str] = None
     robbery_result: Optional[RobberyResultDTO] = None
@@ -135,13 +138,18 @@ class PlayerStatsDTO(BaseModel):
     current_mass: Decimal = Decimal("0.00")
     total_fish_stat: int = 0
     rod_name: str
-    luck_bonus: float = 0.0
-    resist_bonus: float = 0.0
-    xp_bonus_pct: float = 0.0
     rank: int = 0
     total_mass_stat: Decimal = Decimal("0.00")
-    good_catch_bonus: float = 0.0
-    cd_bonus: float = 0.0
+    # v2 concepts: human-percent change values resolved for the player.
+    fish_luck_change_percent: Decimal = Decimal("0")
+    positive_fish_reward_change_percent: Decimal = Decimal("0")
+    negative_fish_reward_change_percent: Decimal = Decimal("0")
+    xp_gain_change_percent: Decimal = Decimal("0")
+    cooldown_change_percent: Decimal = Decimal("0")
+    item_drop_chance_add_pp: Decimal = Decimal("0")
+    item_rarity_luck_change_percent: Decimal = Decimal("0")
+    robbery_protection_percent: Decimal = Decimal("0")
+    robbery_evasion_percent: Decimal = Decimal("0")
 
 
 class FishStatsResponse(BaseModel):

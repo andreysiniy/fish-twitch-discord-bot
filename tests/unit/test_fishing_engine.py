@@ -118,7 +118,8 @@ def test_presenter_shows_reduced_effective_negative_percentage() -> None:
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=1.5,
+        fish_luck_factor_used=Decimal("1.5"),
+        effective_percentage=Decimal("-0.08"),
     )
 
     response = FishingPresenter().build_response(user, result)
@@ -158,7 +159,8 @@ def test_presenter_shows_effective_percentage_after_all_mass_modifiers() -> None
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=1.5,
+        fish_luck_factor_used=Decimal("1.5"),
+        effective_percentage=Decimal("0.375"),
     )
 
     response = FishingPresenter().build_response(user, result)
@@ -187,7 +189,7 @@ def test_dupe_reward_creates_bounded_repeat_action() -> None:
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=1.0,
+        fish_luck_factor_used=Decimal("1.0"),
     )
 
     response = FishingPresenter().build_response(user, result)
@@ -240,9 +242,9 @@ def test_points_bonus_is_applied_to_points_reward() -> None:
 @pytest.mark.parametrize(
     ("fixed_mass", "modifiers", "mass_floor", "expected"),
     [
-        ("10", {"positive_mass_bonus_pct": Decimal("0.20")}, "0", Decimal("12.00")),
-        ("-30", {"negative_mass_reduction_pct": Decimal("0.50")}, "0", Decimal("-15.00")),
-        ("-30", {"negative_mass_reduction_pct": Decimal("0")}, "90", Decimal("-10.00")),
+        ("10", {"positive_fish_reward_change_ratio": Decimal("0.20")}, "0", Decimal("12.00")),
+        ("-30", {"negative_fish_reward_change_ratio": Decimal("-0.50")}, "0", Decimal("-15.00")),
+        ("-30", {"negative_fish_reward_change_ratio": Decimal("0")}, "90", Decimal("-10.00")),
     ],
 )
 def test_typed_mass_modifiers_handle_sign_and_floor(
@@ -279,7 +281,7 @@ def test_typed_roulette_penalty_uses_negative_reduction(monkeypatch) -> None:
         item_pool=[],
         items_drop_rate=0,
         custom_params={},
-        modifier_values={"negative_mass_reduction_pct": Decimal("0.25")},
+        modifier_values={"negative_fish_reward_change_ratio": Decimal("-0.25")},
     )
     assert result.mass_gained == Decimal("-30.00")
 
@@ -325,7 +327,7 @@ def test_robbery_without_target_uses_dedicated_message() -> None:
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=1.0,
+        fish_luck_factor_used=Decimal("1.0"),
         robbery_result=robbery_result,
     )
 
@@ -384,7 +386,7 @@ def test_robbery_uses_reward_specific_success_message() -> None:
         is_level_up=False,
         old_level=1,
         new_level=1,
-        luck_used=1.0,
+        fish_luck_factor_used=Decimal("1.0"),
         robbery_result={
             "is_success": True,
             "victim_found": True,
@@ -439,7 +441,7 @@ def test_fishing_service_persists_decimal_mass() -> None:
             is_level_up=False,
             old_level=1,
             new_level=1,
-            luck_used=1.0,
+            fish_luck_factor_used=Decimal("1.0"),
         )
     )
     service.presenter.build_response = Mock(side_effect=lambda _user, result: result)
@@ -496,7 +498,6 @@ def test_block_action_rerolls_matching_reward_and_tracks_durability(monkeypatch)
     result = FishingEngine._reroll_reward_effects(
         {"type": "nothing"},
         [],
-        1.0,
         [effect],
     )
 

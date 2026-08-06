@@ -31,6 +31,12 @@ class CalculationStrategy(ABC):
     def adjust_xp_gain(self, xp_gain: int) -> int:
         return max(int(xp_gain), 0)
 
+    def resolve_raw_mass(
+        self, source: Dict[str, Any], user_balance: Decimal
+    ) -> Decimal:
+        """Unrounded raw mass delta for a catch config (no modifiers, no luck)."""
+        return self._resolve_raw_mass(source, to_decimal(user_balance))
+
 
 class DefaultLootStrategy(CalculationStrategy):
     def calculate(
@@ -117,16 +123,55 @@ class FishingEngine:
         player_stats = calculate_player_stats(user)
         typed_modifiers = modifier_values is not None
         modifiers = modifier_values or {}
-        luck = Decimal("1") + (
-            to_decimal(modifiers.get("loot_luck_pct", 0))
-            if typed_modifiers
-            else to_decimal(player_stats.get("luck_bonus", 0.0))
+        if typed_modifiers:
+            resolved_mods: Dict[str, Decimal] = {
+                str(key): to_decimal(value) for key, value in modifiers.items()
+            }
+        else:
+            # Legacy stats path (no resolver): translate the resolved player
+            # stats dict into v2 ratio keys so there is a single formula path.
+            resolved_mods = {
+                "fish_luck_change_ratio": to_decimal(
+                    player_stats.get("luck_bonus", 0.0)
+                ),
+                "positive_fish_reward_change_ratio": to_decimal(
+                    player_stats.get("good_catch_bonus", 0.0)
+                ),
+                "negative_fish_reward_change_ratio": to_decimal(
+                    player_stats.get("resolve_bad_catch", 0.0)
+                ),
+                "xp_gain_change_ratio": to_decimal(
+                    player_stats.get("xp_bonus_pct", 0.0)
+                ),
+                "cooldown_change_ratio": to_decimal(
+                    player_stats.get("cd_bonus", 0.0)
+                ),
+                "item_drop_chance_add": to_decimal(
+                    player_stats.get("item_drop_chance_add", 0.0)
+                ),
+                "item_rarity_luck_pct": to_decimal(
+                    player_stats.get("item_rarity_luck_pct", 0.0)
+                ),
+            }
+        fish_luck_ratio = to_decimal(
+            resolved_mods.get("fish_luck_change_ratio", 0)
         )
-        xp_bonus = (
-            to_decimal(modifiers.get("xp_gain_bonus_pct", 0))
-            if typed_modifiers
-            else to_decimal(player_stats.get("xp_bonus_pct", 0.0))
+        positive_fish_ratio = to_decimal(
+            resolved_mods.get("positive_fish_reward_change_ratio", 0)
         )
+        negative_fish_ratio = to_decimal(
+            resolved_mods.get("negative_fish_reward_change_ratio", 0)
+        )
+        fish_luck_factor = max(
+            Decimal("0.01"), Decimal("1") + fish_luck_ratio
+        )
+        positive_fish_factor = max(
+            Decimal("0"), Decimal("1") + positive_fish_ratio
+        )
+        negative_fish_factor = max(
+            Decimal("0"), Decimal("1") + negative_fish_ratio
+        )
+        xp_bonus = to_decimal(resolved_mods.get("xp_gain_change_ratio", 0))
         strategy = calculation_strategy or self._default_strategy
 
         rng_stages: list[dict] = []
@@ -147,7 +192,8 @@ class FishingEngine:
         if reward_trace.selected is not None:
             catch = _as_catch(reward_trace.selected)
         else:
-            catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+            # Neutral selection: fish luck never changes reward probabilities.
+            catch = rng.roll_loot(loot_pool)
         empty_reroll_chance = min(
             max(
                 to_decimal(modifiers.get("empty_catch_reroll_chance_pct", 0)),
@@ -176,11 +222,10 @@ class FishingEngine:
             else:
                 # Empty or traced-less pool: fall back to the legacy picker so
                 # injected rolls keep working during tests and migrations.
-                catch = rng.roll_loot(loot_pool, luck_modifier=float(luck))
+                catch = rng.roll_loot(loot_pool)
         catch = self._reroll_reward_effects(
             catch,
             loot_pool,
-            float(luck),
             behavioral_effects or [],
         )
         if catch.get("type") == ActionType.POINTS:
@@ -192,12 +237,14 @@ class FishingEngine:
         item_drop_chance = min(
             max(
                 to_decimal(items_drop_rate)
-                + to_decimal(modifiers.get("item_drop_chance_add", 0)),
+                + to_decimal(resolved_mods.get("item_drop_chance_add", 0)),
                 ZERO_MASS,
             ),
             Decimal("1"),
         )
-        rarity_luck = Decimal("1") + to_decimal(modifiers.get("item_rarity_luck_pct", 0))
+        rarity_luck = Decimal("1") + to_decimal(
+            resolved_mods.get("item_rarity_luck_pct", 0)
+        )
         item_trace = None
         item_gate_succeeded = False
         if item_pool:
@@ -260,25 +307,45 @@ class FishingEngine:
 
         mass_gain = ZERO_MASS
         roulette_result = None
+        effective_percentage = None
         if catch.get("type") == ActionType.FISH:
             mass_gain = self._calculate_mass(
                 catch,
-                float(luck),
                 quantize_mass(user.current_mass),
                 strategy,
-                modifiers if typed_modifiers else None,
+                resolved_mods,
                 negative_mass_floor,
             )
+            if catch.get("percentage") is not None:
+                raw_percentage = to_decimal(catch.get("percentage"))
+                effective_percentage = formulas.apply_fish_reward_modifiers(
+                    raw_percentage,
+                    fish_luck_ratio,
+                    positive_fish_ratio,
+                    negative_fish_ratio,
+                    round_places=4,
+                )
         elif catch.get("type") == ActionType.RUSSIAN_ROULETTE:
             roulette_result = self.calculate_russian_roulette(
                 user=user,
                 catch=catch,
-                luck_modifier=luck,
+                luck_modifier=1.0,
                 calculation_strategy=strategy,
-                modifier_values=modifiers if typed_modifiers else None,
+                modifier_values=resolved_mods,
                 mass_floor=roulette_mass_floor,
             )
             mass_gain = roulette_result.mass_delta
+            # Roulette percentage outcomes never use fish luck (spec 11.4);
+            # the engine still resolves the applied percentage for the presenter.
+            outcome = roulette_result.penalty if roulette_result.is_hit else roulette_result.reward
+            if isinstance(outcome, dict) and outcome.get("percentage") is not None:
+                effective_percentage = formulas.apply_fish_reward_modifiers(
+                    to_decimal(outcome.get("percentage")),
+                    fish_luck_change_ratio=Decimal("0"),
+                    positive_fish_reward_change_ratio=positive_fish_ratio,
+                    negative_fish_reward_change_ratio=negative_fish_ratio,
+                    round_places=4,
+                )
 
         return FishingResult(
             loot=catch,
@@ -289,7 +356,10 @@ class FishingEngine:
             is_level_up=is_levelup,
             old_level=old_level,
             new_level=new_level,
-            luck_used=float(luck),
+            fish_luck_factor_used=fish_luck_factor,
+            positive_fish_factor_used=positive_fish_factor,
+            negative_fish_factor_used=negative_fish_factor,
+            effective_percentage=effective_percentage,
             roulette_result=roulette_result,
             reward_roll_trace=reward_trace.as_dict(),
             rng_stages=rng_stages,
@@ -480,20 +550,25 @@ class FishingEngine:
     def _calculate_mass(
         self,
         catch: Dict[str, Any],
-        luck_modifier: float,
         user_balance: Decimal,
         strategy: CalculationStrategy,
-        modifier_values: Optional[Dict[str, Decimal]] = None,
+        resolved_mods: Dict[str, Decimal],
         mass_floor: Decimal = ZERO_MASS,
     ) -> Decimal:
-        if modifier_values is None:
-            return strategy.calculate(catch, luck_modifier, user_balance)
-        raw_delta = strategy.calculate(catch, 1.0, user_balance)
-        return self._apply_signed_mass_modifiers(
+        raw_delta = strategy.resolve_raw_mass(catch, user_balance)
+        return formulas.apply_fish_reward_modifiers(
             raw_delta,
-            user_balance,
-            modifier_values,
-            mass_floor,
+            fish_luck_change_ratio=to_decimal(
+                resolved_mods.get("fish_luck_change_ratio", 0)
+            ),
+            positive_fish_reward_change_ratio=to_decimal(
+                resolved_mods.get("positive_fish_reward_change_ratio", 0)
+            ),
+            negative_fish_reward_change_ratio=to_decimal(
+                resolved_mods.get("negative_fish_reward_change_ratio", 0)
+            ),
+            mass_floor=mass_floor,
+            user_balance=user_balance,
         )
 
     def _calculate_roulette_mass_delta(
@@ -524,39 +599,32 @@ class FishingEngine:
             return ZERO_MASS
 
         if modifier_values is None:
+            # Legacy path: the strategy fully owns the math (v1 formula).
             return strategy.calculate(source, luck_modifier, user_balance)
-        raw_delta = strategy.calculate(source, 1.0, user_balance)
-        return self._apply_signed_mass_modifiers(
+        raw_delta = strategy.resolve_raw_mass(source, user_balance)
+        # Roulette never uses fish luck (spec 11.4); positive/negative fish
+        # change ratios keep applying to keep legacy outcome behavior stable.
+        return formulas.apply_fish_reward_modifiers(
             raw_delta,
-            user_balance,
-            modifier_values,
-            mass_floor,
+            fish_luck_change_ratio=Decimal("0"),
+            positive_fish_reward_change_ratio=to_decimal(
+                modifier_values.get("positive_fish_reward_change_ratio", 0)
+                if modifier_values
+                else 0
+            ),
+            negative_fish_reward_change_ratio=to_decimal(
+                modifier_values.get("negative_fish_reward_change_ratio", 0)
+                if modifier_values
+                else 0
+            ),
+            mass_floor=mass_floor,
+            user_balance=user_balance,
         )
-
-    @staticmethod
-    def _apply_signed_mass_modifiers(
-        raw_delta: Decimal,
-        user_balance: Decimal,
-        modifier_values: Dict[str, Decimal],
-        mass_floor: Decimal,
-    ) -> Decimal:
-        delta = to_decimal(raw_delta)
-        if delta >= ZERO_MASS:
-            delta *= Decimal("1") + to_decimal(
-                modifier_values.get("positive_mass_bonus_pct", 0)
-            )
-        else:
-            reduction = to_decimal(modifier_values.get("negative_mass_reduction_pct", 0))
-            delta *= max(Decimal("1") - reduction, ZERO_MASS)
-            if mass_floor > ZERO_MASS:
-                delta = max(delta, to_decimal(mass_floor) - to_decimal(user_balance))
-        return quantize_mass(delta)
 
     @staticmethod
     def _reroll_reward_effects(
         catch: Dict[str, Any],
         loot_pool: list[Dict[str, Any]],
-        luck: float,
         effects: list[Dict[str, Any]],
     ) -> Dict[str, Any]:
         current = catch
@@ -579,7 +647,8 @@ class FishingEngine:
                     effect.get("chance", 1)
                 ):
                     break
-                current = rng.roll_loot(loot_pool, luck_modifier=luck)
+                # Rerolls keep neutral reward-selection luck (spec 3.3).
+                current = rng.roll_loot(loot_pool)
                 triggered += 1
             if triggered:
                 effect["_trigger_count"] = triggered

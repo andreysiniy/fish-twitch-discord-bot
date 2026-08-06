@@ -599,13 +599,13 @@ class EventModal(discord.ui.Modal):
                 "modifiers": {
                     "schema_version": 2,
                     "fish_luck_change_percent": _bounded_decimal(
-                        self.fish_luck.value, "Fish luck change", -500, 2000
+                        self.fish_luck.value, "Fish luck change", -50, 100
                     ),
                     "positive_fish_reward_change_percent": _bounded_decimal(
-                        self.positive_reward.value, "Positive reward change", -500, 2000
+                        self.positive_reward.value, "Positive reward change", -50, 200
                     ),
                     "negative_fish_reward_change_percent": _bounded_decimal(
-                        self.negative_reward.value, "Negative reward change", -500, 2000
+                        self.negative_reward.value, "Negative reward change", -100, 100
                     ),
                 },
             }
@@ -653,10 +653,10 @@ class EventModifiersModal(discord.ui.Modal):
                 "modifiers": {
                     **self.payload["modifiers"],
                     "xp_gain_change_percent": _bounded_decimal(
-                        self.xp_gain.value, "XP gain change", -100, 2000
+                        self.xp_gain.value, "XP gain change", -100, 400
                     ),
                     "cooldown_change_percent": _bounded_decimal(
-                        self.cooldown_change.value, "Cooldown change", -100, 2000
+                        self.cooldown_change.value, "Cooldown change", -80, 100
                     ),
                 },
             }
