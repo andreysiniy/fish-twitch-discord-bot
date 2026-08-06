@@ -1,7 +1,10 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+
+from pydantic import ValidationError
 
 from domain.item_schema import (
     STAT_REGISTRY,
@@ -43,6 +46,61 @@ class ResolvedPlayerModifiers:
             and effect_scope in (effect.get("scopes") or [])
         ]
         return max(floors, default=Decimal("0"))
+
+
+logger = logging.getLogger(__name__)
+
+_EVENT_MODIFIER_BOUNDS = {
+    "fish_luck_change_percent": (Decimal("-50"), Decimal("100")),
+    "positive_fish_reward_change_percent": (Decimal("-50"), Decimal("200")),
+    "negative_fish_reward_change_percent": (Decimal("-100"), Decimal("100")),
+    "xp_gain_change_percent": (Decimal("-100"), Decimal("400")),
+    "cooldown_change_percent": (Decimal("-80"), Decimal("100")),
+    "item_drop_chance_add_pp": (Decimal("-100"), Decimal("100")),
+    "item_rarity_luck_change_percent": (Decimal("-100"), Decimal("200")),
+    "robbery_protection_percent": (Decimal("0"), Decimal("100")),
+    "robbery_evasion_percent": (Decimal("0"), Decimal("100")),
+}
+
+
+def parse_event_modifiers_lenient(
+    event_id: int, modifiers: dict
+):
+    """Parse event modifiers without crashing on legacy out-of-range values.
+
+    Events created before the v2 bounds were tightened may carry values beyond
+    the schema caps (e.g. +500% reward). Runtime clamps them to the schema
+    bounds and logs the adjustment so fishing and fishstats keep working and
+    the owner can fix the event; a hard ValidationError here would 500 every
+    cast while the event is active.
+    """
+    from domain.config_schema import EventModifiersV2
+
+    try:
+        return EventModifiersV2(**modifiers)
+    except ValidationError:
+        clamped: dict[str, Any] = {"schema_version": 2}
+        for key, (low, high) in _EVENT_MODIFIER_BOUNDS.items():
+            raw = modifiers.get(key)
+            if raw is None:
+                continue
+            try:
+                value = Decimal(str(raw))
+            except Exception:
+                continue
+            clamped[key] = min(max(value, low), high)
+        logger.warning(
+            "Event %s has out-of-range modifiers; clamped to schema bounds",
+            event_id,
+            extra={
+                "event_id": event_id,
+                "original": {k: str(v) for k, v in modifiers.items() if k != "schema_version"},
+                "clamped": {k: str(v) for k, v in clamped.items() if k != "schema_version"},
+            },
+        )
+        return EventModifiersV2(**clamped)
+
+
 
 
 class PlayerModifierService:
@@ -185,9 +243,7 @@ class PlayerModifierService:
     def _event_contributions_v2(
         event: FishingEvent, scope: ModifierScope, modifiers: dict
     ) -> list[ModifierContribution]:
-        from domain.config_schema import EventModifiersV2
-
-        payload = EventModifiersV2(**modifiers).to_resolver_payload()
+        payload = parse_event_modifiers_lenient(event.id, modifiers).to_resolver_payload()
         stat_keys = {
             "fish_luck_change_ratio": StatKey.FISH_LUCK_CHANGE_RATIO,
             "positive_fish_reward_change_ratio": StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO,

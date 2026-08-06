@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import importlib
 
 import pytest
@@ -36,3 +38,21 @@ def test_unsafe_event_requires_review(migration_module) -> None:
     unsafe = {"positive_fish_reward_change_percent": "500"}
     assert requires_review(safe) is False
     assert requires_review(unsafe) is True
+
+
+def test_lenient_event_parse_clamps_legacy_out_of_range_values() -> None:
+    """Legacy events with +500% reward must not crash the resolver at runtime."""
+    from services.player_modifier_service import parse_event_modifiers_lenient
+
+    payload = parse_event_modifiers_lenient(
+        42,
+        {
+            "schema_version": 2,
+            "positive_fish_reward_change_percent": "500.00",
+            "fish_luck_change_percent": "40.00",
+            "cooldown_change_percent": "-50.00",
+        },
+    ).to_resolver_payload()
+    assert payload["positive_fish_reward_change_ratio"] == Decimal("2.00")  # clamped to 200%
+    assert payload["fish_luck_change_ratio"] == Decimal("0.40")
+    assert payload["cooldown_change_ratio"] == Decimal("-0.50")
