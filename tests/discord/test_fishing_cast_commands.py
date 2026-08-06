@@ -132,8 +132,13 @@ class _FakeApi:
         return {"items": []}
 
 
-def _run_callback(group_name: str, api: _FakeApi, **params):
-    """Invoke a cast subcommand callback with a fake interaction."""
+def _run_callback(group_name: str, api: _FakeApi, **params) -> _FakeInteraction:
+    """Invoke a cast subcommand callback with a fake interaction.
+
+    Raises if the callback degraded to the generic error message, so wrapper
+    bugs (e.g. missing client kwargs, removed discord.utils helpers) surface
+    in tests instead of being swallowed by the command's except handler.
+    """
     import asyncio
     from app.commands.casts import register_casts_group
 
@@ -141,17 +146,23 @@ def _run_callback(group_name: str, api: _FakeApi, **params):
     parent = discord.app_commands.Group(name="fish", description="fish")
     group = register_casts_group(tree, api, parent)
     command = next(c for c in group.commands if c.name == group_name)
-    asyncio.run(command.callback(_FakeInteraction(), **params))
+    interaction = _FakeInteraction()
+    asyncio.run(command.callback(interaction, **params))
+    assert not any(
+        "Something went wrong" in (s or "") for s in interaction.followup.sent
+    ), f"{group_name} fell back to the generic error: {interaction.followup.sent}"
+    return interaction
 
 
 def test_cast_export_passes_viewer_as_username_filter() -> None:
     api = _FakeApi()
-    _run_callback("export", api, viewer="srakjopa")
+    interaction = _run_callback("export", api, viewer="srakjopa")
     assert api.recent_kwargs == {
         "limit": 25,
         "username": "srakjopa",
         "status": None,
     }
+    assert interaction.followup.sent[0].startswith("Exported 0 fishing cast")
 
 
 def test_cast_recent_and_search_accept_username_kwargs() -> None:

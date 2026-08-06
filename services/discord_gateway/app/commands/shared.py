@@ -5,6 +5,7 @@ modules" holds while the shared mutation/confirmation/JSON plumbing stays in
 one place.
 """
 
+import io
 import json
 from typing import Any
 
@@ -236,7 +237,7 @@ async def _send_json_embed(
     if len(rendered) > 3900:
         embed.description = f"```json\n{rendered[:900]}\n```\n(full JSON attached as a file)"
         kwargs["file"] = discord.File(
-            discord.utils.MaybeUnicodeIO(rendered), filename=f"{title.lower()}.json"
+            io.StringIO(rendered), filename=f"{title.lower()}.json"
         )
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, **kwargs)

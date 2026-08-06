@@ -3,6 +3,7 @@
 Module-per-domain per the audit; registered from register_commands().
 """
 
+import io
 import json
 from datetime import datetime, timezone
 
@@ -319,9 +320,7 @@ def register_casts_group(
                 "casts": rows,
             }
             raw = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-            file = discord.File(
-                discord.utils.MaybeUnicodeIO(raw), filename="casts_export.json"
-            )
+            file = discord.File(io.StringIO(raw), filename="casts_export.json")
             await interaction.followup.send(
                 f"Exported {len(rows)} fishing cast record(s) as JSON.",
                 file=file,
