@@ -1534,7 +1534,7 @@ def _json_embed(title: str, item: dict[str, Any]) -> discord.Embed:
     if len(rendered) > 3900:
         return discord.Embed(
             title=title,
-            description="(JSON слишком большой для embed — полный JSON во вложении)",
+            description="(JSON too large for the embed — full JSON attached as a file)",
             color=discord.Color.blurple(),
         )
     return discord.Embed(
@@ -1600,7 +1600,7 @@ async def _send_json_embed(
     embed = _json_embed(title, item)
     kwargs: dict[str, Any] = {"ephemeral": True}
     if len(rendered) > 3900:
-        embed.description = f"```json\n{rendered[:900]}\n```\n(полный JSON во вложении)"
+        embed.description = f"```json\n{rendered[:900]}\n```\n(full JSON attached as a file)"
         kwargs["file"] = discord.File(
             discord.utils.MaybeUnicodeIO(rendered), filename=f"{title.lower()}.json"
         )

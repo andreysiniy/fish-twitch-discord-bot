@@ -16,7 +16,7 @@ def test_json_embed_renders_cyrillic_without_ascii_escape() -> None:
 def test_json_embed_truncation_is_marked() -> None:
     payload = {"data": "x" * 5000}
     embed = register._json_embed("Big", payload)
-    assert "вложении" in embed.description
+    assert "attached as a file" in embed.description
 
 
 def test_timeouts_aligned_to_style_guide() -> None:
