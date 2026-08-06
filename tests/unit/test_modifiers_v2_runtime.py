@@ -183,14 +183,31 @@ def test_engine_applies_v2_control_example(monkeypatch) -> None:
 
 
 def test_fish_luck_does_not_change_reward_selection(monkeypatch) -> None:
+    from domain.logic import rng as rng_module
+
     pool = [
         {"type": "nothing", "weight": 50, "id": "nothing"},
         {"type": "points", "weight": 50, "id": "points"},
     ]
     selected: list[str] = []
 
+    original_traced = rng_module.roll_loot_traced
+    original_roll = rng_module.roll_loot
+
+    def fixed_traced(loot_table, weight_transform=None, **kwargs):
+        return original_traced(
+            loot_table,
+            weight_transform=weight_transform,
+            random_source=lambda: 0.25,
+        )
+
+    def fixed_roll(loot_table, **kwargs):
+        return original_roll(loot_table, random_source=lambda: 0.25)
+
+    monkeypatch.setattr(rng_module, "roll_loot_traced", fixed_traced)
+    monkeypatch.setattr(rng_module, "roll_loot", fixed_roll)
+
     def run(luck_ratio: str) -> str:
-        monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0.25)
         result = FishingEngine().calculate_result(
             user=_user(),
             loot_pool=pool,
