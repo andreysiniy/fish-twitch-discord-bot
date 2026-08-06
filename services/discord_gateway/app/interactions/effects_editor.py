@@ -100,11 +100,23 @@ class EffectsEditorView(discord.ui.View):
     async def pick_effect(
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
+        if select.values and select.values[0] == "-1":
+            return
         self._selected_index = int(select.values[0]) if select.values else None
         self._update_buttons()
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     def _rebuild_pick_options(self) -> None:
+        if not self.effects:
+            # Discord rejects a select without at least one option, so an
+            # empty draft shows a disabled placeholder select instead of
+            # serializing an options-less component (400 on edit_message).
+            self.pick_effect.options = [
+                discord.SelectOption(label="No effects yet", value="-1")
+            ]
+            self.pick_effect.disabled = True
+            self.pick_effect.placeholder = "Add an effect first"
+            return
         options = []
         for index, effect in enumerate(self.effects[:25]):
             label = describe_effect(effect)
@@ -116,6 +128,8 @@ class EffectsEditorView(discord.ui.View):
                 )
             )
         self.pick_effect.options = options
+        self.pick_effect.disabled = False
+        self.pick_effect.placeholder = "Select an effect to edit/remove/move…"
 
     @discord.ui.select(
         placeholder="Add effect…",

@@ -76,3 +76,33 @@ def test_effects_editor_selects_removes_and_reorders_effects() -> None:
     view._rebuild_pick_options()
     assert len(view.effects) == 2
     assert len(view.pick_effect.options) == 2
+
+
+def test_effects_editor_empty_draft_serializes_a_valid_select() -> None:
+    """Discord rejects an options-less select; an empty draft must still
+    produce a component with at least one option (regression: HTTPException
+    on the first 'Edit effects' click for a new item)."""
+    view = EffectsEditorView(
+        initiator_id=1,
+        effects=[],
+        on_done=lambda *_: None,
+    )
+    selects = []
+    for component in view.to_components():
+        for inner in component.get("components", []):
+            if inner["type"] == 3:
+                selects.append(inner)
+    assert selects, "expected at least one select"
+    pick = next(
+        (s for s in selects if "Add an effect first" in s.get("placeholder", "")),
+        selects[0],
+    )
+    assert pick.get("options"), "select must always carry at least one option"
+    assert pick.get("disabled") is True
+    assert len(pick["options"]) >= 1
+
+    # After adding an effect the pick select becomes enabled with real options.
+    view.effects.append({"type": "grant_mass", "mass": "5"})
+    view._rebuild_pick_options()
+    assert view.pick_effect.disabled is False
+    assert len(view.pick_effect.options) == 1
