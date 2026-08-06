@@ -118,6 +118,7 @@ class ConfigRepository:
             "message": entry.message or "You caught {name}!",
             "effects": definition.effects or [],
             "definition_version": definition.version,
+            "item_definition_id": entry.item_definition_id,
             "loot_table_id": entry.loot_table_id,
             "loot_table_entry_id": entry.id,
         }
