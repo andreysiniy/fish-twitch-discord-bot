@@ -119,6 +119,7 @@ def test_finite_location_stock_is_consumed_by_only_one_concurrent_grant() -> Non
         setup.flush()
         drop = LocationItem(
             reward_pool_id=pool.id,
+            channel_id=channel.id,
             item_id=definition.id,
             weight=1,
             quantity=1,

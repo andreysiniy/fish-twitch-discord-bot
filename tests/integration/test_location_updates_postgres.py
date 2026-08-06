@@ -38,6 +38,7 @@ def test_reward_update_preserves_item_drop_identity_and_stock() -> None:
         db.flush()
         drop = LocationItem(
             reward_pool_id=pool.id,
+            channel_id=channel.id,
             item_id=definition.id,
             weight=25,
             xp_gain=3,

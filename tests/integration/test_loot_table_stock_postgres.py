@@ -44,6 +44,7 @@ def test_loot_table_sources_item_entries_and_consumes_stock() -> None:
         db.flush()
         entry = LootTableEntry(
             loot_table_id=table.id,
+            channel_id=channel.id,
             item_definition_id=definition.id,
             weight=100,
             xp_gain=5,

@@ -24,6 +24,7 @@ from infrastructure.models import (
     Channel,
     DiscordAccountLink,
     DiscordGuildBinding,
+    FishingCast,
     RewardPool,
     UserProgress,
 )
@@ -400,14 +401,27 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
         )
         db.flush()
 
-        from infrastructure.models import FishingCast
+        user = UserProgress(
+            user_twitch_id="cast-viewer",
+            username="viewer",
+            channel_id=channel.id,
+        )
+        db.add(user)
+        db.flush()
+        other_user = UserProgress(
+            user_twitch_id="other-viewer",
+            username="other_viewer",
+            channel_id=other.id,
+        )
+        db.add(other_user)
+        db.flush()
 
         for idx in range(3):
             db.add(
                 FishingCast(
                     id=f"11111111-2222-4333-8444-{idx:012d}",
                     channel_id=channel.id,
-                    user_progress_id=1,
+                    user_progress_id=user.id,
                     source="twitch",
                     status="resolved",
                     twitch_user_id_snapshot="viewer",
@@ -423,7 +437,7 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
             FishingCast(
                 id="99999999-2222-4333-8444-000000000001",
                 channel_id=other.id,
-                user_progress_id=1,
+                user_progress_id=other_user.id,
                 source="twitch",
                 status="resolved",
                 twitch_user_id_snapshot="viewer",
