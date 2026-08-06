@@ -35,9 +35,10 @@ class ActionHandler:
         self, ctx, action: Dict[str, Any], index: int, *, allow_dupe: bool
     ) -> None:
         action_type = str(action.get("type", ""))
+        warning = None
         try:
             if action_type == "timeout":
-                await self._handle_timeout(ctx, action)
+                warning = await self._handle_timeout(ctx, action)
             elif action_type == "points":
                 await self._handle_points(ctx, action, index)
             elif action_type == "dupe" and allow_dupe:
@@ -51,6 +52,8 @@ class ActionHandler:
         action_message = action.get("action_message")
         if action_message:
             await ctx.send(action_message)
+        if warning:
+            await ctx.send(warning)
 
     async def _handle_dupe(self, ctx, action: Dict[str, Any]) -> None:
         amount = max(min(int(action.get("amount", 1)), 20), 1)
@@ -75,7 +78,8 @@ class ActionHandler:
             response = await self.bot.api_client.fish(payload)
             await self.handle_engine_response(ctx, response, allow_dupe=False)
 
-    async def _handle_timeout(self, ctx, action: Dict[str, Any]) -> None:
+    async def _handle_timeout(self, ctx, action: Dict[str, Any]) -> str | None:
+        """Apply the timeout; return a chat warning when the reason was replaced."""
         duration = max(min(int(action.get("duration", 60)), 1_209_600), 1)
         target_username = str(action.get("target_user") or "").strip()
         reason = str(action.get("reason") or "Fishing timeout")[:500]
@@ -87,6 +91,7 @@ class ActionHandler:
         token = self.bot.cfg.twitch_token.removeprefix("oauth:")
 
         session = await self._get_session()
+        payload = {"data": {"user_id": target_id, "duration": duration, "reason": reason}}
         async with session.post(
             self.TWITCH_BANS_URL,
             params={"broadcaster_id": broadcaster_id, "moderator_id": moderator_id},
@@ -95,10 +100,43 @@ class ActionHandler:
                 "Client-Id": self.bot.cfg.twitch_client_id,
                 "Content-Type": "application/json",
             },
-            json={"data": {"user_id": target_id, "duration": duration, "reason": reason}},
+            json=payload,
         ) as response:
             if response.status >= 400:
                 body = (await response.text())[:300]
+                if response.status == 400 and "moderation standards" in body:
+                    # The configured reason is rejected by Twitch's filter;
+                    # retry once without a reason so Twitch uses its default.
+                    retry_payload = {"data": {"user_id": target_id, "duration": duration}}
+                    async with session.post(
+                        self.TWITCH_BANS_URL,
+                        params={
+                            "broadcaster_id": broadcaster_id,
+                            "moderator_id": moderator_id,
+                        },
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Client-Id": self.bot.cfg.twitch_client_id,
+                            "Content-Type": "application/json",
+                        },
+                        json=retry_payload,
+                    ) as retry:
+                        if retry.status < 400:
+                            logger.warning(
+                                "Timeout reason rejected by Twitch moderation; "
+                                "applied the default reason (target=%s, reason=%r)",
+                                target_username,
+                                reason,
+                            )
+                            return (
+                                "Timeout applied with the default reason: the configured "
+                                "reason was rejected by Twitch moderation."
+                            )
+                        retry_body = (await retry.text())[:300]
+                        raise RuntimeError(
+                            f"Twitch moderation API returned {retry.status}: {retry_body} "
+                            f"(broadcaster={broadcaster_id}, moderator={moderator_id}, target={target_username})"
+                        )
                 raise RuntimeError(
                     f"Twitch moderation API returned {response.status}: {body} "
                     f"(broadcaster={broadcaster_id}, moderator={moderator_id}, target={target_username})"

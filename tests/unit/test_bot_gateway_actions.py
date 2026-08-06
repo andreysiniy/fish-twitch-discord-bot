@@ -210,3 +210,106 @@ async def test_timeout_api_error_includes_status_and_context(monkeypatch) -> Non
     assert "broadcaster=464887139" in sent
     assert "moderator=1141045443" in sent
     assert "target=srakjopa_2" in sent
+
+
+def _fake_session_with_responses(*responses) -> MagicMock:
+    """Session whose post() returns each response in order (repeating the last)."""
+
+    class _FakeResponse:
+        def __init__(self, inner):
+            self._inner = inner
+
+        async def __aenter__(self):
+            return self._inner
+
+        async def __aexit__(self, *args):  # noqa: ANN002
+            return False
+
+    queue = list(responses)
+
+    def _post(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        item = queue[0] if len(queue) == 1 else queue.pop(0)
+        return _FakeResponse(item)
+
+    session = SimpleNamespace(post=MagicMock(side_effect=_post))
+    return session
+
+
+def _timeout_bot_with_session(monkeypatch, session) -> tuple[object, SimpleNamespace]:
+    bot = SimpleNamespace(
+        user_id="1141045443",
+        cfg=SimpleNamespace(
+            twitch_token="oauth:tok",
+            twitch_client_id="cid",
+            bot_nick="fishdaddy",
+        ),
+        fetch_users=AsyncMock(return_value=[SimpleNamespace(id="1138645097")]),
+    )
+    ctx = SimpleNamespace(send=AsyncMock())
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "464887139"
+
+    monkeypatch.setattr("action_handler.get_channel_id", channel_id)
+    monkeypatch.setattr(ActionHandler, "_get_session", AsyncMock(return_value=session))
+    return bot, ctx
+
+
+@pytest.mark.asyncio
+async def test_timeout_retries_without_reason_when_reason_rejected(monkeypatch) -> None:
+    """A moderation-rejected reason triggers a retry with the default reason."""
+    rejected = SimpleNamespace(
+        status=400,
+        text=AsyncMock(
+            return_value='{"error":"Bad Request","status":400,"message":"The user specified ban reason fails moderation standards."}'
+        ),
+    )
+    accepted = SimpleNamespace(status=200, text=AsyncMock(return_value="{}"))
+    session = _fake_session_with_responses(rejected, accepted)
+    bot, ctx = _timeout_bot_with_session(monkeypatch, session)
+
+    await ActionHandler(bot).handle_engine_response(
+        ctx,
+        {
+            "actions": [
+                {
+                    "type": "timeout",
+                    "duration": 60,
+                    "reason": "CUNT",
+                    "target_user": "srakjopa_2",
+                }
+            ]
+        },
+    )
+
+    calls = session.post.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["json"]["data"]["reason"] == "CUNT"
+    assert "reason" not in calls[1].kwargs["json"]["data"]
+    warning = ctx.send.await_args.args[0]
+    assert "default reason" in warning
+
+
+@pytest.mark.asyncio
+async def test_timeout_retry_failure_reports_retry_status(monkeypatch) -> None:
+    """If the reason-less retry also fails, the retry status is surfaced."""
+    rejected = SimpleNamespace(
+        status=400,
+        text=AsyncMock(
+            return_value='{"error":"Bad Request","status":400,"message":"The user specified ban reason fails moderation standards."}'
+        ),
+    )
+    also_failed = SimpleNamespace(
+        status=500, text=AsyncMock(return_value='{"error":"Internal Server Error"}')
+    )
+    session = _fake_session_with_responses(rejected, also_failed)
+    bot, ctx = _timeout_bot_with_session(monkeypatch, session)
+
+    await ActionHandler(bot).handle_engine_response(
+        ctx,
+        {"actions": [{"type": "timeout", "duration": 60, "target_user": "srakjopa_2"}]},
+    )
+
+    sent = ctx.send.await_args.args[0]
+    assert "500" in sent
+    assert "Internal Server Error" in sent
