@@ -11,7 +11,7 @@ class FishRequest(BaseModel):
     user_id: str
     username: str
     channel_id: str
-    user_input: Optional[str] = None  # Например !fish <bet>
+    user_input: Optional[str] = None  # e.g. !fish <bet>
     is_mod: bool = False
     is_sub: bool = False
     bypass_cooldown: bool = False

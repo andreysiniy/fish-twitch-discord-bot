@@ -35,6 +35,17 @@ Edit forms capture an entity version. If another administrator changes the same 
 backend rejects the stale form and no data is overwritten. Destructive operations use a
 user-bound confirmation control.
 
+## Command module layout
+
+Each domain lives in its own module under `app/commands/` (audit rule: no monolithic
+registration file):
+
+- `account.py`, `setup.py`, `config.py`, `locations.py`, `rewards.py`, `events.py`
+  (including `placeholders`), `items.py`, `item_drops.py`, `players.py`
+  (player / player-modifier / player-stats), `casts.py`.
+- `shared.py` holds the cross-domain helpers and choice constants; `register.py` is only the
+  aggregator that wires the `/fish` tree and cross-group autocompletes.
+
 ## Local operation
 
 Copy the required values from the repository `.env.example`, then run:
