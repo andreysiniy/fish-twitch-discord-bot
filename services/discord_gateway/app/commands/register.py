@@ -77,14 +77,14 @@ MODIFIER_SCOPE_CHOICES = [
 STAT_KEY_CHOICES = [
     app_commands.Choice(name=value.replace("_", " ").title(), value=value)
     for value in (
-        "loot_luck_pct",
-        "positive_mass_bonus_pct",
-        "negative_mass_reduction_pct",
-        "xp_gain_bonus_pct",
+        "fish_luck_change_ratio",
+        "positive_fish_reward_change_ratio",
+        "negative_fish_reward_change_ratio",
+        "xp_gain_change_ratio",
         "points_flat_bonus",
         "item_drop_chance_add",
         "item_rarity_luck_pct",
-        "cooldown_reduction_pct",
+        "cooldown_change_ratio",
         "empty_catch_reroll_chance_pct",
         "robbery_protection_pct",
         "robbery_evasion_pct",

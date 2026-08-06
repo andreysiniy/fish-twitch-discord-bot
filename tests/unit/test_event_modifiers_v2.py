@@ -21,11 +21,11 @@ def test_v2_spec_example_maps_human_percent_to_ratio() -> None:
         cooldown_change_percent=Decimal("-50"),
     )
     payload = modifiers.to_resolver_payload()
-    assert payload["loot_luck_pct"] == Decimal("0.40")
-    assert payload["positive_mass_bonus_pct"] == Decimal("0.05")
-    assert payload["negative_mass_reduction_pct"] == Decimal("-0.05")
-    assert payload["xp_gain_bonus_pct"] == Decimal("1.00")
-    assert payload["cooldown_reduction_pct"] == Decimal("-0.50")
+    assert payload["fish_luck_change_ratio"] == Decimal("0.40")
+    assert payload["positive_fish_reward_change_ratio"] == Decimal("0.05")
+    assert payload["negative_fish_reward_change_ratio"] == Decimal("-0.05")
+    assert payload["xp_gain_change_ratio"] == Decimal("1.00")
+    assert payload["cooldown_change_ratio"] == Decimal("-0.50")
 
 
 def test_v2_schema_version_is_pinned_to_two() -> None:
@@ -40,7 +40,7 @@ def test_legacy_event_modifiers_reject_unknown_keys() -> None:
 
 def test_v2_reject_out_of_bounds_cooldown() -> None:
     with pytest.raises(ValidationError):
-        EventModifiersV2(cooldown_change_percent=Decimal("96"))
+        EventModifiersV2(cooldown_change_percent=Decimal("101"))
 
 
 def _event(modifiers: dict):
@@ -67,10 +67,10 @@ def test_v2_event_contributions_feed_the_resolver() -> None:
         str(c.stat.value): c.value
         for c in contributions
     }
-    assert values["loot_luck_pct"] == Decimal("0.40")
-    assert values["positive_mass_bonus_pct"] == Decimal("0.05")
-    assert values["xp_gain_bonus_pct"] == Decimal("1.00")
-    assert values["cooldown_reduction_pct"] == Decimal("-0.50")
+    assert values["fish_luck_change_ratio"] == Decimal("0.40")
+    assert values["positive_fish_reward_change_ratio"] == Decimal("0.05")
+    assert values["xp_gain_change_ratio"] == Decimal("1.00")
+    assert values["cooldown_change_ratio"] == Decimal("-0.50")
     assert all(c.scope == ModifierScope.FISHING for c in contributions)
 
 
@@ -81,9 +81,9 @@ def test_legacy_event_contributions_still_resolve() -> None:
     event = _event({"luck_mult": "1.4", "xp_mult": "2", "cd_reduction": "0.5", "bonus_mass": "5"})
     contributions = PlayerModifierService._event_contributions(event, ModifierScope.FISHING)
     values = {str(c.stat.value): c.value for c in contributions}
-    assert values["loot_luck_pct"] == Decimal("0.40")
-    assert values["positive_mass_bonus_pct"] == Decimal("5")
-    assert values["xp_gain_bonus_pct"] == Decimal("1")
+    assert values["fish_luck_change_ratio"] == Decimal("0.40")
+    assert values["positive_fish_reward_change_ratio"] == Decimal("5")
+    assert values["xp_gain_change_ratio"] == Decimal("1")
 
 
 def test_event_create_request_accepts_v2_human_percents() -> None:

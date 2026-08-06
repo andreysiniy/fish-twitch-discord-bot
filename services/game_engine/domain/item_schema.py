@@ -59,14 +59,15 @@ class ModifierScope(str, Enum):
 
 
 class StatKey(str, Enum):
-    LOOT_LUCK_PCT = "loot_luck_pct"
-    POSITIVE_MASS_BONUS_PCT = "positive_mass_bonus_pct"
-    NEGATIVE_MASS_REDUCTION_PCT = "negative_mass_reduction_pct"
-    XP_GAIN_BONUS_PCT = "xp_gain_bonus_pct"
+    # v2 modifier schema: ratios, where 0.40 means +40%.
+    FISH_LUCK_CHANGE_RATIO = "fish_luck_change_ratio"
+    POSITIVE_FISH_REWARD_CHANGE_RATIO = "positive_fish_reward_change_ratio"
+    NEGATIVE_FISH_REWARD_CHANGE_RATIO = "negative_fish_reward_change_ratio"
+    XP_GAIN_CHANGE_RATIO = "xp_gain_change_ratio"
+    COOLDOWN_CHANGE_RATIO = "cooldown_change_ratio"
     POINTS_FLAT_BONUS = "points_flat_bonus"
     ITEM_DROP_CHANCE_ADD = "item_drop_chance_add"
     ITEM_RARITY_LUCK_PCT = "item_rarity_luck_pct"
-    COOLDOWN_REDUCTION_PCT = "cooldown_reduction_pct"
     EMPTY_CATCH_REROLL_CHANCE_PCT = "empty_catch_reroll_chance_pct"
     ROBBERY_PROTECTION_PCT = "robbery_protection_pct"
     ROBBERY_EVASION_PCT = "robbery_evasion_pct"
@@ -95,6 +96,34 @@ CHANCE_MIN = Decimal("0")
 CHANCE_MAX = Decimal("1")
 ALL_SOURCES = frozenset({"item", "event", "channel", "temporary", "player_modifier"})
 
+# Legacy stat keys renamed by modifiers v2 (spec section 17.1). The migration
+# rewrites stored data; this mapping additionally translates legacy payloads at
+# read time so old item effects and player modifier rows keep resolving during
+# the transition period. ``negative_mass_reduction_pct`` and
+# ``cooldown_reduction_pct`` flip sign: a 0.20 reduction becomes -0.20 change.
+LEGACY_STAT_KEY_MIGRATION: dict[str, str] = {
+    "loot_luck_pct": "fish_luck_change_ratio",
+    "positive_mass_bonus_pct": "positive_fish_reward_change_ratio",
+    "negative_mass_reduction_pct": "negative_fish_reward_change_ratio",
+    "xp_gain_bonus_pct": "xp_gain_change_ratio",
+    "cooldown_reduction_pct": "cooldown_change_ratio",
+}
+_SIGN_FLIP_KEYS = frozenset({"negative_mass_reduction_pct", "cooldown_reduction_pct"})
+
+
+def migrate_stat_key(key: str, value: Decimal) -> tuple[StatKey, Decimal]:
+    """Translate a (possibly legacy) stat key into the v2 StatKey with the
+    correct sign convention. Raises ``ValueError`` for unknown keys so that
+    data written under an unrecognized schema never resolves silently."""
+    legacy = str(key or "")
+    new_key = LEGACY_STAT_KEY_MIGRATION.get(legacy, legacy)
+    if new_key not in {member.value for member in StatKey}:
+        raise ValueError(f"Unknown stat key: {legacy}")
+    member = StatKey(new_key)
+    if legacy in _SIGN_FLIP_KEYS:
+        return member, -value
+    return member, value
+
 
 def _stat(
     minimum: str,
@@ -116,15 +145,21 @@ def _stat(
 
 
 STAT_REGISTRY: dict[StatKey, StatDefinition] = {
-    StatKey.LOOT_LUCK_PCT: _stat("-0.95", "10", {ModifierScope.FISHING}, "Reward roll luck."),
-    StatKey.POSITIVE_MASS_BONUS_PCT: _stat(
-        "-0.95", "10", {ModifierScope.FISHING}, "Bonus applied only to positive mass."
+    StatKey.FISH_LUCK_CHANGE_RATIO: _stat(
+        "-0.50", "1.00", {ModifierScope.FISHING},
+        "Fish luck ratio; affects only the magnitude of fish rewards.",
     ),
-    StatKey.NEGATIVE_MASS_REDUCTION_PCT: _stat(
-        "0", "0.95", {ModifierScope.FISHING}, "Reduction applied to negative mass."
+    StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO: _stat(
+        "-0.50", "2.00", {ModifierScope.FISHING},
+        "Change ratio applied only to positive fish rewards.",
     ),
-    StatKey.XP_GAIN_BONUS_PCT: _stat(
-        "-0.95", "10", {ModifierScope.FISHING}, "Fishing XP gain bonus."
+    StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO: _stat(
+        "-1.00", "1.00", {ModifierScope.FISHING},
+        "Change ratio applied only to negative fish rewards "
+        "(negative softens the penalty).",
+    ),
+    StatKey.XP_GAIN_CHANGE_RATIO: _stat(
+        "-1.00", "4.00", {ModifierScope.FISHING}, "Fishing XP gain change ratio."
     ),
     StatKey.POINTS_FLAT_BONUS: _stat(
         "-1000000",
@@ -139,8 +174,8 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
     StatKey.ITEM_RARITY_LUCK_PCT: _stat(
         "-0.95", "10", {ModifierScope.FISHING}, "Item rarity roll luck."
     ),
-    StatKey.COOLDOWN_REDUCTION_PCT: _stat(
-        "0", "0.95", {ModifierScope.FISHING}, "Fishing cooldown reduction."
+    StatKey.COOLDOWN_CHANGE_RATIO: _stat(
+        "-0.80", "1.00", {ModifierScope.FISHING}, "Fishing cooldown change ratio."
     ),
     StatKey.EMPTY_CATCH_REROLL_CHANCE_PCT: _stat(
         "0", "1", {ModifierScope.FISHING}, "Chance to reroll an empty catch."

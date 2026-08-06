@@ -110,7 +110,7 @@ class PassiveEffectModal(discord.ui.Modal):
         self.on_save = on_save
         self.stat = discord.ui.TextInput(
             label="Stat key",
-            placeholder="loot_luck_pct / positive_mass_bonus_pct / xp_gain_bonus_pct ...",
+            placeholder="fish_luck_change_ratio / positive_fish_reward_change_ratio ...",
             max_length=60,
             required=True,
         )

@@ -174,15 +174,60 @@ class EventModifiersV2(StrictModel):
     """
 
     schema_version: int = Field(2, ge=2, le=2)
-    fish_luck_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
-    positive_fish_reward_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
-    negative_fish_reward_change_percent: Decimal = Field(Decimal(0), ge=-100, le=2000)
-    xp_gain_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
-    cooldown_change_percent: Decimal = Field(Decimal(0), ge=-100, le=95)
-    item_drop_chance_add_pp: Decimal = Field(Decimal(0), ge=-100, le=100)
-    item_rarity_luck_change_percent: Decimal = Field(Decimal(0), ge=-500, le=2000)
-    robbery_protection_percent: Decimal = Field(Decimal(0), ge=0, le=100)
-    robbery_evasion_percent: Decimal = Field(Decimal(0), ge=0, le=100)
+    fish_luck_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-50,
+        le=100,
+        description="Fish luck in human percent: 40 means +40%.",
+    )
+    positive_fish_reward_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-50,
+        le=200,
+        description="Positive fish reward change in percent: 5 means +5%.",
+    )
+    negative_fish_reward_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-100,
+        le=100,
+        description="Negative fish reward change in percent: -5 weakens bad catches by 5%.",
+    )
+    xp_gain_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-100,
+        le=400,
+        description="XP gain change in percent: 100 doubles XP.",
+    )
+    cooldown_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-80,
+        le=100,
+        description="Cooldown change in percent: -50 halves the cooldown.",
+    )
+    item_drop_chance_add_pp: Decimal = Field(
+        Decimal(0),
+        ge=-100,
+        le=100,
+        description="Item drop chance change in percentage points.",
+    )
+    item_rarity_luck_change_percent: Decimal = Field(
+        Decimal(0),
+        ge=-100,
+        le=200,
+        description="Item rarity luck change in percent.",
+    )
+    robbery_protection_percent: Decimal = Field(
+        Decimal(0),
+        ge=0,
+        le=100,
+        description="Robbery protection in percent.",
+    )
+    robbery_evasion_percent: Decimal = Field(
+        Decimal(0),
+        ge=0,
+        le=100,
+        description="Robbery evasion in percent.",
+    )
 
     def to_resolver_payload(self) -> dict[str, Decimal]:
         """Map v2 human percentages to resolver stat ratios (ratios, not percent)."""
@@ -191,11 +236,15 @@ class EventModifiersV2(StrictModel):
             return value / Decimal("100")
 
         return {
-            "loot_luck_pct": pct(self.fish_luck_change_percent),
-            "positive_mass_bonus_pct": pct(self.positive_fish_reward_change_percent),
-            "negative_mass_reduction_pct": pct(self.negative_fish_reward_change_percent),
-            "xp_gain_bonus_pct": pct(self.xp_gain_change_percent),
-            "cooldown_reduction_pct": pct(self.cooldown_change_percent),
+            "fish_luck_change_ratio": pct(self.fish_luck_change_percent),
+            "positive_fish_reward_change_ratio": pct(
+                self.positive_fish_reward_change_percent
+            ),
+            "negative_fish_reward_change_ratio": pct(
+                self.negative_fish_reward_change_percent
+            ),
+            "xp_gain_change_ratio": pct(self.xp_gain_change_percent),
+            "cooldown_change_ratio": pct(self.cooldown_change_percent),
             "item_drop_chance_add": pct(self.item_drop_chance_add_pp),
             "item_rarity_luck_pct": pct(self.item_rarity_luck_change_percent),
             "robbery_protection_pct": pct(self.robbery_protection_percent),

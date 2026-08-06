@@ -32,8 +32,8 @@ def test_item_list_entry_is_compact() -> None:
             "is_active": True,
             "version": 3,
             "effects": [
-                {"type": "stat_add", "stat": "loot_luck_pct", "value": "0.05"},
-                {"type": "stat_add", "stat": "xp_gain_bonus_pct", "value": "0.1"},
+                {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"},
+                {"type": "stat_add", "stat": "xp_gain_change_ratio", "value": "0.1"},
             ],
         }
     )
@@ -58,7 +58,7 @@ def test_item_detail_embed_renders_sections() -> None:
             "is_active": True,
             "version": 3,
             "schema_version": 1,
-            "effects": [{"type": "stat_add", "stat": "loot_luck_pct", "value": "0.05"}],
+            "effects": [{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}],
         }
     )
     fields = {field.name: field.value for field in embed.fields}
