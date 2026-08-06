@@ -45,7 +45,9 @@ class Settings(BaseSettings):
 
     # Fishing cast ledger rollout controls (plan Stage 8).
     FISHING_CAST_LEDGER_ENABLED: bool = True
-    FISHING_CAST_LEDGER_STRICT: bool = False
+    # Strict mode is on by default: a failed ledger write rolls back the cast
+    # instead of silently continuing without a journal row (Gate E).
+    FISHING_CAST_LEDGER_STRICT: bool = True
 
     @property
     def DATABASE_URL(self) -> str:

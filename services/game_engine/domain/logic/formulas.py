@@ -16,8 +16,8 @@ def is_level_up(
     return current_xp >= calculate_xp_required(current_level, base, exponent)
 
 
-def calculate_xp_gain(base_xp: int, item_xp: int, bonus_pct: float) -> int:
-    return int((base_xp + item_xp) * (1 + bonus_pct))
+def calculate_xp_gain(base_xp: int, item_xp: int, bonus_pct: Decimal) -> int:
+    return int((Decimal(base_xp) + Decimal(item_xp)) * (Decimal("1") + bonus_pct))
 
 
 def apply_fish_reward_modifiers(

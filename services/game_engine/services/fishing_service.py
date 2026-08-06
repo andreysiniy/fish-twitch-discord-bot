@@ -1,7 +1,8 @@
 import logging
 import random
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from core import metrics as metrics_module
@@ -9,6 +10,7 @@ from core.action_types import ActionType
 from core.config import settings
 from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, resolve_message
+from core.version import ENGINE_VERSION
 from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
 
@@ -22,10 +24,14 @@ from domain.schemas.fishing import (
     FishTopResponse,
     RobberyResultDTO,
 )
+from infrastructure.database import SessionLocal
 from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
-from infrastructure.repositories.inventory_repo import InventoryRepository
+from infrastructure.repositories.inventory_repo import (
+    InventoryCapacityError,
+    InventoryRepository,
+)
 from services.fishing.engine import FishingEngine
 from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
@@ -94,10 +100,58 @@ class FishingService:
         requested_at: datetime | None = None,
     ):
         started_monotonic = time.monotonic()
+        started_at = datetime.now(timezone.utc)
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
             user = self.user_repo.create(twitch_id, username, channel_id)
 
+        if not source_request_id:
+            # Every processed cast must produce a durable UUID row even when
+            # the caller does not supply a stable external request key.
+            source_request_id = f"internal-{uuid.uuid4()}"
+
+        try:
+            return self._process_cast_body(
+                user=user,
+                twitch_id=twitch_id,
+                username=username,
+                channel_id=channel_id,
+                is_mod=is_mod,
+                is_sub=is_sub,
+                bypass_cooldown=bypass_cooldown,
+                source=source,
+                source_request_id=source_request_id,
+                requested_at=requested_at,
+                started_at=started_at,
+                started_monotonic=started_monotonic,
+            )
+        except Exception as error:
+            self._record_failed_cast(
+                user=user,
+                source=source,
+                source_request_id=source_request_id,
+                requested_at=requested_at or started_at,
+                started_at=started_at,
+                error=error,
+            )
+            raise
+
+    def _process_cast_body(
+        self,
+        *,
+        user: UserProgress,
+        twitch_id: str,
+        username: str,
+        channel_id: str,
+        is_mod: bool,
+        is_sub: bool,
+        bypass_cooldown: bool,
+        source: str,
+        source_request_id: str,
+        requested_at: datetime | None,
+        started_at: datetime,
+        started_monotonic: float,
+    ):
         replay = self.ledger.find_replay(user.channel_id, source, source_request_id)
         if replay is not None and replay.response_snapshot:
             try:
@@ -105,9 +159,19 @@ class FishingService:
                 response.is_replayed = True
                 metrics_module.count_duplicate_request()
                 return response
-            except Exception:
-                # Corrupt replay snapshot; fall through to process normally.
-                pass
+            except Exception as error:
+                # A corrupted stored response must never re-run RNG or mutate
+                # game state again: surface a recovery error instead.
+                logging.getLogger("fishing.ledger").error(
+                    "Replay snapshot corrupted for %s/%s",
+                    source,
+                    source_request_id,
+                    exc_info=error,
+                )
+                raise ValueError(
+                    "The stored replay for this cast is corrupted; "
+                    "re-run the command once the cast record is repaired."
+                ) from error
 
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
@@ -141,6 +205,8 @@ class FishingService:
                             status="cooldown_rejected",
                             source=source,
                             source_request_id=source_request_id,
+                            requested_at=requested_at,
+                            started_at=started_at,
                         )
                     except Exception as error:  # pragma: no cover - defensive
                         if settings.FISHING_CAST_LEDGER_STRICT:
@@ -154,6 +220,7 @@ class FishingService:
 
         location_id = user.current_location_id or "default"
         loot_pool, item_pool, rate = self.config_repo.get_dual_pool(channel_id, location_id)
+        effective_pool_location_id = location_id
 
         if strategy_ctx.override_loot_pool_location_id is not None:
             override_location_id = str(strategy_ctx.override_loot_pool_location_id).strip()
@@ -161,6 +228,7 @@ class FishingService:
                 override_result = self.config_repo.get_dual_pool(channel_id, override_location_id)
                 if override_result:
                     loot_pool, item_pool, rate = override_result
+                    effective_pool_location_id = override_location_id
 
         if is_mod:
             # Channel moderators cannot be timed out by the bot, so the timeout
@@ -183,7 +251,18 @@ class FishingService:
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
-            result.robbery_result = self._handle_robbery(result.loot, user)
+            result.robbery_result = self._handle_robbery(result.loot, user, rng_stages=result.rng_stages)
+            if result.robbery_result.roll is not None:
+                result.rng_stages.append(
+                    {
+                        "stage": "robbery_success",
+                        "roll": str(result.robbery_result.roll),
+                        "threshold": str(
+                            to_decimal(result.robbery_result.chance_used)
+                        ),
+                        "success": result.robbery_result.is_success,
+                    }
+                )
 
         user.xp += result.xp_gained
         user.total_fish_stat += 1
@@ -214,26 +293,36 @@ class FishingService:
             has_stock = not bool(result.item_drop.get("db_id")) or self.config_repo.consume_item_stock(
                 result.item_drop, amount=1
             )
+            result.item_drop["stock_reserved"] = has_stock
+            result.item_drop["grant_success"] = False
             if has_stock:
+                # obtained_at is volatile per-cast metadata; keeping it in the
+                # stack meta would prevent identical stackable items dropped at
+                # different times from merging.
                 item_meta = dict(result.item_drop.get("meta") or {})
-                if result.item_drop.get("obtained_at"):
-                    item_meta["obtained_at"] = result.item_drop["obtained_at"]
-                InventoryRepository(
-                    self.user_repo.db,
-                    max_slots_add=self.modifier_service.inventory_slot_bonus(user),
-                ).grant_many(
-                    user,
-                    [
-                        {
-                            "item_id": result.item_drop["item_id"],
-                            "quantity": result.item_drop.get("quantity", 1),
-                            "current_durability": result.item_drop.get(
-                                "current_durability"
-                            ),
-                            "meta": item_meta,
-                        }
-                    ],
-                )
+                try:
+                    InventoryRepository(
+                        self.user_repo.db,
+                        max_slots_add=self.modifier_service.inventory_slot_bonus(user),
+                    ).grant_many(
+                        user,
+                        [
+                            {
+                                "item_id": result.item_drop["item_id"],
+                                "quantity": result.item_drop.get("quantity", 1),
+                                "current_durability": result.item_drop.get(
+                                    "current_durability"
+                                ),
+                                "meta": item_meta,
+                            }
+                        ],
+                    )
+                    result.item_drop["grant_success"] = True
+                except InventoryCapacityError:
+                    # A full inventory must not cancel the cast or its cooldown:
+                    # the drop is recorded as failed and the player keeps the
+                    # cast outcome (no free reroll).
+                    result.item_drop["grant_success"] = False
             else:
                 result.item_drop = None
 
@@ -270,45 +359,101 @@ class FishingService:
             self.cooldown_repo.set_cooldown(channel_id, twitch_id, cooldown_duration)
 
         response = self.presenter.build_response(user, result)
-        if source_request_id:
-            cast = self._record_resolved_cast(
-                user=user,
-                result=result,
-                custom_params=custom_params,
-                is_mod=is_mod,
-                is_sub=is_sub,
-                bypass_cooldown=bypass_cooldown,
-                cooldown_duration=cooldown_duration,
-                source=source,
-                source_request_id=source_request_id,
-                requested_at=requested_at,
-                modifier_explanation=fishing_modifiers.explain(),
-                triggered_effects=behavioral_effects,
-                item_pool=item_pool,
-                items_drop_rate=rate,
-                duration_ms=int((time.monotonic() - started_monotonic) * 1000),
+        cast = self._record_resolved_cast(
+            user=user,
+            result=result,
+            custom_params=custom_params,
+            is_mod=is_mod,
+            is_sub=is_sub,
+            bypass_cooldown=bypass_cooldown,
+            cooldown_duration=cooldown_duration,
+            source=source,
+            source_request_id=source_request_id,
+            requested_at=requested_at,
+            started_at=started_at,
+            modifier_explanation=fishing_modifiers.explain(),
+            triggered_effects=behavioral_effects,
+            loot_pool=loot_pool,
+            item_pool=item_pool,
+            pool_location_id=effective_pool_location_id,
+            items_drop_rate=rate,
+            duration_ms=int((time.monotonic() - started_monotonic) * 1000),
+        )
+        if cast is not None:
+            response.cast_id = str(cast.id)
+            cast.response_snapshot = response.model_dump(mode="json")
+            metrics_module.count_cast(
+                status="resolved", reward_type=str(result.loot.get("type"))
             )
-            if cast is not None:
-                response.cast_id = str(cast.id)
-                cast.response_snapshot = response.model_dump(mode="json")
-                metrics_module.count_cast(
-                    status="resolved", reward_type=str(result.loot.get("type"))
-                )
-                logging.getLogger("fishing.cast").info(
-                    "fishing_cast_recorded",
-                    extra={
-                        "fishing_cast": {
-                            "cast_id": str(cast.id),
-                            "channel_id": user.channel_id,
-                            "user_progress_id": user.id,
-                            "source_request_id": source_request_id,
-                            "stage": "resolved",
-                            "status": "resolved",
-                            "reward_type": str(result.loot.get("type")),
-                        }
-                    },
-                )
+            logging.getLogger("fishing.cast").info(
+                "fishing_cast_recorded",
+                extra={
+                    "fishing_cast": {
+                        "cast_id": str(cast.id),
+                        "channel_id": user.channel_id,
+                        "user_progress_id": user.id,
+                        "source_request_id": source_request_id,
+                        "stage": "resolved",
+                        "status": "resolved",
+                        "reward_type": str(result.loot.get("type")),
+                    }
+                },
+            )
         return response
+
+    def _record_failed_cast(
+        self,
+        *,
+        user: UserProgress,
+        source: str,
+        source_request_id: str,
+        requested_at: datetime,
+        started_at: datetime,
+        error: Exception,
+    ) -> None:
+        """Persist a failed cast row in its own transaction.
+
+        The gameplay transaction rolls back when an unexpected error occurs, so
+        the failed row is committed separately to keep the ledger complete.
+        """
+        if not settings.FISHING_CAST_LEDGER_ENABLED:
+            return
+        ledger_logger = logging.getLogger("fishing.ledger")
+        try:
+            failed_db = SessionLocal()
+            try:
+                ledger = FishingLedgerService(failed_db)
+                ledger.record_failed(
+                    channel_id=user.channel_id,
+                    user_progress_id=user.id,
+                    twitch_user_id=user.user_twitch_id,
+                    username=user.username,
+                    location_id=user.current_location_id or "default",
+                    error_code=type(error).__name__,
+                    source=source,
+                    source_request_id=source_request_id,
+                    requested_at=requested_at,
+                    started_at=started_at,
+                    error_message=str(error)[:500],
+                )
+                failed_db.commit()
+            finally:
+                failed_db.close()
+        except Exception as log_error:  # pragma: no cover - defensive
+            if settings.FISHING_CAST_LEDGER_STRICT:
+                ledger_logger.error(
+                    "Failed to record failed cast %s/%s",
+                    source,
+                    source_request_id,
+                    exc_info=log_error,
+                )
+            else:
+                ledger_logger.warning(
+                    "Failed to record failed cast %s/%s",
+                    source,
+                    source_request_id,
+                    exc_info=log_error,
+                )
 
     def _record_resolved_cast(
         self,
@@ -323,9 +468,12 @@ class FishingService:
         source: str,
         source_request_id: str,
         requested_at: datetime | None = None,
+        started_at: datetime | None = None,
         modifier_explanation: dict | None = None,
         triggered_effects: list | None = None,
+        loot_pool: list | None = None,
         item_pool: list | None = None,
+        pool_location_id: str | None = None,
         items_drop_rate: float | None = None,
         duration_ms: int | None = None,
     ) -> "FishingCast | None":
@@ -352,11 +500,15 @@ class FishingService:
             )
             item_loot_table_id = None
             item_loot_table_version = None
+            # The pool used for the roll may differ from the user's current
+            # location when an event overrides the loot pool; resolve the
+            # version snapshot against the effective pool location.
+            effective_location_id = pool_location_id or (user.current_location_id or "default")
             pool = (
                 self.user_repo.db.query(RewardPool)
                 .filter(
                     RewardPool.channel_id == user.channel_id,
-                    RewardPool.location_id == (user.current_location_id or "default"),
+                    RewardPool.location_id == effective_location_id,
                 )
                 .first()
             )
@@ -374,18 +526,21 @@ class FishingService:
                 channel_config_version=user.channel.config_version,
                 event_snapshot=event_snapshot,
                 effective_params_snapshot=effective_params,
-                engine_version="unknown",
+                engine_version=ENGINE_VERSION,
                 source=source,
                 source_request_id=source_request_id,
+                requested_at=requested_at,
+                started_at=started_at,
                 is_mod=is_mod,
                 is_sub=is_sub,
                 bypass_cooldown=bypass_cooldown,
                 cooldown_seconds_applied=cooldown_duration,
                 next_available_at=next_available,
-                requested_at=requested_at,
                 modifier_explanation=modifier_explanation,
                 triggered_effects=triggered_effects,
+                loot_pool=loot_pool or [],
                 item_entries=item_pool or [],
+                pool_location_id=effective_location_id,
                 items_drop_rate=items_drop_rate,
                 item_loot_table_id=item_loot_table_id,
                 item_loot_table_version=item_loot_table_version,
@@ -409,7 +564,9 @@ class FishingService:
         cooldown_key = GParam.SUBS_FISHING_COOLDOWN if is_sub else GParam.FISHING_COOLDOWN
         return max(int(resolve_param(custom_params, cooldown_key)), 0)
 
-    def _handle_robbery(self, loot: dict, user: UserProgress) -> RobberyResultDTO:
+    def _handle_robbery(
+        self, loot: dict, user: UserProgress, rng_stages: list | None = None
+    ) -> RobberyResultDTO:
         lookup_range = loot.get("range", 3)
         channel_config = user.channel.config or {}
 
@@ -432,6 +589,7 @@ class FishingService:
         victim_modifiers = self.modifier_service.resolve(victim, ModifierScope.ROBBERY)
 
         counter_actions, absorbed = self._apply_robbery_defenses(
+            rng_stages=rng_stages,
             attacker=user,
             victim=victim,
             effects=list(victim_modifiers.effects),
@@ -493,6 +651,7 @@ class FishingService:
         victim: UserProgress,
         effects: list[dict],
         counter_chance_bonus=ZERO_MASS,
+        rng_stages: list | None = None,
     ) -> tuple[list[dict], bool]:
         actions: list[dict] = []
         absorbed = False
@@ -512,7 +671,18 @@ class FishingService:
                     max(chance + Decimal(str(counter_chance_bonus)), Decimal("0")),
                     Decimal("1"),
                 )
-            if random.random() >= float(chance):
+            defense_roll = Decimal(str(random.random()))
+            if rng_stages is not None:
+                rng_stages.append(
+                    {
+                        "stage": "robbery_defense_gate",
+                        "effect_type": str(effect.get("source_key") or effect_type),
+                        "roll": str(defense_roll),
+                        "threshold": str(chance),
+                        "success": defense_roll < chance,
+                    }
+                )
+            if defense_roll >= chance:
                 continue
             durability_cost = int(effect.get("durability_cost", 0))
             source_slot = str(effect.get("source_slot") or "defense")

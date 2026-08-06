@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from infrastructure.models import FishingCast, FishingCastItemDrop, FishingStatsDaily
-from sqlalchemy import func
+from sqlalchemy import Integer, func
 from sqlalchemy.orm import Session, joinedload
 
 
@@ -109,25 +109,42 @@ class FishingCastQueryRepository:
             base = base.filter(FishingCast.requested_at >= start)
         if end:
             base = base.filter(FishingCast.requested_at <= end)
-        resolved = base.filter(FishingCast.status == "resolved").all()
 
-        total_casts = len(resolved)
-        items_expected = 0.0
-        items_actual = 0
-        mass_positive = 0
-        mass_negative = 0
-        total_xp = 0
-        level_ups = 0
-        for cast in resolved:
-            items_expected += float(cast.item_drop_probability or 0)
-            items_actual += int(cast.item_drop_count or 0)
-            delta = float(cast.mass_delta_applied or 0)
-            if delta >= 0:
-                mass_positive += delta
-            else:
-                mass_negative += -delta
-            total_xp += int(cast.xp_gained or 0)
-            level_ups += 1 if cast.was_level_up else 0
+        # Aggregations run in SQL; the resolved set is never loaded in full.
+        resolved_filter = base.filter(FishingCast.status == "resolved")
+        aggregate = (
+            resolved_filter.with_entities(
+                func.count(FishingCast.id),
+                func.coalesce(func.sum(func.coalesce(FishingCast.item_drop_probability, 0)), 0),
+                func.coalesce(func.sum(FishingCast.item_drop_count), 0),
+                func.coalesce(
+                    func.sum(
+                        func.greatest(func.coalesce(FishingCast.mass_delta_applied, 0), 0)
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        func.greatest(
+                            -func.coalesce(FishingCast.mass_delta_applied, 0), 0
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(FishingCast.xp_gained), 0),
+                func.coalesce(
+                    func.sum(func.cast(FishingCast.was_level_up, Integer)), 0
+                ),
+            )
+            .one()
+        )
+        total_casts = int(aggregate[0] or 0)
+        items_expected = float(aggregate[1] or 0)
+        items_actual = int(aggregate[2] or 0)
+        mass_positive = float(aggregate[3] or 0)
+        mass_negative = float(aggregate[4] or 0)
+        total_xp = int(aggregate[5] or 0)
+        level_ups = int(aggregate[6] or 0)
 
         rejected = (
             base.filter(
@@ -180,6 +197,23 @@ class FishingCastQueryRepository:
             query = query.filter(FishingCast.channel_id == channel_id)
         rows = query.all()
 
+        # Item-specific buckets: casts that dropped an item also contribute to
+        # a bucket keyed by that item, so the item dimension of the model is
+        # actually populated (one bulk query, no N+1).
+        cast_ids_with_drops = [
+            cast.id for cast in rows if cast.status == "resolved" and cast.item_drop_count
+        ]
+        drops_by_cast: dict[int, list[int | None]] = {}
+        if cast_ids_with_drops:
+            for drop in (
+                self.db.query(
+                    FishingCastItemDrop.cast_id, FishingCastItemDrop.item_definition_id
+                )
+                .filter(FishingCastItemDrop.cast_id.in_(cast_ids_with_drops))
+                .all()
+            ):
+                drops_by_cast.setdefault(drop[0], []).append(drop[1])
+
         buckets: dict[tuple, dict[str, Any]] = {}
         for cast in rows:
             key = (
@@ -213,6 +247,35 @@ class FishingCastQueryRepository:
                 bucket["xp_gained"] += int(cast.xp_gained or 0)
                 bucket["item_drop_expected"] += float(cast.item_drop_probability or 0)
                 bucket["item_drop_actual"] += int(cast.item_drop_count or 0)
+                for item_definition_id in drops_by_cast.get(cast.id, []):
+                    item_key = (
+                        cast.channel_id,
+                        cast.location_id,
+                        cast.event_id,
+                        cast.reward_type,
+                        item_definition_id,
+                    )
+                    item_bucket = buckets.setdefault(
+                        item_key,
+                        {
+                            "casts": 0,
+                            "players": set(),
+                            "mass_positive": 0,
+                            "mass_negative": 0,
+                            "xp_gained": 0,
+                            "item_drop_expected": 0.0,
+                            "item_drop_actual": 0,
+                            "failures": 0,
+                        },
+                    )
+                    item_bucket["casts"] += 1
+                    item_bucket["players"].add(cast.user_progress_id)
+                    item_bucket["mass_positive"] += delta
+                    item_bucket["xp_gained"] += int(cast.xp_gained or 0)
+                    item_bucket["item_drop_expected"] += float(
+                        cast.item_drop_probability or 0
+                    )
+                    item_bucket["item_drop_actual"] += 1
             elif cast.status in ("failed", "compensated"):
                 bucket["failures"] += 1
 
@@ -226,7 +289,7 @@ class FishingCastQueryRepository:
         ).delete(synchronize_session=False)
         self.db.flush()
 
-        for (channel_id_, location_id_, event_id_, reward_type_, _item), data in buckets.items():
+        for (channel_id_, location_id_, event_id_, reward_type_, item_id_), data in buckets.items():
             self.db.add(
                 FishingStatsDaily(
                     day=day_start,
@@ -234,7 +297,7 @@ class FishingCastQueryRepository:
                     location_id=location_id_,
                     event_id=event_id_,
                     reward_type=reward_type_,
-                    item_definition_id=None,
+                    item_definition_id=item_id_,
                     casts=data["casts"],
                     unique_players=len(data["players"]),
                     mass_positive=data["mass_positive"],

@@ -26,7 +26,7 @@ global Discord command propagation can take longer.
 - `/fish location list|show|create|edit|delete` manages up to 50 fishing locations.
 - `/fish reward list|show|add|edit|delete` manages stable-ID weighted rewards. Supported types are
   `fish`, `timeout`, `robbery`, `russian_roulette`, and `nothing`.
-- `/fish event list|show|create|edit|start|stop|delete` manages immediate or timed channel events.
+- `/fish event list|show|export|create|edit|start|stop|delete` manages immediate or timed channel events; `export` dumps them as JSON.
 - `/fish cast recent|show|search|stats|export` shows fishing cast history, filtered search, channel statistics, and raw JSON export.
 - `/fish item effect-edit` edits an item's typed effects through structured forms, no raw JSON.
 - `/fish item create` shows a human-readable preview before confirming; effects are added with the typed builder, not raw JSON.

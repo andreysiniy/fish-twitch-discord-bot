@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -309,6 +310,114 @@ def test_moderator_never_draws_timeout_reward_from_the_pool() -> None:
         assert any(
             action.get("type") == "timeout" for action in non_mod_actions
         )
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_cast_without_source_request_id_still_records_internal_uuid() -> None:
+    """Every processed cast gets a ledger row even without an external key."""
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "nouuid")
+        service = _make_service(db)
+        response = service.process_cast(
+            twitch_id=user.user_twitch_id,
+            username=user.username,
+            channel_id=channel.twitch_id,
+        )
+        cast = (
+            db.query(FishingCast)
+            .filter(
+                FishingCast.channel_id == channel.id,
+                FishingCast.status == "resolved",
+            )
+            .first()
+        )
+        assert cast is not None
+        assert cast.source_request_id.startswith("internal-")
+        assert response.cast_id == str(cast.id)
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_full_inventory_records_cast_and_keeps_cooldown(monkeypatch) -> None:
+    """A full inventory must not cancel the cast or skip the cooldown."""
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "fullbag")
+        service = _make_service(db)
+        monkeypatch.setattr(
+            "services.fishing_service.InventoryRepository.grant_many",
+            _raise_capacity,
+        )
+        response = service.process_cast(
+            twitch_id=user.user_twitch_id,
+            username=user.username,
+            channel_id=channel.twitch_id,
+            source_request_id="fullbag-1",
+            requested_at=datetime.now(timezone.utc),
+        )
+        cast = (
+            db.query(FishingCast)
+            .filter(
+                FishingCast.channel_id == channel.id,
+                FishingCast.source_request_id == "fullbag-1",
+            )
+            .first()
+        )
+        assert cast is not None
+        assert cast.status == "resolved"
+        # The cast must still be replayed by its stable key.
+        replay = service.ledger.find_replay(channel.id, "twitch", "fullbag-1")
+        assert replay is not None
+    finally:
+        db.rollback()
+        db.close()
+
+
+def _raise_capacity(*_args, **_kwargs):
+    from infrastructure.repositories.inventory_repo import InventoryCapacityError
+
+    raise InventoryCapacityError("Inventory is full (10 slots)")
+
+
+@pytest.mark.integration
+def test_unexpected_engine_error_records_a_failed_cast(monkeypatch) -> None:
+    """An unexpected cast error still produces a durable failed ledger row."""
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "fail")
+        # Commit the seed so the separate failed-cast transaction can see it.
+        db.commit()
+        service = _make_service(db)
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("engine exploded")
+
+        monkeypatch.setattr("services.fishing_service.FishingEngine.calculate_result", _boom)
+        with pytest.raises(RuntimeError):
+            service.process_cast(
+                twitch_id=user.user_twitch_id,
+                username=user.username,
+                channel_id=channel.twitch_id,
+                source_request_id="fail-1",
+            )
+        failed = (
+            db.query(FishingCast)
+            .filter(
+                FishingCast.channel_id == channel.id,
+                FishingCast.source_request_id == "fail-1",
+                FishingCast.status == "failed",
+            )
+            .first()
+        )
+        assert failed is not None
+        assert failed.error_code == "RuntimeError"
+        assert failed.error_message == "engine exploded"
     finally:
         db.rollback()
         db.close()

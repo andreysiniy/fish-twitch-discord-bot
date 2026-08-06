@@ -4,7 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 from domain.schemas.fishing import FishingResult
-from services.fishing.engine import EventLootStrategy, FishingEngine
+from domain.logic import rng
+from domain.logic import formulas
+from services.fishing.engine import FishingEngine
 from services.fishing.presenter import FishingPresenter
 from services.fishing_service import FishingService
 
@@ -36,36 +38,40 @@ def test_large_xp_reward_can_advance_multiple_levels() -> None:
     assert result.new_level > 2
 
 
-def test_event_luck_multiplier_can_reduce_positive_mass() -> None:
-    strategy = EventLootStrategy({"luck_mult": 0.5})
-    result = strategy.calculate({"fixed_mass": 10}, luck_modifier=1.0, user_balance=Decimal("0"))
+def test_v2_luck_reduction_scales_positive_mass_down() -> None:
+    result = formulas.apply_fish_reward_modifiers(
+        raw_delta=Decimal("10"),
+        fish_luck_change_ratio=Decimal("-0.5"),
+        positive_fish_reward_change_ratio=Decimal("0"),
+        negative_fish_reward_change_ratio=Decimal("0"),
+    )
 
     assert result == Decimal("5.00")
     assert isinstance(result, Decimal)
 
 
-def test_positive_luck_and_mass_bonus_reduce_negative_percentage_penalty() -> None:
-    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
-
-    result = strategy.calculate(
-        {"percentage": "-0.3"},
-        luck_modifier=1.5,
-        user_balance=Decimal("100"),
+def test_v2_positive_ratios_reduce_negative_percentage_penalty() -> None:
+    result = formulas.apply_fish_reward_modifiers(
+        raw_delta=Decimal("100") * Decimal("-0.3"),
+        fish_luck_change_ratio=Decimal("1"),
+        positive_fish_reward_change_ratio=Decimal("0.25"),
+        negative_fish_reward_change_ratio=Decimal("0"),
     )
 
-    assert result == Decimal("-8.00")
+    # -30 / (1 + 1) * (1 + 0) = -15.00
+    assert result == Decimal("-15.00")
 
 
-def test_positive_luck_and_mass_bonus_reduce_negative_fixed_mass_penalty() -> None:
-    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
-
-    result = strategy.calculate(
-        {"fixed_mass": "-30"},
-        luck_modifier=1.5,
-        user_balance=Decimal("100"),
+def test_v2_negative_ratio_reduces_negative_fixed_mass_penalty() -> None:
+    result = formulas.apply_fish_reward_modifiers(
+        raw_delta=Decimal("-30"),
+        fish_luck_change_ratio=Decimal("1"),
+        positive_fish_reward_change_ratio=Decimal("0"),
+        negative_fish_reward_change_ratio=Decimal("-0.5"),
     )
 
-    assert result == Decimal("-8.00")
+    # -30 / (1 + 1) * (1 - 0.5) = -7.50
+    assert result == Decimal("-7.50")
 
 
 @pytest.mark.parametrize(
@@ -78,8 +84,10 @@ def test_positive_luck_and_mass_bonus_reduce_negative_fixed_mass_penalty() -> No
 def test_roulette_negative_mass_effects_are_reduced_by_positive_modifiers(
     monkeypatch, penalty
 ) -> None:
-    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
-    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.is_russian_roulette_hit_traced",
+        lambda **_: (True, Decimal("0")),
+    )
 
     result = FishingEngine().calculate_russian_roulette(
         user=make_user(current_mass=Decimal("100")),
@@ -90,19 +98,24 @@ def test_roulette_negative_mass_effects_are_reduced_by_positive_modifiers(
             "penalty": penalty,
         },
         luck_modifier=1.5,
-        calculation_strategy=strategy,
+        modifier_values={
+            "positive_fish_reward_change_ratio": Decimal("0.25"),
+            "negative_fish_reward_change_ratio": Decimal("0"),
+        },
     )
 
     assert result.is_hit is True
-    assert result.mass_delta == Decimal("-8.00")
+    # Roulette never uses fish luck; positive ratios do not touch negative
+    # penalties, so the -30 penalty stays -30.00.
+    assert result.mass_delta == Decimal("-30.00")
 
 
 def test_presenter_shows_reduced_effective_negative_percentage() -> None:
-    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
-    mass_gained = strategy.calculate(
-        {"percentage": "-0.3"},
-        luck_modifier=1.5,
-        user_balance=Decimal("100"),
+    mass_gained = formulas.apply_fish_reward_modifiers(
+        raw_delta=Decimal("100") * Decimal("-0.3"),
+        fish_luck_change_ratio=Decimal("1"),
+        positive_fish_reward_change_ratio=Decimal("0.25"),
+        negative_fish_reward_change_ratio=Decimal("0"),
     )
     user = make_user(
         channel=SimpleNamespace(config={}),
@@ -139,11 +152,11 @@ def test_percentage_mass_uses_decimal_arithmetic() -> None:
 
 
 def test_presenter_shows_effective_percentage_after_all_mass_modifiers() -> None:
-    strategy = EventLootStrategy({"luck_mult": "2", "bonus_mass": "0.25"})
-    mass_gained = strategy.calculate(
-        {"percentage": "0.1"},
-        luck_modifier=1.5,
-        user_balance=Decimal("100.00"),
+    mass_gained = formulas.apply_fish_reward_modifiers(
+        raw_delta=Decimal("100.00") * Decimal("0.1"),
+        fish_luck_change_ratio=Decimal("1"),
+        positive_fish_reward_change_ratio=Decimal("0.25"),
+        negative_fish_reward_change_ratio=Decimal("0"),
     )
     user = make_user(
         channel=SimpleNamespace(config={}),
@@ -165,7 +178,7 @@ def test_presenter_shows_effective_percentage_after_all_mass_modifiers() -> None
 
     response = FishingPresenter().build_response(user, result)
 
-    assert mass_gained == Decimal("37.50")
+    assert mass_gained == Decimal("25.00")
     assert "Gain: +37.5%" in response.chat_message
 
 
@@ -266,7 +279,10 @@ def test_typed_mass_modifiers_handle_sign_and_floor(
 
 
 def test_typed_roulette_penalty_uses_negative_reduction(monkeypatch) -> None:
-    monkeypatch.setattr("services.fishing.engine.rng.is_russian_roulette_hit", lambda **_: True)
+    monkeypatch.setattr(
+        "services.fishing.engine.rng.is_russian_roulette_hit_traced",
+        lambda **_: (True, Decimal("0")),
+    )
     result = FishingEngine().calculate_result(
         user=make_user(current_mass=Decimal("100")),
         loot_pool=[
@@ -408,7 +424,7 @@ def test_fishing_service_persists_decimal_mass() -> None:
         id=1,
         user_twitch_id="1",
         channel_id=1,
-        channel=SimpleNamespace(config={}),
+        channel=SimpleNamespace(config={}, config_version=1),
         current_mass=Decimal("1.10"),
         total_mass_stat=Decimal("2.20"),
         total_fish_stat=0,
@@ -423,12 +439,14 @@ def test_fishing_service_persists_decimal_mass() -> None:
     channel_repo = Mock()
     channel_repo.get_active_fishing_event.return_value = None
     service = FishingService(user_repo, config_repo, cooldown_repo, channel_repo)
+    service.ledger.find_replay = Mock(return_value=None)
     service.modifier_service.resolve = Mock(
         return_value=SimpleNamespace(
             value=lambda _stat: Decimal("0"),
             values={},
             effects=(),
             mass_floor=lambda _scope: Decimal("0"),
+            explain=lambda: {},
         )
     )
     service.engine.calculate_result = Mock(
@@ -444,11 +462,19 @@ def test_fishing_service_persists_decimal_mass() -> None:
             fish_luck_factor_used=Decimal("1.0"),
         )
     )
-    service.presenter.build_response = Mock(side_effect=lambda _user, result: result)
+    from domain.schemas.fishing import FishResponse
 
-    result = service.process_cast("1", user.username, "channel", is_mod=True)
+    captured: dict = {}
 
-    assert result.mass_gained == Decimal("0.21")
+    def _fake_presenter(_user, result):
+        captured["result"] = result
+        return FishResponse(chat_message="", xp_gained=0, actions=[])
+
+    service.presenter.build_response = Mock(side_effect=_fake_presenter)
+
+    service.process_cast("1", user.username, "channel", is_mod=True)
+
+    assert captured["result"].mass_gained == Decimal("0.21")
     assert user.current_mass == Decimal("1.31")
     assert user.total_mass_stat == Decimal("2.41")
     assert isinstance(user.current_mass, Decimal)
@@ -483,8 +509,16 @@ def test_empty_catch_stat_rerolls_once(monkeypatch) -> None:
 
 def test_block_action_rerolls_matching_reward_and_tracks_durability(monkeypatch) -> None:
     monkeypatch.setattr(
-        "services.fishing.engine.rng.roll_loot",
-        lambda *_args, **_kwargs: {"type": "fish", "fixed_mass": "1"},
+        "services.fishing.engine.rng.roll_loot_traced",
+        lambda *_args, **_kwargs: rng.WeightedRollResult(
+            selected={"type": "fish", "fixed_mass": "1"},
+            selected_id="fish",
+            roll=Decimal("0"),
+            total_weight=Decimal("1"),
+            selected_weight=Decimal("1"),
+            selected_probability=Decimal("1"),
+            candidate_count=1,
+        ),
     )
     monkeypatch.setattr("services.fishing.engine.random.random", lambda: 0)
     effect = {

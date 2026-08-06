@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     Uuid,
@@ -7,7 +8,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -254,6 +254,7 @@ class InventoryItem(Base):
         back_populates="inventory_item",
         uselist=False,
         cascade="all, delete-orphan",
+        foreign_keys="EquippedItem.inventory_item_id",
         passive_deletes=True,
         single_parent=True,
         overlaps="owner,equipped_items",
@@ -280,7 +281,11 @@ class EquippedItem(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False)
     slot = Column(String, nullable=False)
-    inventory_item_id = Column(Integer, nullable=False)
+    inventory_item_id = Column(
+        Integer,
+        ForeignKey("inventory_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -299,6 +304,7 @@ class EquippedItem(Base):
         back_populates="equipped_record",
         lazy="joined",
         overlaps="owner,equipped_items",
+        foreign_keys=[inventory_item_id],
     )
 
 
@@ -312,6 +318,15 @@ class RewardPool(Base):
             name="ck_reward_pools_items_drop_rate_range",
         ),
         CheckConstraint("version >= 1", name="ck_reward_pools_version_positive"),
+        # Tenant-aware link: a pool may only reference a loot table of the SAME
+        # channel. RESTRICT (not SET NULL) because the composite FK cannot
+        # null out channel_id; deleting a table still in use is blocked.
+        ForeignKeyConstraint(
+            ["item_loot_table_id", "channel_id"],
+            ["loot_tables.id", "loot_tables.channel_id"],
+            name="fk_reward_pools_item_loot_table_channel",
+            ondelete="RESTRICT",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -329,12 +344,8 @@ class RewardPool(Base):
         nullable=False,
     )
 
-    items_drop_rate = Column(Float, default=0.1, nullable=False)
-    item_loot_table_id = Column(
-        Integer,
-        ForeignKey("loot_tables.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    items_drop_rate = Column(Numeric(18, 6), default=Decimal("0.1"), nullable=False)
+    item_loot_table_id = Column(Integer, nullable=True)
     channel = relationship("Channel", back_populates="reward_pools")
 
 class FishingEvent(Base):
@@ -350,6 +361,15 @@ class FishingEvent(Base):
             "ix_fishing_events_active_ends_at",
             "ends_at",
             postgresql_where=text("is_active = true"),
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'active', 'ended')",
+            name="ck_fishing_events_status_values",
+        ),
+        CheckConstraint("version >= 1", name="ck_fishing_events_version_positive"),
+        CheckConstraint(
+            "modifier_schema_version >= 1",
+            name="ck_fishing_events_modifier_schema_version_positive",
         ),
     )
 
@@ -523,6 +543,7 @@ class LootTable(Base):
     __table_args__ = (
         UniqueConstraint("channel_id", "table_id", name="uq_loot_tables_channel_table"),
         UniqueConstraint("id", "channel_id", name="uq_loot_tables_id_channel"),
+        CheckConstraint("version >= 1", name="ck_loot_tables_version_positive"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -552,6 +573,10 @@ class LootTableEntry(Base):
             "max_quantity >= min_quantity", name="ck_loot_table_entries_quantity_range"
         ),
         CheckConstraint("xp_gain >= 0", name="ck_loot_table_entries_xp_nonnegative"),
+        CheckConstraint("version >= 1", name="ck_loot_table_entries_version_positive"),
+        CheckConstraint(
+            "config_version >= 1", name="ck_loot_table_entries_config_version_positive"
+        ),
         UniqueConstraint(
             "loot_table_id", "item_definition_id", name="uq_loot_table_entries_table_item"
         ),
@@ -612,13 +637,14 @@ class LootTableEntryStock(Base):
             "remaining_quantity >= 0",
             name="ck_loot_table_entry_stock_remaining_nonnegative",
         ),
+        CheckConstraint("version >= 1", name="ck_loot_table_entry_stock_version_positive"),
     )
     id = Column(Integer, primary_key=True)
     loot_table_entry_id = Column(
         Integer,
         ForeignKey("loot_table_entries.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
+        unique=True,
     )
     remaining_quantity = Column(Integer, nullable=False)
     version = Column(Integer, default=1, nullable=False)
@@ -640,7 +666,11 @@ class InventoryItemUseRecord(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False)
-    inventory_item_id = Column(Integer, nullable=False)
+    inventory_item_id = Column(
+        Integer,
+        ForeignKey("inventory_items.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     idempotency_key = Column(String, nullable=False)
     response_json = Column(JSONB, default=dict, nullable=False)
     created_at = Column(
@@ -842,6 +872,7 @@ class FishingCast(Base):
 
     status = Column(String(32), nullable=False, default="resolved", index=True)
     error_code = Column(String(64), nullable=True)
+    error_message = Column(String(500), nullable=True)
 
     # User and context snapshots.
     twitch_user_id_snapshot = Column(String, nullable=False)
@@ -898,6 +929,13 @@ class FishingCast(Base):
     item_drop_roll = Column(Numeric(14, 12), nullable=True)
     item_drop_succeeded = Column(Boolean, nullable=False, default=False)
     item_drop_count = Column(Integer, nullable=False, default=0)
+    # Fine-grained drop outcome: gate roll, selection, stock reservation and
+    # the inventory grant are tracked separately so a failed grant (e.g. full
+    # inventory) is not confused with a failed gate roll.
+    item_drop_gate_success = Column(Boolean, nullable=True)
+    item_drop_selection_success = Column(Boolean, nullable=True)
+    item_drop_stock_reserved = Column(Boolean, nullable=True)
+    item_drop_grant_success = Column(Boolean, nullable=True)
 
     # Explanation.
     resolved_modifiers = Column(JSONB, default=dict, nullable=False)
@@ -982,14 +1020,18 @@ class FishingStatsDaily(Base):
 
     __tablename__ = "fishing_stats_daily"
     __table_args__ = (
-        UniqueConstraint(
+        # NULLS NOT DISTINCT so a bucket with any NULL dimension stays unique
+        # under parallel rebuilds (PostgreSQL 15+).
+        Index(
+            "uq_fishing_stats_daily_bucket",
             "day",
             "channel_id",
             "location_id",
             "event_id",
             "reward_type",
             "item_definition_id",
-            name="uq_fishing_stats_daily_bucket",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
         ),
         Index(
             "ix_fishing_stats_daily_channel_day",

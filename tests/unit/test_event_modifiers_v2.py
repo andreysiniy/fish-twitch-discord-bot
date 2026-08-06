@@ -103,15 +103,30 @@ def test_event_create_request_accepts_v2_human_percents() -> None:
     assert request.modifiers.fish_luck_change_percent == Decimal("40")
 
 
-def test_event_create_request_still_accepts_legacy_modifiers() -> None:
+def test_event_create_request_rejects_legacy_modifiers() -> None:
+    from pydantic import ValidationError
+
+    from domain.schemas.discord_admin import DiscordEventCreateRequest
+
+    with pytest.raises(ValidationError, match="v2 human-percent schema"):
+        DiscordEventCreateRequest(
+            event_title="Lucky",
+            modifiers={"luck_mult": "1.4", "bonus_mass": "5"},
+        )
+
+
+def test_event_create_request_accepts_v2_modifiers() -> None:
     from domain.schemas.discord_admin import DiscordEventCreateRequest
 
     request = DiscordEventCreateRequest(
         event_title="Lucky",
-        modifiers={"luck_mult": "1.4", "bonus_mass": "5"},
+        modifiers={
+            "schema_version": 2,
+            "fish_luck_change_percent": "40",
+        },
     )
-    assert isinstance(request.modifiers, EventModifiers)
-    assert request.modifiers.bonus_mass == Decimal("5")
+    assert isinstance(request.modifiers, EventModifiersV2)
+    assert request.modifiers.fish_luck_change_percent == Decimal("40")
 
 
 def test_event_patch_request_passes_none_modifiers_through() -> None:

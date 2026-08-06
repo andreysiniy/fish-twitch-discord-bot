@@ -73,36 +73,6 @@ class DefaultLootStrategy(CalculationStrategy):
         return quantize_mass(raw_mass * safe_luck)
 
 
-class EventLootStrategy(DefaultLootStrategy):
-    def __init__(self, modifiers: Optional[Dict[str, Any]] = None):
-        modifiers = modifiers or {}
-        self._luck_mult = max(to_decimal(modifiers.get("luck_mult", 1) or 1), ZERO_MASS)
-        self._xp_mult = max(float(modifiers.get("xp_mult", 1.0) or 1.0), 0.0)
-        self._bonus_mass = to_decimal(modifiers.get("bonus_mass", 0) or 0)
-
-    def calculate(
-        self,
-        source: Dict[str, Any],
-        luck_modifier: float,
-        user_balance: Decimal,
-    ) -> Decimal:
-        raw_mass = self._resolve_raw_mass(source, to_decimal(user_balance))
-        effective_luck = max(to_decimal(luck_modifier or 1), Decimal("0.01"))
-        effective_luck *= self._luck_mult
-        mass_delta = self._apply_luck(raw_mass, float(max(effective_luck, ZERO_MASS)))
-
-        if self._bonus_mass != ZERO_MASS:
-            bonus_factor = Decimal("1") + self._bonus_mass
-            if mass_delta < ZERO_MASS:
-                mass_delta = quantize_mass(mass_delta / bonus_factor)
-            else:
-                mass_delta = quantize_mass(mass_delta * bonus_factor)
-        return mass_delta
-
-    def adjust_xp_gain(self, xp_gain: int) -> int:
-        return max(int(round(int(xp_gain) * self._xp_mult)), 0)
-
-
 class FishingEngine:
     def __init__(self, default_strategy: Optional[CalculationStrategy] = None):
         self._default_strategy = default_strategy or DefaultLootStrategy()
@@ -201,32 +171,41 @@ class FishingEngine:
             ),
             Decimal("1"),
         )
-        if (
-            catch.get("type") == ActionType.NOTHING
-            and random.random() < float(empty_reroll_chance)
-        ):
-            reroll_trace = rng.roll_loot_traced(
-                loot_pool,
-                weight_transform=lambda entry: rng._default_entry_weight(entry),
-            )
+        if catch.get("type") == ActionType.NOTHING:
+            reroll_gate_roll = Decimal(str(random.random()))
+            reroll_gate_success = reroll_gate_roll < empty_reroll_chance
             rng_stages.append(
                 {
-                    "stage": "empty_reward_reroll",
-                    "triggered": True,
-                    "roll": str(reroll_trace.roll),
-                    "selected_reward_id": str(reroll_trace.selected_id),
+                    "stage": "empty_reward_reroll_gate",
+                    "roll": str(reroll_gate_roll),
+                    "threshold": str(empty_reroll_chance),
+                    "success": reroll_gate_success,
                 }
             )
-            if reroll_trace.selected is not None:
-                catch = _as_catch(reroll_trace.selected)
-            else:
-                # Empty or traced-less pool: fall back to the legacy picker so
-                # injected rolls keep working during tests and migrations.
-                catch = rng.roll_loot(loot_pool)
+            if reroll_gate_success:
+                reroll_trace = rng.roll_loot_traced(
+                    loot_pool,
+                    weight_transform=lambda entry: rng._default_entry_weight(entry),
+                )
+                rng_stages.append(
+                    {
+                        "stage": "empty_reward_reroll",
+                        "triggered": True,
+                        "roll": str(reroll_trace.roll),
+                        "selected_reward_id": str(reroll_trace.selected_id),
+                    }
+                )
+                if reroll_trace.selected is not None:
+                    catch = _as_catch(reroll_trace.selected)
+                else:
+                    # Empty or traced-less pool: fall back to the legacy picker so
+                    # injected rolls keep working during tests and migrations.
+                    catch = rng.roll_loot(loot_pool)
         catch = self._reroll_reward_effects(
             catch,
             loot_pool,
             behavioral_effects or [],
+            rng_stages=rng_stages,
         )
         if catch.get("type") == ActionType.POINTS:
             catch = dict(catch)
@@ -282,6 +261,9 @@ class FishingEngine:
                 }
             )
             base_durability = item_catch.get("max_durability")
+            min_quantity = max(int(item_catch.get("min_quantity") or 1), 1)
+            max_quantity = max(int(item_catch.get("max_quantity") or min_quantity), min_quantity)
+            quantity = random.randint(min_quantity, max_quantity)
 
             if not item_catch.get("title"):
                 item_catch["title"] = item_catch.get("item_id", "Unknown Item")
@@ -289,18 +271,27 @@ class FishingEngine:
             item_catch.update(
                 {
                     "item_type": item_catch.get("item_type", "collectible"),
-                    "quantity": 1,
+                    "quantity": quantity,
+                    "quantity_requested": quantity,
                     "current_durability": int(base_durability)
                     if base_durability is not None
                     else None,
                     "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
             )
+            rng_stages.append(
+                {
+                    "stage": "item_quantity",
+                    "quantity": quantity,
+                    "min_quantity": min_quantity,
+                    "max_quantity": max_quantity,
+                }
+            )
 
         base_xp_gain = formulas.calculate_xp_gain(
             base_xp=catch.get("xp", 0),
             item_xp=item_catch.get("xp_gain", 0) if item_catch else 0,
-            bonus_pct=float(xp_bonus),
+            bonus_pct=xp_bonus,
         )
         xp_gain = strategy.adjust_xp_gain(base_xp_gain)
 
@@ -319,6 +310,7 @@ class FishingEngine:
                 strategy,
                 resolved_mods,
                 negative_mass_floor,
+                rng_stages=rng_stages,
             )
             if catch.get("percentage") is not None:
                 raw_percentage = to_decimal(catch.get("percentage"))
@@ -338,6 +330,18 @@ class FishingEngine:
                 modifier_values=resolved_mods,
                 mass_floor=roulette_mass_floor,
             )
+            if roulette_result.roll is not None:
+                rng_stages.append(
+                    {
+                        "stage": "roulette_hit",
+                        "roll": str(roulette_result.roll),
+                        "threshold": str(
+                            to_decimal(roulette_result.bullets)
+                            / max(to_decimal(roulette_result.chambers), Decimal("1"))
+                        ),
+                        "success": roulette_result.is_hit,
+                    }
+                )
             mass_gain = roulette_result.mass_delta
             # Roulette percentage outcomes never use fish luck (spec 11.4);
             # the engine still resolves the applied percentage for the presenter.
@@ -426,7 +430,7 @@ class FishingEngine:
                 min_chance=to_decimal(min_chance),
                 max_chance=to_decimal(max_chance),
             )
-            is_success = random.random() < float(final_chance)
+            is_success, roll = rng.calculate_chance_traced(float(final_chance))
             if not is_success:
                 final_amount = ZERO_MASS
             return RobberyResultDTO(
@@ -436,6 +440,7 @@ class FishingEngine:
                 victim_twitch_id=victim.user_twitch_id,
                 victim_new_mass=quantize_mass(victim_mass - final_amount),
                 chance_used=round(float(final_chance), 3),
+                roll=roll,
             )
 
         attacker_stats = calculate_player_stats(attacker)
@@ -455,7 +460,7 @@ class FishingEngine:
             max_chance=max_chance,
         )
 
-        is_success = random.random() < final_chance
+        is_success, roll = rng.calculate_chance_traced(float(final_chance))
         victim_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
         final_amount = ZERO_MASS
 
@@ -483,6 +488,7 @@ class FishingEngine:
             victim_twitch_id=victim.user_twitch_id,
             victim_new_mass=quantize_mass(victim_mass - final_amount),
             chance_used=round(final_chance, 3),
+            roll=roll,
         )
 
     def calculate_russian_roulette(
@@ -496,7 +502,9 @@ class FishingEngine:
     ) -> RussianRouletteResultDTO:
         bullets = max(int(catch.get("bullets", 1)), 0)
         chambers = max(int(catch.get("chambers", 6)), 1)
-        is_hit = rng.is_russian_roulette_hit(bullets=bullets, chambers=chambers)
+        is_hit, roulette_roll = rng.is_russian_roulette_hit_traced(
+            bullets=bullets, chambers=chambers
+        )
 
         message = catch.get("shot_message" if is_hit else "safe_message")
         if not message:
@@ -529,6 +537,7 @@ class FishingEngine:
             is_hit=is_hit,
             bullets=bullets,
             chambers=chambers,
+            roll=roulette_roll,
             message=message,
             mass_delta=mass_delta,
             penalty=penalty,
@@ -560,7 +569,29 @@ class FishingEngine:
         strategy: CalculationStrategy,
         resolved_mods: Dict[str, Decimal],
         mass_floor: Decimal = ZERO_MASS,
+        rng_stages: list[dict] | None = None,
     ) -> Decimal:
+        if (
+            catch.get("fixed_mass") is None
+            and catch.get("mass") is None
+            and catch.get("percentage") is None
+        ):
+            # Roll the mass range here so the exact value is traceable in the
+            # ledger; the strategy consumes the pre-rolled value as fixed_mass.
+            min_mass = to_decimal(catch.get("min_mass", "0.1"))
+            max_mass = to_decimal(catch.get("max_mass", "5.0"))
+            rolled_mass = random.uniform(float(min_mass), float(max_mass))
+            if rng_stages is not None:
+                rng_stages.append(
+                    {
+                        "stage": "mass_range",
+                        "roll": str(to_decimal(rolled_mass)),
+                        "min": str(min_mass),
+                        "max": str(max_mass),
+                    }
+                )
+            catch = dict(catch)
+            catch["fixed_mass"] = to_decimal(rolled_mass)
         raw_delta = strategy.resolve_raw_mass(catch, user_balance)
         return formulas.apply_fish_reward_modifiers(
             raw_delta,
@@ -632,6 +663,7 @@ class FishingEngine:
         catch: Dict[str, Any],
         loot_pool: list[Dict[str, Any]],
         effects: list[Dict[str, Any]],
+        rng_stages: list[dict] | None = None,
     ) -> Dict[str, Any]:
         current = catch
         for effect in effects:
@@ -649,12 +681,36 @@ class FishingEngine:
             for _ in range(max_rerolls):
                 if str(current.get("type")) not in targets:
                     break
-                if effect_type == "block_action" and random.random() >= float(
-                    effect.get("chance", 1)
-                ):
-                    break
+                if effect_type == "block_action":
+                    gate_roll = Decimal(str(random.random()))
+                    gate_chance = max(to_decimal(effect.get("chance", 1)), ZERO_MASS)
+                    if rng_stages is not None:
+                        rng_stages.append(
+                            {
+                                "stage": "behavioral_block_action_gate",
+                                "effect_type": str(effect.get("source_key") or effect_type),
+                                "roll": str(gate_roll),
+                                "threshold": str(gate_chance),
+                                "success": gate_roll < gate_chance,
+                            }
+                        )
+                    if gate_roll >= gate_chance:
+                        break
                 # Rerolls keep neutral reward-selection luck (spec 3.3).
-                current = rng.roll_loot(loot_pool)
+                rerolled = rng.roll_loot_traced(
+                    loot_pool,
+                    weight_transform=lambda entry: rng._default_entry_weight(entry),
+                )
+                if rng_stages is not None:
+                    rng_stages.append(
+                        {
+                            "stage": "behavioral_reward_reroll",
+                            "effect_type": str(effect.get("source_key") or effect_type),
+                            "roll": str(rerolled.roll),
+                            "selected_reward_id": str(rerolled.selected_id),
+                        }
+                    )
+                current = _as_catch(rerolled.selected) if rerolled.selected is not None else current
                 triggered += 1
             if triggered:
                 effect["_trigger_count"] = triggered
