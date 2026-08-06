@@ -111,33 +111,33 @@ def remove_item_drop(
     )
 
 
-@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/inventory")
+@router.get("/channels/{channel_twitch_id}/players/{viewer}/inventory")
 def get_player_inventory(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
-    return service.get_player_inventory_admin(context, channel_twitch_id, user_twitch_id)
+    return service.get_player_inventory_admin(context, channel_twitch_id, viewer)
 
 
-@router.post("/channels/{channel_twitch_id}/players/{user_twitch_id}/items")
+@router.post("/channels/{channel_twitch_id}/players/{viewer}/items")
 def grant_player_item(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     data: PlayerItemGrantRequest,
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
-    return service.grant_player_item(context, channel_twitch_id, user_twitch_id, data)
+    return service.grant_player_item(context, channel_twitch_id, viewer, data)
 
 
 @router.post(
-    "/channels/{channel_twitch_id}/players/{user_twitch_id}/items/{inventory_item_id}/revoke"
+    "/channels/{channel_twitch_id}/players/{viewer}/items/{inventory_item_id}/revoke"
 )
 def revoke_player_item(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     inventory_item_id: int,
     data: PlayerItemRevokeRequest,
     context: DiscordServiceContext = Depends(get_discord_service_context),
@@ -146,57 +146,57 @@ def revoke_player_item(
     return service.revoke_player_item(
         context,
         channel_twitch_id,
-        user_twitch_id,
+        viewer,
         inventory_item_id,
         data,
     )
 
 
-@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers")
+@router.get("/channels/{channel_twitch_id}/players/{viewer}/modifiers")
 def list_player_modifiers(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
-    return service.list_player_modifiers(context, channel_twitch_id, user_twitch_id)
+    return service.list_player_modifiers(context, channel_twitch_id, viewer)
 
 
-@router.put("/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers")
+@router.put("/channels/{channel_twitch_id}/players/{viewer}/modifiers")
 def set_player_modifier(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     data: PlayerModifierSetRequest,
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.set_player_modifier(
-        context, channel_twitch_id, user_twitch_id, data
+        context, channel_twitch_id, viewer, data
     )
 
 
 @router.patch(
-    "/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers/{modifier_id}/state"
+    "/channels/{channel_twitch_id}/players/{viewer}/modifiers/{modifier_id}/state"
 )
 def set_player_modifier_state(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     modifier_id: str,
     data: VersionedStateRequest,
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.set_player_modifier_state(
-        context, channel_twitch_id, user_twitch_id, modifier_id, data
+        context, channel_twitch_id, viewer, modifier_id, data
     )
 
 
 @router.delete(
-    "/channels/{channel_twitch_id}/players/{user_twitch_id}/modifiers/{modifier_id}"
+    "/channels/{channel_twitch_id}/players/{viewer}/modifiers/{modifier_id}"
 )
 def remove_player_modifier(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     modifier_id: str,
     expected_version: int = Query(..., ge=1),
     context: DiscordServiceContext = Depends(get_discord_service_context),
@@ -205,22 +205,22 @@ def remove_player_modifier(
     return service.remove_player_modifier(
         context,
         channel_twitch_id,
-        user_twitch_id,
+        viewer,
         modifier_id,
         expected_version,
     )
 
 
-@router.get("/channels/{channel_twitch_id}/players/{user_twitch_id}/stats/explain")
+@router.get("/channels/{channel_twitch_id}/players/{viewer}/stats/explain")
 def explain_player_stats(
     channel_twitch_id: str,
-    user_twitch_id: str,
+    viewer: str,
     scope: ModifierScope = Query(ModifierScope.FISHING),
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     return service.explain_player_stats(
-        context, channel_twitch_id, user_twitch_id, scope
+        context, channel_twitch_id, viewer, scope
     )
 
 

@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 from api.discord_dependencies import DiscordServiceContext
@@ -461,6 +462,16 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
         assert len(ids) == len(set(ids))
         assert not any(item_id.startswith("99999999") for item_id in ids)
 
+        # Username filter resolves by viewer username, not by id.
+        by_username = service.list_recent_casts(
+            _context("cast-by-username"), "cast-history", username="viewer", limit=10
+        )
+        assert len(by_username["items"]) == 3
+        no_match = service.list_recent_casts(
+            _context("cast-no-match"), "cast-history", username="absent", limit=10
+        )
+        assert no_match["items"] == []
+
         detail = service.get_cast_detail(
             _context("cast-detail"), "cast-history", ids[0], include_technical=True
         )
@@ -478,6 +489,76 @@ def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
                 _context("cast-cross-other"), "cast-history", "99999999-2222-4333-8444-000000000001"
             )
         assert cross.value.code in ("PERMISSION_DENIED", "CAST_NOT_FOUND")
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_player_admin_commands_resolve_viewer_username() -> None:
+    """Admin player endpoints accept the viewer's username, not just the id."""
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"viewer-chan-{uuid.uuid4().hex[:8]}",
+            name="Viewer Chan",
+            config={},
+            config_version=1,
+        )
+        db.add(channel)
+        db.flush()
+        db.add(
+            DiscordAccountLink(
+                discord_user_id="1001",
+                twitch_user_id=channel.twitch_id,
+                twitch_login=channel.name,
+                verified_at=now,
+                last_verified_at=now,
+            )
+        )
+        db.add(
+            DiscordGuildBinding(
+                discord_guild_id="2001",
+                channel_id=channel.id,
+                configured_by_discord_id="1001",
+                locale="en",
+            )
+        )
+        player = UserProgress(
+            user_twitch_id="2001",
+            username="StreamerGuy",
+            channel_id=channel.id,
+            current_mass=Decimal("150.00"),
+            total_mass_stat=Decimal("150.00"),
+        )
+        db.add(player)
+        db.flush()
+
+        service = DiscordAdminService(db)
+        context = _context("viewer-username")
+
+        # Username lookup (case-insensitive) resolves the same player.
+        inventory = service.get_player_inventory_admin(
+            context, channel.twitch_id, "streamerguy"
+        )
+        assert isinstance(inventory.get("items"), list)
+
+        modifiers = service.list_player_modifiers(
+            context, channel.twitch_id, "streamerguy"
+        )
+        assert modifiers["user_twitch_id"] == "2001"
+
+        # Legacy numeric id still works as a fallback.
+        inventory_by_id = service.get_player_inventory_admin(
+            context, channel.twitch_id, "2001"
+        )
+        assert isinstance(inventory_by_id.get("items"), list)
+
+        # Unknown viewer -> PLAYER_NOT_FOUND.
+        with pytest.raises(ApiProblem) as exc_info:
+            service.get_player_inventory_admin(context, channel.twitch_id, "nobody")
+        assert exc_info.value.code == "PLAYER_NOT_FOUND"
     finally:
         db.rollback()
         db.close()
