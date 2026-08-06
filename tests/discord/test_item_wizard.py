@@ -82,3 +82,44 @@ def test_item_preview_view_embed_renders() -> None:
     embed = view.embed()
     assert embed.color == discord.Color.blurple()
     assert "Effects" in {field.name for field in embed.fields}
+
+
+def test_item_preview_view_has_effects_button_and_cancel_hook() -> None:
+    from app.interactions.item_wizard import ItemPreviewView
+
+    events: list[str] = []
+
+    async def on_confirm(_interaction):  # noqa: ANN001
+        events.append("confirm")
+
+    async def on_edit_effects(_interaction):  # noqa: ANN001
+        events.append("effects")
+
+    async def on_cancel(_interaction):  # noqa: ANN001
+        events.append("cancel")
+
+    view = ItemPreviewView(
+        initiator_id=1,
+        draft={
+            "item_id": "rod",
+            "title": "Rod",
+            "item_type": "equipment",
+            "rarity": "rare",
+            "effects": [{"type": "stat_add", "stat": "x", "value": "0.1"}],
+        },
+        on_confirm=on_confirm,
+        on_edit_effects=on_edit_effects,
+        on_cancel=on_cancel,
+    )
+    assert view.edit_effects.disabled is False
+
+    # Without the effects callback the button is disabled (audit 10.1).
+    plain = ItemPreviewView(
+        initiator_id=1,
+        draft={"item_id": "rod", "title": "Rod", "effects": []},
+        on_confirm=on_confirm,
+    )
+    assert plain.edit_effects.disabled is True
+
+    embed = view.embed()
+    assert any(field.name == "Effects" for field in embed.fields)

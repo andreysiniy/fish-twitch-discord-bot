@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from domain.config_schema import EventModifiersV2
 from domain.item_schema import (
     STAT_REGISTRY,
     ModifierOperation,
@@ -74,8 +75,6 @@ def parse_event_modifiers_lenient(
     the owner can fix the event; a hard ValidationError here would 500 every
     cast while the event is active.
     """
-    from domain.config_schema import EventModifiersV2
-
     try:
         return EventModifiersV2(**modifiers)
     except ValidationError:

@@ -2,6 +2,7 @@ from html import escape
 
 from api.dependencies import get_discord_admin_service
 from api.discord_dependencies import DiscordServiceContext, get_discord_service_context
+from core.api_errors import ApiProblem
 from core.messages import message_placeholder_catalog
 from domain.schemas.discord_admin import GuildBindRequest
 from fastapi import APIRouter, Depends, Query
@@ -49,7 +50,6 @@ def guild_status(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     if context.discord_guild_id != guild_id:
-        from core.api_errors import ApiProblem
 
         raise ApiProblem(403, "PERMISSION_DENIED", "Guild context mismatch")
     return service.status(context)
@@ -63,7 +63,6 @@ def bind_guild(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     if context.discord_guild_id != guild_id:
-        from core.api_errors import ApiProblem
 
         raise ApiProblem(403, "PERMISSION_DENIED", "Guild context mismatch")
     return service.bind_guild(context, data)
@@ -76,7 +75,6 @@ def unbind_guild(
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
     if context.discord_guild_id != guild_id:
-        from core.api_errors import ApiProblem
 
         raise ApiProblem(403, "PERMISSION_DENIED", "Guild context mismatch")
     return service.remove_guild_binding(context)
