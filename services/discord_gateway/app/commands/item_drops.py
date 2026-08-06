@@ -79,16 +79,20 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                 expected = preview.get("expected_casts_to_drop")
 
                 async def confirm(confirmed: discord.Interaction) -> None:
-                    await api.upsert_item_drop(
+                    await _mutation_response(
                         confirmed,
-                        location_id,
-                        {
-                            "item_id": item_id,
-                            "weight": weight,
-                            "xp_gain": xp_gain,
-                            "quantity": quantity,
-                            "message": message,
-                        },
+                        lambda: api.upsert_item_drop(
+                            confirmed,
+                            location_id,
+                            {
+                                "item_id": item_id,
+                                "weight": weight,
+                                "xp_gain": xp_gain,
+                                "quantity": quantity,
+                                "message": message,
+                            },
+                        ),
+                        "Item drop added.",
                     )
 
                 embed = discord.Embed(
