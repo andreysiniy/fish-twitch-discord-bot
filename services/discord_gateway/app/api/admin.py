@@ -469,6 +469,7 @@ class AdminApi:
         limit: int = 20,
         cursor: str | None = None,
         viewer: str | None = None,
+        username: str | None = None,
         status: str | None = None,
         location_id: str | None = None,
         reward_type: str | None = None,
@@ -477,8 +478,9 @@ class AdminApi:
         query: list[str] = [f"limit={limit}"]
         if cursor:
             query.append(f"cursor={cursor}")
-        if viewer:
-            query.append(f"username={viewer}")
+        filter_username = viewer or username
+        if filter_username:
+            query.append(f"username={filter_username}")
         if status:
             query.append(f"status={status}")
         if location_id:
@@ -508,10 +510,9 @@ class AdminApi:
     ) -> dict[str, Any]:
         channel = await self.channel_id(interaction)
         query: list[str] = [f"limit={limit}"]
-        if viewer:
-            query.append(f"username={viewer}")
-        if username:
-            query.append(f"username={username}")
+        filter_username = viewer or username
+        if filter_username:
+            query.append(f"username={filter_username}")
         if status:
             query.append(f"status={status}")
         if location_id:

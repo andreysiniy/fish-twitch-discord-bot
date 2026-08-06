@@ -89,3 +89,76 @@ def test_register_casts_group_creates_subcommands() -> None:
     assert group.name == "cast"
     names = {cmd.name for cmd in group.commands}
     assert {"recent", "show", "search", "stats", "export"} <= names
+
+
+class _FakeResponse:
+    async def defer(self, ephemeral=False):
+        self.deferred = True
+
+
+class _FakeFollowup:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content=None, ephemeral=False, file=None, embed=None, embeds=None, view=None):
+        self.sent.append(content)
+
+
+class _FakeInteraction:
+    def __init__(self):
+        self.response = _FakeResponse()
+        self.followup = _FakeFollowup()
+        self.user = type("U", (), {"id": 111, "display_name": "Owner"})()
+        self.guild = type("G", (), {"name": "Test Guild"})()
+        self.id = 999
+
+
+class _FakeApi:
+    """Records kwargs for cast history calls instead of hitting the backend."""
+
+    def __init__(self):
+        self.recent_kwargs = None
+        self.search_kwargs = None
+
+    async def channel_id(self, interaction):
+        return "464887139"
+
+    async def recent_casts(self, interaction, **kwargs):
+        self.recent_kwargs = kwargs
+        return {"items": []}
+
+    async def search_casts(self, interaction, **kwargs):
+        self.search_kwargs = kwargs
+        return {"items": []}
+
+
+def _run_callback(group_name: str, api: _FakeApi, **params):
+    """Invoke a cast subcommand callback with a fake interaction."""
+    import asyncio
+    from app.commands.casts import register_casts_group
+
+    tree = discord.app_commands.CommandTree(discord.Client(intents=discord.Intents.default()))
+    parent = discord.app_commands.Group(name="fish", description="fish")
+    group = register_casts_group(tree, api, parent)
+    command = next(c for c in group.commands if c.name == group_name)
+    asyncio.run(command.callback(_FakeInteraction(), **params))
+
+
+def test_cast_export_passes_viewer_as_username_filter() -> None:
+    api = _FakeApi()
+    _run_callback("export", api, viewer="srakjopa")
+    assert api.recent_kwargs == {
+        "limit": 25,
+        "username": "srakjopa",
+        "status": None,
+    }
+
+
+def test_cast_recent_and_search_accept_username_kwargs() -> None:
+    api = _FakeApi()
+    _run_callback("recent", api, viewer="viewer_one", limit=10)
+    assert api.recent_kwargs["username"] == "viewer_one"
+
+    api2 = _FakeApi()
+    _run_callback("search", api2, viewer="viewer_one", username="other")
+    assert api2.search_kwargs["username"] == "viewer_one"
