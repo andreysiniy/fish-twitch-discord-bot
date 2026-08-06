@@ -615,3 +615,105 @@ def test_cast_detail_rejects_malformed_and_unknown_ids_cleanly() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_cast_detail_serializer_falls_back_to_jsonb_trace() -> None:
+    """Detail serializer fills probability/roll from rng_trace when columns are NULL."""
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"trace-fallback-{uuid.uuid4().hex[:8]}",
+            name="Trace Fallback",
+            config={},
+            config_version=1,
+        )
+        db.add(channel)
+        db.flush()
+        db.add(
+            DiscordAccountLink(
+                discord_user_id="1001",
+                twitch_user_id=channel.twitch_id,
+                twitch_login=channel.name,
+                verified_at=now,
+                last_verified_at=now,
+            )
+        )
+        db.add(
+            DiscordGuildBinding(
+                discord_guild_id="2001",
+                channel_id=channel.id,
+                configured_by_discord_id="1001",
+                locale="en",
+            )
+        )
+        user = UserProgress(
+            user_twitch_id="trace-viewer",
+            username="trace_viewer",
+            channel_id=channel.id,
+        )
+        db.add(user)
+        db.flush()
+        cast = FishingCast(
+            id=uuid.uuid4(),
+            channel_id=channel.id,
+            user_progress_id=user.id,
+            status="resolved",
+            source="twitch",
+            username_snapshot="trace_viewer",
+            twitch_user_id_snapshot="trace-viewer",
+            location_id="default",
+            reward_type="fish",
+            reward_id=None,
+            reward_weight=None,
+            reward_total_weight=None,
+            reward_probability=None,
+            reward_roll=None,
+            reward_snapshot={
+                "type": "fish",
+                "weight": 1085,
+                "reward_id": "rew-legacy",
+                "fixed_mass": "-0.1",
+                "xp": 0,
+            },
+            rng_trace=[
+                {
+                    "stage": "ordinary_reward",
+                    "algorithm": "weighted_choice_v2",
+                    "roll": "69549.296483",
+                    "total_weight": "95951",
+                    "selected_reward_id": "rew-legacy",
+                    "selected_probability": "0.011307855051",
+                },
+                {
+                    "stage": "item_drop_gate",
+                    "success": False,
+                    "roll": "0.7463573251180865",
+                    "threshold": "0.1",
+                },
+            ],
+            requested_at=now,
+            resolved_at=now,
+            persisted_at=now,
+            item_drop_succeeded=False,
+            item_drop_count=0,
+        )
+        db.add(cast)
+        db.flush()
+
+        service = DiscordAdminService(db)
+        detail = service.get_cast_detail(
+            _context("trace-fallback"), channel.twitch_id, str(cast.id)
+        )
+        assert detail["reward"]["probability"] == "0.011307855051"
+        assert detail["reward"]["roll"] == "69549.296483"
+        assert detail["reward"]["weight"] == "1085"
+        assert detail["reward"]["total_weight"] == "95951"
+        assert detail["reward"]["reward_id"] == "rew-legacy"
+        assert detail["item_drop"]["probability"] == "0.1"
+        assert detail["item_drop"]["roll"] == "0.7463573251180865"
+        assert detail["item_drop"]["succeeded"] is False
+    finally:
+        db.rollback()
+        db.close()

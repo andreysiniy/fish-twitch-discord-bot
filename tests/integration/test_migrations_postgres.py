@@ -997,3 +997,132 @@ def test_legacy_location_items_are_backfilled_into_loot_tables_then_dropped() ->
         with admin.cursor() as cursor:
             cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
         admin.close()
+
+
+@pytest.mark.integration
+def test_cast_trace_backfill_recovers_probability_and_roll_from_jsonb() -> None:
+    """Migration 20260806_0024 backfills reward/item trace columns from JSONB."""
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_backfill_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        # Upgrade to the previous head so we can seed legacy rows.
+        command.upgrade(alembic_config, "20260802_0023")
+
+        with engine.connect() as connection:
+            channel_id = connection.execute(
+                text("INSERT INTO channels (twitch_id, name, config) "
+                     "VALUES ('backfill-chan', 'Backfill', '{}') RETURNING id")
+            ).scalar_one()
+            user_id = connection.execute(
+                text("INSERT INTO users_progress (user_twitch_id, username, channel_id, "
+                     "current_mass, total_mass_stat) "
+                     "VALUES ('bf-user', 'bf_user', :cid, 10, 10) RETURNING id"),
+                {"cid": channel_id},
+            ).scalar_one()
+            connection.execute(
+                text("INSERT INTO fishing_casts "
+                     "(id, channel_id, user_progress_id, status, source, "
+                     "reward_type, reward_snapshot, rng_trace, requested_at, "
+                     "resolved_at, persisted_at, item_drop_succeeded, item_drop_count, "
+                     "username_snapshot, twitch_user_id_snapshot, location_id) "
+                     "VALUES (:id, :cid, :uid, 'resolved', 'twitch', 'fish', "
+                     ":snapshot, :trace, '2026-08-01T10:00:00+00', "
+                     "'2026-08-01T10:00:01+00', '2026-08-01T10:00:01+00', "
+                     "FALSE, 0, 'bf_user', 'bf-user', 'default')"),
+                {
+                    "id": "00000000-0000-0000-0000-0000000000bf",
+                    "cid": channel_id,
+                    "uid": user_id,
+                    "snapshot": (
+                        '{"type": "fish", "weight": 1085, "reward_id": "rew-1", '
+                        '"fixed_mass": "-0.1", "xp": 0}'
+                    ),
+                    "trace": (
+                        '[{"stage": "ordinary_reward", "algorithm": "weighted_choice_v2", '
+                        '"roll": "69549.296483", "total_weight": "95951", '
+                        '"selected_reward_id": "rew-1", '
+                        '"selected_probability": "0.011307855051"}, '
+                        '{"stage": "item_drop_gate", "success": false, '
+                        '"roll": "0.7463573251180865", "threshold": "0.1"}]'
+                    ),
+                },
+            )
+            connection.commit()
+
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT reward_id, reward_weight, reward_total_weight, "
+                     "reward_probability, reward_roll, "
+                     "item_drop_probability, item_drop_roll, item_drop_succeeded "
+                     "FROM fishing_casts WHERE id = '00000000-0000-0000-0000-0000000000bf'")
+            ).one()
+        assert row.reward_id == "rew-1"
+        assert str(row.reward_weight) == "1085.00000000"
+        assert str(row.reward_total_weight) == "95951.00000000"
+        assert str(row.reward_probability) == "0.011307855051"
+        assert str(row.reward_roll) == "69549.296483000000"
+        assert str(row.item_drop_probability) == "0.100000000000"
+        assert str(row.item_drop_roll) == "0.746357325118"
+        assert row.item_drop_succeeded is False
+
+        # Idempotency: running the same statement again changes nothing.
+        with engine.connect() as connection:
+            connection.execute(
+                text("UPDATE fishing_casts SET reward_probability = NULL WHERE id = "
+                     "'00000000-0000-0000-0000-0000000000bf'")
+            )
+            connection.commit()
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+
+        with engine.connect() as connection:
+            ctx = MigrationContext.configure(connection)
+            ops = Operations(ctx)
+            # Re-run backfill via the same SQL used in the migration.
+            connection.execute(
+                text("UPDATE fishing_casts SET reward_probability = COALESCE("
+                     "reward_probability, (SELECT elem->>'selected_probability' "
+                     "FROM jsonb_array_elements(rng_trace) elem "
+                     "WHERE elem->>'stage' = 'ordinary_reward' LIMIT 1)::numeric) "
+                     "WHERE reward_probability IS NULL AND jsonb_typeof(rng_trace) = 'array'")
+            )
+            connection.commit()
+            restored = connection.execute(
+                text("SELECT reward_probability FROM fishing_casts "
+                     "WHERE id = '00000000-0000-0000-0000-0000000000bf'")
+            ).scalar_one()
+        assert str(restored) == "0.011307855051"
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            cursor.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                    sql.Identifier(database_name)
+                )
+            )
+        admin.close()
