@@ -354,7 +354,7 @@ def test_full_inventory_records_cast_and_keeps_cooldown(monkeypatch) -> None:
             "services.fishing_service.InventoryRepository.grant_many",
             _raise_capacity,
         )
-        response = service.process_cast(
+        service.process_cast(
             twitch_id=user.user_twitch_id,
             username=user.username,
             channel_id=channel.twitch_id,

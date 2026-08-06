@@ -149,7 +149,11 @@ def test_versioned_discord_admin_workflow_is_atomic_and_audited() -> None:
             DiscordEventCreateRequest(
                 event_title="Lake boost",
                 override_loot_pool="lake",
-                modifiers={"luck_mult": "1.2", "bonus_mass": "0.15"},
+                modifiers={
+                    "schema_version": 2,
+                    "fish_luck_change_percent": "20",
+                    "positive_fish_reward_change_percent": "15",
+                },
             ),
         )
         started = service.start_event(

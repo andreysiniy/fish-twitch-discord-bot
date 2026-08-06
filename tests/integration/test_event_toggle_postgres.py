@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from infrastructure.database import SessionLocal
-from infrastructure.models import Channel, FishingEvent, UserProgress
+from infrastructure.models import Channel, FishingEvent
 from infrastructure.repositories.channel_repo import ChannelRepository
 from services.admin_service import AdminService
 

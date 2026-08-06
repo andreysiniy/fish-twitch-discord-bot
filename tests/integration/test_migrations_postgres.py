@@ -1095,7 +1095,7 @@ def test_cast_trace_backfill_recovers_probability_and_roll_from_jsonb() -> None:
 
         with engine.connect() as connection:
             ctx = MigrationContext.configure(connection)
-            ops = Operations(ctx)
+            ops = Operations(ctx)  # noqa: F841 - reused by the backfill helper
             # Re-run backfill via the same SQL used in the migration.
             connection.execute(
                 text("UPDATE fishing_casts SET reward_probability = COALESCE("
