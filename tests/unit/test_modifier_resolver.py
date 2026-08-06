@@ -12,7 +12,7 @@ def contribution(
     priority: int = 0,
 ) -> ModifierContribution:
     return ModifierContribution(
-        stat=StatKey.POSITIVE_MASS_BONUS_PCT,
+        stat=StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO,
         operation=operation,
         value=Decimal(value),
         source_type="item",
@@ -32,8 +32,8 @@ def test_resolver_uses_documented_operation_order_and_breakdown() -> None:
             contribution(ModifierOperation.MAX, "0.90"),
         ],
         ModifierScope.FISHING,
-        {StatKey.POSITIVE_MASS_BONUS_PCT: Decimal("0.10")},
-    )[StatKey.POSITIVE_MASS_BONUS_PCT]
+        {StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO: Decimal("0.10")},
+    )[StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO]
 
     assert resolved.additive_total == Decimal("0.25")
     assert resolved.multiplier == Decimal("2")
@@ -49,11 +49,11 @@ def test_override_is_priority_ordered_then_registry_clamped() -> None:
             contribution(ModifierOperation.OVERRIDE, "99", priority=20),
         ],
         ModifierScope.FISHING,
-    )[StatKey.POSITIVE_MASS_BONUS_PCT]
+    )[StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO]
 
     assert resolved.override == Decimal("99")
     assert resolved.unclamped == Decimal("99")
-    assert resolved.value == Decimal("10")
+    assert resolved.value == Decimal("2.00")
 
 
 def test_negative_multiplier_and_conflicting_bounds_are_rejected() -> None:

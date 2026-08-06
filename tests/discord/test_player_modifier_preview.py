@@ -5,7 +5,7 @@ def test_player_modifier_preview_shows_resolved_and_warning_for_override() -> No
     embed = register._player_modifier_preview_embed(
         user_twitch_id="viewer_one",
         scope="fishing",
-        stat_key="loot_luck_pct",
+        stat_key="fish_luck_change_ratio",
         op_label="Override",
         value="0.50",
         current_resolved="0.05",
@@ -24,7 +24,7 @@ def test_player_modifier_preview_neutral_has_no_warning() -> None:
     embed = register._player_modifier_preview_embed(
         user_twitch_id="viewer_one",
         scope="fishing",
-        stat_key="xp_gain_bonus_pct",
+        stat_key="xp_gain_change_ratio",
         op_label="Add",
         value="0.10",
         current_resolved="0.00",

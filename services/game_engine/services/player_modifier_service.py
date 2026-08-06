@@ -3,7 +3,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from domain.item_schema import STAT_REGISTRY, ModifierOperation, ModifierScope, StatKey
+from domain.item_schema import (
+    STAT_REGISTRY,
+    ModifierOperation,
+    ModifierScope,
+    StatKey,
+    migrate_stat_key,
+)
 from domain.modifier_resolver import (
     ModifierContribution,
     PlayerModifierResolver,
@@ -100,7 +106,9 @@ class PlayerModifierService:
                         }
                     )
                     continue
-                stat = StatKey(str(effect["stat"]))
+                stat, effect_value = migrate_stat_key(
+                    str(effect["stat"]), Decimal(str(effect["value"]))
+                )
                 definition_data = STAT_REGISTRY[stat]
                 if scope not in definition_data.scopes:
                     continue
@@ -112,7 +120,7 @@ class PlayerModifierService:
                             if effect_type == "stat_add"
                             else ModifierOperation.MULTIPLY
                         ),
-                        value=Decimal(str(effect["value"])),
+                        value=effect_value,
                         source_type="item",
                         source_key=f"{item.id}:{effect_index}",
                         label=definition.title,
@@ -144,17 +152,17 @@ class PlayerModifierService:
         mass_bonus = Decimal(str(modifiers.get("bonus_mass", 0)))
         mapped.extend(
             [
-                (StatKey.LOOT_LUCK_PCT, luck_mult - Decimal("1"), "luck_mult"),
-                (StatKey.XP_GAIN_BONUS_PCT, xp_mult - Decimal("1"), "xp_mult"),
-                (StatKey.COOLDOWN_REDUCTION_PCT, cooldown_reduction, "cd_reduction"),
-                (StatKey.POSITIVE_MASS_BONUS_PCT, mass_bonus, "bonus_mass"),
+                (StatKey.FISH_LUCK_CHANGE_RATIO, luck_mult - Decimal("1"), "luck_mult"),
+                (StatKey.XP_GAIN_CHANGE_RATIO, xp_mult - Decimal("1"), "xp_mult"),
+                (StatKey.COOLDOWN_CHANGE_RATIO, -cooldown_reduction, "cd_reduction"),
+                (StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO, mass_bonus, "bonus_mass"),
             ]
         )
         if mass_bonus > 0:
             mapped.append(
                 (
-                    StatKey.NEGATIVE_MASS_REDUCTION_PCT,
-                    mass_bonus / (Decimal("1") + mass_bonus),
+                    StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO,
+                    -(mass_bonus / (Decimal("1") + mass_bonus)),
                     "bonus_mass",
                 )
             )
@@ -181,11 +189,11 @@ class PlayerModifierService:
 
         payload = EventModifiersV2(**modifiers).to_resolver_payload()
         stat_keys = {
-            "loot_luck_pct": StatKey.LOOT_LUCK_PCT,
-            "positive_mass_bonus_pct": StatKey.POSITIVE_MASS_BONUS_PCT,
-            "negative_mass_reduction_pct": StatKey.NEGATIVE_MASS_REDUCTION_PCT,
-            "xp_gain_bonus_pct": StatKey.XP_GAIN_BONUS_PCT,
-            "cooldown_reduction_pct": StatKey.COOLDOWN_REDUCTION_PCT,
+            "fish_luck_change_ratio": StatKey.FISH_LUCK_CHANGE_RATIO,
+            "positive_fish_reward_change_ratio": StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO,
+            "negative_fish_reward_change_ratio": StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO,
+            "xp_gain_change_ratio": StatKey.XP_GAIN_CHANGE_RATIO,
+            "cooldown_change_ratio": StatKey.COOLDOWN_CHANGE_RATIO,
             "item_drop_chance_add": StatKey.ITEM_DROP_CHANCE_ADD,
             "item_rarity_luck_pct": StatKey.ITEM_RARITY_LUCK_PCT,
             "robbery_protection_pct": StatKey.ROBBERY_PROTECTION_PCT,
@@ -228,7 +236,7 @@ class PlayerModifierService:
         )
         contributions: list[ModifierContribution] = []
         for row in rows:
-            stat = StatKey(row.stat_key)
+            stat, row_value = migrate_stat_key(row.stat_key, Decimal(row.value))
             row_scope = ModifierScope(row.scope)
             if row_scope not in {scope, ModifierScope.ALL}:
                 continue
@@ -238,7 +246,7 @@ class PlayerModifierService:
                 ModifierContribution(
                     stat=stat,
                     operation=ModifierOperation(row.operation),
-                    value=Decimal(row.value),
+                    value=row_value,
                     source_type="player_modifier",
                     source_key=row.source_key,
                     label=row.reason,

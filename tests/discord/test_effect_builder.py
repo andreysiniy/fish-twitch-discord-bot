@@ -7,19 +7,19 @@ from app.interactions.effect_builder import (
 
 
 def test_serialize_stat_add_effect() -> None:
-    effect = serialize_draft({"type": "stat_add", "stat": "loot_luck_pct", "value": "0.10"})
+    effect = serialize_draft({"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"})
     assert effect["trigger"] == "passive"
     assert effect["value"] == "0.10"
 
 
 def test_serialize_stat_multiply_preserves_trigger() -> None:
-    effect = serialize_draft({"type": "stat_multiply", "stat": "xp_gain_bonus_pct", "value": "2"})
+    effect = serialize_draft({"type": "stat_multiply", "stat": "xp_gain_change_ratio", "value": "2"})
     assert effect["type"] == "stat_multiply"
     assert effect["value"] == "2"
 
 
 def test_describe_passive_effect_shows_percent() -> None:
-    text = describe_effect({"type": "stat_add", "stat": "positive_mass_bonus_pct", "value": "0.05"})
+    text = describe_effect({"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"})
     assert "Positive Mass Bonus" in text or "positive_mass_bonus_pct" in text
     assert "5%" in text
 

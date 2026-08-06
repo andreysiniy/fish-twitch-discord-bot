@@ -200,6 +200,8 @@ DEFAULT_MESSAGES = {
         "🛟 Bad Catch: {bad_catch_fmt} | "
         "✨ XP: {xp_fmt} | "
         "⏱ CD: {cd_fmt} | "
+        "📦 Item Drop: {item_drop_fmt} | "
+        "💎 Item Rarity: {item_rarity_fmt} | "
         "🏆 Rank: #{rank} (Total: {total_mass})"
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
@@ -232,6 +234,8 @@ PLACEHOLDER_DESCRIPTIONS = {
     "bad_catch_fmt": "Formatted negative catch reduction.",
     "cd_fmt": "Formatted fishing cooldown change.",
     "good_catch_fmt": "Formatted positive catch bonus.",
+    "item_drop_fmt": "Formatted item drop chance change.",
+    "item_rarity_fmt": "Formatted item rarity luck change.",
     "luck_fmt": "Formatted luck bonus.",
     "mass": "Fish mass involved in the operation.",
     "max": "Maximum inventory capacity.",

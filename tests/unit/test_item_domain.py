@@ -24,7 +24,7 @@ def test_equipment_requires_known_slot_and_single_stack() -> None:
         effects=[
             {
                 "type": "stat_add",
-                "stat": "positive_mass_bonus_pct",
+                "stat": "positive_fish_reward_change_ratio",
                 "value": "0.15",
             }
         ],
@@ -76,7 +76,9 @@ def test_unknown_or_out_of_range_effect_is_rejected() -> None:
 def test_registry_defines_caps_and_scopes_for_every_stat() -> None:
     assert set(STAT_REGISTRY) == set(StatKey)
     assert ModifierScope.ROBBERY in STAT_REGISTRY[StatKey.ROBBERY_PROTECTION_PCT].scopes
-    assert STAT_REGISTRY[StatKey.NEGATIVE_MASS_REDUCTION_PCT].maximum == Decimal("0.95")
+    assert STAT_REGISTRY[StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO].maximum == Decimal("1.00")
+    assert STAT_REGISTRY[StatKey.FISH_LUCK_CHANGE_RATIO].maximum == Decimal("1.00")
+    assert STAT_REGISTRY[StatKey.COOLDOWN_CHANGE_RATIO].minimum == Decimal("-0.80")
     assert STAT_REGISTRY[StatKey.INVENTORY_SLOTS_ADD].value_type == "integer"
 
 
@@ -140,9 +142,9 @@ def test_admin_item_contract_rejects_legacy_free_form_stats() -> None:
         effects=[
             {
                 "type": "stat_add",
-                "stat": "loot_luck_pct",
+                "stat": "fish_luck_change_ratio",
                 "value": "0.10",
             }
         ],
     )
-    assert item.effects[0].stat == StatKey.LOOT_LUCK_PCT
+    assert item.effects[0].stat == StatKey.FISH_LUCK_CHANGE_RATIO

@@ -56,7 +56,7 @@ def test_build_payload_carries_version_fields() -> None:
 
 def test_effects_preview_human_readable() -> None:
     text = effects_preview(
-        [{"type": "stat_add", "stat": "positive_mass_bonus_pct", "value": "0.05"}]
+        [{"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"}]
     )
     assert "•" in text
     assert "Positive Mass Bonus" in text or "positive_mass_bonus_pct" in text
@@ -75,7 +75,7 @@ def test_item_preview_view_embed_renders() -> None:
             "equipment_slot": "rod",
             "rarity": "epic",
             "description": "мощная",
-            "effects": [{"type": "stat_add", "stat": "loot_luck_pct", "value": "0.05"}],
+            "effects": [{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}],
         },
         lambda *_: None,
     )

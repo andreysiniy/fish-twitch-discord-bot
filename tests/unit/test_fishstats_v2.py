@@ -1,5 +1,7 @@
 
 from core.messages import DEFAULT_MESSAGES, PLACEHOLDER_DESCRIPTIONS, MsgKey, resolve_message
+from decimal import Decimal
+
 from domain.schemas.fishing import PlayerStatsDTO
 
 
@@ -46,8 +48,8 @@ def test_resist_only_means_robbery_in_placeholder_catalog() -> None:
 def test_player_stats_dto_carries_v2_bonuses() -> None:
     dto = PlayerStatsDTO(
         rod_name="No rod",
-        good_catch_bonus=0.05,
-        cd_bonus=0.50,
+        positive_fish_reward_change_percent=Decimal("5"),
+        cooldown_change_percent=Decimal("-50"),
     )
-    assert dto.good_catch_bonus == 0.05
-    assert dto.cd_bonus == 0.50
+    assert dto.positive_fish_reward_change_percent == Decimal("5")
+    assert dto.cooldown_change_percent == Decimal("-50")

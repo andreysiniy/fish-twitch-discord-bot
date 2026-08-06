@@ -7,7 +7,7 @@ def test_effects_editor_embed_lists_draft_effects() -> None:
         initiator_id=1,
         effects=[
             serialize_draft(
-                {"type": "stat_add", "stat": "positive_mass_bonus_pct", "value": "0.10"}
+                {"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.10"}
             ),
             {"type": "grant_mass", "mass": "5"},
         ],
@@ -15,7 +15,7 @@ def test_effects_editor_embed_lists_draft_effects() -> None:
     )
     embed = view._embed()
     fields = {f.name: f.value for f in embed.fields}
-    assert "positive_mass_bonus_pct" in fields["Effects"]
+    assert "positive_fish_reward_change_ratio" in fields["Effects"]
     assert "1." in fields["Effects"]
     assert "2." in fields["Effects"]
     assert view.effects

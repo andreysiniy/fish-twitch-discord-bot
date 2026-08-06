@@ -32,7 +32,14 @@ def build_result_snapshot(result: FishingResult) -> dict:
             "is_level_up": result.is_level_up,
             "old_level": result.old_level,
             "new_level": result.new_level,
-            "luck_used": str(result.luck_used),
+            "fish_luck_factor_used": str(result.fish_luck_factor_used),
+            "positive_fish_factor_used": str(result.positive_fish_factor_used),
+            "negative_fish_factor_used": str(result.negative_fish_factor_used),
+            "effective_percentage": (
+                str(result.effective_percentage)
+                if result.effective_percentage is not None
+                else None
+            ),
             "durability_loss": result.durability_loss,
             "broken_item_name": result.broken_item_name,
             "robbery_result": (

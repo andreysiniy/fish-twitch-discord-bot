@@ -635,3 +635,97 @@ def test_location_items_are_migrated_into_loot_tables() -> None:
         with admin.cursor() as cursor:
             cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
         admin.close()
+
+
+@pytest.mark.integration
+def test_modifier_stat_keys_are_renamed_with_sign_flips() -> None:
+    """Upgrade 0019 rewrites legacy stat keys and flips reduction signs."""
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_mod_v2_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}\n").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "20260802_0018")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO channels (twitch_id, name, is_active, config, "
+                    "config_version, config_updated_at) VALUES ('mod2','MOD2','t','{}',1,now())"
+                )
+            )
+            channel_id = connection.execute(
+                text("SELECT id FROM channels WHERE twitch_id='mod2'")
+            ).scalar()
+            user_id = connection.execute(
+                text(
+                    "INSERT INTO users_progress (user_twitch_id, username, channel_id, "
+                    "current_mass, total_mass_stat) VALUES ('viewer','viewer',:cid,100,100) "
+                    "RETURNING id"
+                ),
+                {"cid": channel_id},
+            ).scalar()
+            connection.execute(
+                text(
+                    "INSERT INTO player_modifiers (id, channel_id, user_progress_id, stat_key, "
+                    "value, operation, scope, source_key, reason, is_enabled, "
+                    "created_by_twitch_id) "
+                    "VALUES (:pid,:cid,:uid,'negative_mass_reduction_pct',0.20,'add','fishing',"
+                    "'promo','Legacy reduction',true,'owner')"
+                ),
+                {"pid": str(uuid.uuid4()), "cid": channel_id, "uid": user_id},
+            )
+            definition_id = connection.execute(
+                text(
+                    "INSERT INTO item_definitions (channel_id, item_id, title, type, "
+                    "slot, rarity, stack_size, effects) SELECT id,'legacy_rod','Rod',"
+                    "'equipment','rod','rare',1,CAST(:effects AS jsonb) "
+                    "FROM channels WHERE twitch_id='mod2' RETURNING id"
+                ),
+                {
+                    "effects": (
+                        '[{"type":"stat_add","stat":"loot_luck_pct","value":0.05},'
+                        '{"type":"stat_add","stat":"cooldown_reduction_pct","value":0.1}]'
+                    )
+                },
+            ).scalar()
+        command.upgrade(alembic_config, "head")
+
+        with engine.connect() as connection:
+            stat_key, value = connection.execute(
+                text(
+                    "SELECT stat_key, value FROM player_modifiers "
+                    "WHERE user_progress_id = :uid"
+                ),
+                {"uid": user_id},
+            ).one()
+            assert stat_key == "negative_fish_reward_change_ratio"
+            assert float(value) == pytest.approx(-0.20)
+            effects = connection.execute(
+                text("SELECT effects FROM item_definitions WHERE id = :did"),
+                {"did": definition_id},
+            ).scalar()
+            assert effects[0]["stat"] == "fish_luck_change_ratio"
+            assert float(effects[0]["value"]) == pytest.approx(0.05)
+            assert effects[1]["stat"] == "cooldown_change_ratio"
+            assert float(effects[1]["value"]) == pytest.approx(-0.1)
+        command.check(alembic_config)
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("DROP DATABASE IF EXISTS {}\n").format(sql.Identifier(database_name)))
+        admin.close()

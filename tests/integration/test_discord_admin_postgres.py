@@ -209,7 +209,7 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
             channel.twitch_id,
             player.user_twitch_id,
             PlayerModifierSetRequest(
-                stat_key="positive_mass_bonus_pct",
+                stat_key="positive_fish_reward_change_ratio",
                 operation="add",
                 value="0.25",
                 scope="fishing",
@@ -225,7 +225,7 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
             player.user_twitch_id,
             ModifierScope.FISHING,
         )
-        stat = explained["stats"]["positive_mass_bonus_pct"]
+        stat = explained["stats"]["positive_fish_reward_change_ratio"]
         assert stat["value"] == "0.25000000"
         assert stat["contributions"][0]["label"] == "Weekly promotion"
 
@@ -234,7 +234,7 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
             channel.twitch_id,
             player.user_twitch_id,
             PlayerModifierSetRequest(
-                stat_key="loot_luck_pct",
+                stat_key="fish_luck_change_ratio",
                 operation="add",
                 value="0.10",
                 scope="fishing",
@@ -252,7 +252,7 @@ def test_player_modifier_workflow_is_versioned_audited_and_explainable() -> None
             channel.twitch_id,
             player.username,
         )
-        assert profile.stats.luck_bonus == pytest.approx(0.1)
+        assert profile.stats.fish_luck_change_percent == pytest.approx(10)
 
         actions = {row.action for row in db.query(AdminAuditLog).all()}
         assert "player_modifier.set" in actions
@@ -314,7 +314,7 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
                 effects=[
                     {
                         "type": "stat_add",
-                        "stat": "loot_luck_pct",
+                        "stat": "fish_luck_change_ratio",
                         "value": "0.10",
                     }
                 ],

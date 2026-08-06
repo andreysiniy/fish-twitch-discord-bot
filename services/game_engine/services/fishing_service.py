@@ -6,7 +6,7 @@ from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, format_percent_signed, resolve_message
 from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
-from domain.logic.mass import ZERO_MASS, quantize_mass
+from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
     FishCooldownResponse,
@@ -78,10 +78,13 @@ class FishingService:
             else self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
         )
         cooldown_multiplier = max(
-            1.0 - float(fishing_modifiers.value(StatKey.COOLDOWN_REDUCTION_PCT)),
-            0.0,
+            Decimal("1")
+            + fishing_modifiers.value(StatKey.COOLDOWN_CHANGE_RATIO),
+            Decimal("0"),
         )
-        cooldown_duration = max(int(round(cooldown_duration * cooldown_multiplier)), 0)
+        cooldown_duration = max(
+            int(round(to_decimal(cooldown_duration) * cooldown_multiplier)), 0
+        )
 
         if cooldown_duration > 0:
             is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
@@ -454,9 +457,13 @@ class FishingService:
                     "current_mass": ZERO_MASS,
                     "total_fish_stat": 0,
                     "rod_name": "No rod equipped",
-                    "luck_bonus": 0.0,
-                    "resist_bonus": 0.0,
-                    "xp_bonus_pct": 0.0,
+                    "fish_luck_change_percent": Decimal("0"),
+                    "positive_fish_reward_change_percent": Decimal("0"),
+                    "negative_fish_reward_change_percent": Decimal("0"),
+                    "xp_gain_change_percent": Decimal("0"),
+                    "cooldown_change_percent": Decimal("0"),
+                    "item_drop_chance_add_pp": Decimal("0"),
+                    "item_rarity_luck_change_percent": Decimal("0"),
                     "rank": 0,
                     "total_mass_stat": ZERO_MASS,
                 },
@@ -464,15 +471,27 @@ class FishingService:
 
         stats = calculate_player_stats(user)
         resolved = self.modifier_service.resolve(user, ModifierScope.FISHING)
-        stats["luck_bonus"] = float(resolved.value(StatKey.LOOT_LUCK_PCT))
-        stats["resolve_bad_catch"] = float(
-            resolved.value(StatKey.NEGATIVE_MASS_REDUCTION_PCT)
+        stats["fish_luck_change_percent"] = to_decimal(
+            resolved.value(StatKey.FISH_LUCK_CHANGE_RATIO) * Decimal("100")
         )
-        stats["good_catch_bonus"] = float(
-            resolved.value(StatKey.POSITIVE_MASS_BONUS_PCT)
+        stats["positive_fish_reward_change_percent"] = to_decimal(
+            resolved.value(StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO) * Decimal("100")
         )
-        stats["cd_bonus"] = float(resolved.value(StatKey.COOLDOWN_REDUCTION_PCT))
-        stats["xp_bonus_pct"] = float(resolved.value(StatKey.XP_GAIN_BONUS_PCT))
+        stats["negative_fish_reward_change_percent"] = to_decimal(
+            resolved.value(StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO) * Decimal("100")
+        )
+        stats["xp_gain_change_percent"] = to_decimal(
+            resolved.value(StatKey.XP_GAIN_CHANGE_RATIO) * Decimal("100")
+        )
+        stats["cooldown_change_percent"] = to_decimal(
+            resolved.value(StatKey.COOLDOWN_CHANGE_RATIO) * Decimal("100")
+        )
+        stats["item_drop_chance_add_pp"] = to_decimal(
+            resolved.value(StatKey.ITEM_DROP_CHANCE_ADD) * Decimal("100")
+        )
+        stats["item_rarity_luck_change_percent"] = to_decimal(
+            resolved.value(StatKey.ITEM_RARITY_LUCK_PCT) * Decimal("100")
+        )
         channel_config = user.channel.config or {}
         custom_params = channel_config.get("custom_params", {})
         xp_base = int(resolve_param(custom_params, GParam.XP_BASE))
@@ -491,11 +510,13 @@ class FishingService:
             xp=stats["xp"],
             xp_next=stats["xp_to_next_level"],
             rod_name=stats["rod_name"],
-            luck_fmt=format_percent_signed(stats["luck_bonus"]),
-            good_catch_fmt=format_percent_signed(stats["good_catch_bonus"]),
-            bad_catch_fmt=format_percent_signed(stats["resolve_bad_catch"]),
-            cd_fmt=format_percent_signed(stats["cd_bonus"]),
-            xp_fmt=format_percent_signed(stats["xp_bonus_pct"]),
+            luck_fmt=format_percent_signed(stats["fish_luck_change_percent"]),
+            good_catch_fmt=format_percent_signed(stats["positive_fish_reward_change_percent"]),
+            bad_catch_fmt=format_percent_signed(stats["negative_fish_reward_change_percent"]),
+            cd_fmt=format_percent_signed(stats["cooldown_change_percent"]),
+            xp_fmt=format_percent_signed(stats["xp_gain_change_percent"]),
+            item_drop_fmt=format_percent_signed(stats["item_drop_chance_add_pp"]),
+            item_rarity_fmt=format_percent_signed(stats["item_rarity_luck_change_percent"]),
             current_mass=format_large_number_mass(stats["current_mass"]),
             total_fish_stat=stats["total_fish_stat"],
             rank=rank,
@@ -573,15 +594,15 @@ class FishingService:
         cooldown_duration = self._resolve_cooldown_duration(custom_params, is_mod, is_sub)
         if channel:
             user = self.user_repo.get_progress(twitch_id, channel_id)
-            reduction = (
+            change_ratio = (
                 self.modifier_service.resolve(user, ModifierScope.FISHING).value(
-                    StatKey.COOLDOWN_REDUCTION_PCT
+                    StatKey.COOLDOWN_CHANGE_RATIO
                 )
                 if user
                 else ZERO_MASS
             )
             cooldown_duration = max(
-                int(round(cooldown_duration * max(1.0 - float(reduction), 0.0))), 0
+                int(round(to_decimal(cooldown_duration) * max(Decimal("1") + change_ratio, Decimal("0")))), 0
             )
         is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
         return self.presenter.build_cooldown_status_response(
