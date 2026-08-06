@@ -501,6 +501,14 @@ def list_recent_casts(
     status: str | None = Query(None),
     location_id: str | None = Query(None),
     reward_type: str | None = Query(None),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    username: str | None = Query(None),
+    event_id: int | None = Query(None),
+    item_id: str | None = Query(None),
+    has_item: bool | None = Query(None),
+    min_mass_delta: float | None = Query(None),
+    max_mass_delta: float | None = Query(None),
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
 ):
@@ -513,6 +521,14 @@ def list_recent_casts(
         status=status,
         location_id=location_id,
         reward_type=reward_type,
+        start=start,
+        end=end,
+        username=username,
+        event_id=event_id,
+        item_id=item_id,
+        has_item=has_item,
+        min_mass_delta=min_mass_delta,
+        max_mass_delta=max_mass_delta,
     )
 
 

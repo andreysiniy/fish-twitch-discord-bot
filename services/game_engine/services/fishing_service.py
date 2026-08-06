@@ -1,7 +1,12 @@
+import logging
 import random
+import time
+from datetime import datetime
 from decimal import Decimal
 
+from core import metrics as metrics_module
 from core.action_types import ActionType
+from core.config import settings
 from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, format_percent_signed, resolve_message
 from domain.item_schema import ModifierScope, StatKey
@@ -10,11 +15,12 @@ from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
     FishCooldownResponse,
+    FishResponse,
     FishStatsResponse,
     FishTopResponse,
     RobberyResultDTO,
 )
-from infrastructure.models import FishingCast, UserProgress
+from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
@@ -53,17 +59,20 @@ class FishingService:
         bypass_cooldown: bool = False,
         source: str = "twitch",
         source_request_id: str | None = None,
+        requested_at: datetime | None = None,
     ):
+        started_monotonic = time.monotonic()
         user = self.user_repo.get_progress(twitch_id, channel_id)
         if not user:
             user = self.user_repo.create(twitch_id, username, channel_id)
 
         replay = self.ledger.find_replay(user.channel_id, source, source_request_id)
         if replay is not None and replay.response_snapshot:
-            from domain.schemas.fishing import FishResponse
-
             try:
-                return FishResponse(**replay.response_snapshot)
+                response = FishResponse(**replay.response_snapshot)
+                response.is_replayed = True
+                metrics_module.count_duplicate_request()
+                return response
             except Exception:
                 # Corrupt replay snapshot; fall through to process normally.
                 pass
@@ -89,6 +98,24 @@ class FishingService:
         if cooldown_duration > 0:
             is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
             if is_active:
+                if settings.FISHING_CAST_LEDGER_ENABLED:
+                    try:
+                        self.ledger.record_rejected(
+                            channel_id=user.channel_id,
+                            user_progress_id=user.id,
+                            twitch_user_id=twitch_id,
+                            username=username,
+                            location_id=user.current_location_id or "default",
+                            status="cooldown_rejected",
+                            source=source,
+                            source_request_id=source_request_id,
+                        )
+                    except Exception as error:  # pragma: no cover - defensive
+                        if settings.FISHING_CAST_LEDGER_STRICT:
+                            raise
+                        logging.getLogger("fishing.ledger").warning(
+                            "Failed to record cooldown-rejected cast", exc_info=error
+                        )
                 return self.presenter.build_cooldown_response(
                     user=user, cooldown_duration=cooldown_duration, cooldown_left=seconds_left
                 )
@@ -216,10 +243,33 @@ class FishingService:
                 cooldown_duration=cooldown_duration,
                 source=source,
                 source_request_id=source_request_id,
+                requested_at=requested_at,
+                modifier_explanation=fishing_modifiers.explain(),
+                triggered_effects=behavioral_effects,
+                item_pool=item_pool,
+                items_drop_rate=rate,
+                duration_ms=int((time.monotonic() - started_monotonic) * 1000),
             )
             if cast is not None:
-                response.cast_id = cast.id
+                response.cast_id = str(cast.id)
                 cast.response_snapshot = response.model_dump(mode="json")
+                metrics_module.count_cast(
+                    status="resolved", reward_type=str(result.loot.get("type"))
+                )
+                logging.getLogger("fishing.cast").info(
+                    "fishing_cast_recorded",
+                    extra={
+                        "fishing_cast": {
+                            "cast_id": str(cast.id),
+                            "channel_id": user.channel_id,
+                            "user_progress_id": user.id,
+                            "source_request_id": source_request_id,
+                            "stage": "resolved",
+                            "status": "resolved",
+                            "reward_type": str(result.loot.get("type")),
+                        }
+                    },
+                )
         return response
 
     def _record_resolved_cast(
@@ -234,7 +284,15 @@ class FishingService:
         cooldown_duration: int,
         source: str,
         source_request_id: str,
+        requested_at: datetime | None = None,
+        modifier_explanation: dict | None = None,
+        triggered_effects: list | None = None,
+        item_pool: list | None = None,
+        items_drop_rate: float | None = None,
+        duration_ms: int | None = None,
     ) -> "FishingCast | None":
+        if not settings.FISHING_CAST_LEDGER_ENABLED:
+            return None
         try:
             event = self.strategy_resolver.channel_repo.get_active_fishing_event(user.channel_id)
             event_snapshot = (
@@ -254,6 +312,24 @@ class FishingService:
                 if hasattr(self.cooldown_repo, "next_available_at")
                 else None
             )
+            item_loot_table_id = None
+            item_loot_table_version = None
+            pool = (
+                self.user_repo.db.query(RewardPool)
+                .filter(
+                    RewardPool.channel_id == user.channel_id,
+                    RewardPool.location_id == (user.current_location_id or "default"),
+                )
+                .first()
+            )
+            if pool is not None and pool.item_loot_table_id is not None:
+                item_loot_table_id = pool.item_loot_table_id
+                table = (
+                    self.user_repo.db.query(LootTable)
+                    .filter(LootTable.id == item_loot_table_id)
+                    .first()
+                )
+                item_loot_table_version = table.version if table else None
             cast = self.ledger.record_resolved(
                 user=user,
                 result=result,
@@ -268,12 +344,21 @@ class FishingService:
                 bypass_cooldown=bypass_cooldown,
                 cooldown_seconds_applied=cooldown_duration,
                 next_available_at=next_available,
+                requested_at=requested_at,
+                modifier_explanation=modifier_explanation,
+                triggered_effects=triggered_effects,
+                item_entries=item_pool or [],
+                items_drop_rate=items_drop_rate,
+                item_loot_table_id=item_loot_table_id,
+                item_loot_table_version=item_loot_table_version,
+                duration_ms=duration_ms,
             )
             cast.rng_trace = result.rng_stages or cast.rng_trace
             return cast
         except Exception as error:  # pragma: no cover - defensive
-            import logging
-
+            metrics_module.count_cast_persist_failure()
+            if settings.FISHING_CAST_LEDGER_STRICT:
+                raise
             logging.getLogger("fishing.ledger").warning(
                 "Failed to record fishing cast", exc_info=error
             )

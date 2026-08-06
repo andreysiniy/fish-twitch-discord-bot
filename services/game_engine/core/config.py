@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     RETENTION_REJECTED_CAST_DAYS: int = 60
     RETENTION_EXPIRED_IDEMPOTENCY_DAYS: int = 30
 
+    # Fishing cast ledger rollout controls (plan Stage 8).
+    FISHING_CAST_LEDGER_ENABLED: bool = True
+    FISHING_CAST_LEDGER_STRICT: bool = False
+
     @property
     def DATABASE_URL(self) -> str:
         if self.DATABASE_URL_OVERRIDE:

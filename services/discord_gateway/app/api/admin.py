@@ -491,6 +491,47 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/fishing-casts?{'&'.join(query)}",
         )
 
+    async def search_casts(
+        self,
+        interaction,
+        *,
+        limit: int = 20,
+        user_twitch_id: str | None = None,
+        username: str | None = None,
+        status: str | None = None,
+        location_id: str | None = None,
+        reward_type: str | None = None,
+        item_id: str | None = None,
+        has_item: bool | None = None,
+        min_mass_delta: float | None = None,
+        max_mass_delta: float | None = None,
+    ) -> dict[str, Any]:
+        channel = await self.channel_id(interaction)
+        query: list[str] = [f"limit={limit}"]
+        if user_twitch_id:
+            query.append(f"user_twitch_id={user_twitch_id}")
+        if username:
+            query.append(f"username={username}")
+        if status:
+            query.append(f"status={status}")
+        if location_id:
+            query.append(f"location_id={location_id}")
+        if reward_type:
+            query.append(f"reward_type={reward_type}")
+        if item_id:
+            query.append(f"item_id={item_id}")
+        if has_item is not None:
+            query.append(f"has_item={str(has_item).lower()}")
+        if min_mass_delta is not None:
+            query.append(f"min_mass_delta={min_mass_delta}")
+        if max_mass_delta is not None:
+            query.append(f"max_mass_delta={max_mass_delta}")
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/fishing-casts?{'&'.join(query)}",
+        )
+
     async def cast_detail(
         self, interaction, cast_id: str, *, include_technical: bool = False
     ) -> dict[str, Any]:

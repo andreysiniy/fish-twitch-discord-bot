@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from domain.logic.mass import quantize_mass
@@ -13,7 +14,25 @@ from services.fishing import trace_builder
 
 CAST_STATUS_RESOLVED = "resolved"
 CAST_STATUS_FAILED = "failed"
+CAST_STATUS_COOLDOWN_REJECTED = "cooldown_rejected"
+CAST_STATUS_VALIDATION_REJECTED = "validation_rejected"
 MODIFIER_SCHEMA_VERSION = 2
+
+
+def _trace_value(trace: dict | None, key: str):
+    """Extract a key from a WeightedRollResult.as_dict() payload."""
+    if not trace or not isinstance(trace, dict):
+        return None
+    return trace.get(key)
+
+
+def _decimal_or_none(value) -> Any:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return None
 
 
 class FishingLedgerService:
@@ -46,6 +65,8 @@ class FishingLedgerService:
         event_snapshot: dict,
         effective_params_snapshot: dict,
         engine_version: str,
+        item_loot_table_id: int | None = None,
+        item_loot_table_version: int | None = None,
     ) -> tuple[str, bool]:
         """Return (snapshot_id, is_new) for the canonical static rules."""
         payload = snapshot_service.build_ruleset_snapshot_payload(
@@ -59,6 +80,8 @@ class FishingLedgerService:
             engine_version=engine_version,
             event_snapshot=event_snapshot,
             effective_params_snapshot=effective_params_snapshot,
+            item_loot_table_id=item_loot_table_id,
+            item_loot_table_version=item_loot_table_version,
         )
         ruleset_hash = snapshot_service.snapshot_hash(payload)
         existing = self.repo.find_snapshot_by_hash(user.channel_id, ruleset_hash)
@@ -77,6 +100,8 @@ class FishingLedgerService:
             engine_version=engine_version,
             reward_pool_id=pool.id if pool else None,
             reward_pool_version=pool.version if pool else None,
+            item_loot_table_id=item_loot_table_id,
+            item_loot_table_version=item_loot_table_version,
             event_id=event_snapshot.get("id") if event_snapshot else None,
             event_version=event_snapshot.get("version") if event_snapshot else None,
         )
@@ -93,12 +118,20 @@ class FishingLedgerService:
         engine_version: str,
         source: str = "twitch",
         source_request_id: str | None = None,
+        requested_at=None,
         is_mod: bool = False,
         is_sub: bool = False,
         bypass_cooldown: bool = False,
         cooldown_seconds_applied: int = 0,
         next_available_at=None,
         ruleset_snapshot_id: str | None = None,
+        modifier_explanation: dict | None = None,
+        triggered_effects: list | None = None,
+        item_entries: list | None = None,
+        items_drop_rate: float | None = None,
+        item_loot_table_id: int | None = None,
+        item_loot_table_version: int | None = None,
+        duration_ms: int | None = None,
     ) -> Any:
         """Create a resolved cast row. The caller commits the transaction.
 
@@ -121,14 +154,21 @@ class FishingLedgerService:
                 user=user,
                 pool=pool,
                 rewards=loot and [loot],
-                item_entries=[],
-                items_drop_rate=0.0,
+                item_entries=item_entries or [],
+                items_drop_rate=items_drop_rate if items_drop_rate is not None else 0.0,
                 channel_config_version=channel_config_version,
                 event_snapshot=event_snapshot,
                 effective_params_snapshot=effective_params_snapshot,
                 engine_version=engine_version,
+                item_loot_table_id=item_loot_table_id,
+                item_loot_table_version=item_loot_table_version,
             )[0]
 
+        explanation = modifier_explanation or {}
+        resolved_modifiers = {
+            stat: values.get("value")
+            for stat, values in explanation.items()
+        }
         cast = self.repo.create_cast(
             channel_id=user.channel_id,
             user_progress_id=user.id,
@@ -145,9 +185,10 @@ class FishingLedgerService:
             bypass_cooldown=bypass_cooldown,
             event_id=(event_snapshot.get("id") if event_snapshot else None),
             event_title_snapshot=(event_snapshot.get("title") if event_snapshot else None),
-            requested_at=now,
+            requested_at=requested_at or now,
             started_at=now,
             resolved_at=now,
+            duration_ms=duration_ms,
             cooldown_seconds_applied=cooldown_seconds_applied,
             next_available_at=next_available_at,
             mass_before=mass_before,
@@ -163,13 +204,19 @@ class FishingLedgerService:
             was_level_up=result.is_level_up,
             reward_id=reward_id,
             reward_type=reward_type,
+            reward_weight=_decimal_or_none(_trace_value(result.reward_roll_trace, "selected_weight")),
+            reward_total_weight=_decimal_or_none(_trace_value(result.reward_roll_trace, "total_weight")),
+            reward_probability=_decimal_or_none(_trace_value(result.reward_roll_trace, "selected_probability")),
+            reward_roll=_decimal_or_none(_trace_value(result.reward_roll_trace, "roll")),
             reward_snapshot=loot,
             item_drop_succeeded=result.item_drop is not None,
             item_drop_count=1 if result.item_drop is not None else 0,
-            resolved_modifiers=json.loads(trace_builder.compact_json({})),
-            modifier_sources=json.loads(trace_builder.compact_json({})),
+            item_drop_probability=result.item_drop_probability,
+            item_drop_roll=result.item_drop_roll,
+            resolved_modifiers=json.loads(trace_builder.compact_json(resolved_modifiers)),
+            modifier_sources=json.loads(trace_builder.compact_json(explanation)),
             equipped_items_snapshot=trace_builder.build_equipped_items_snapshot(user),
-            triggered_effects=[],
+            triggered_effects=json.loads(trace_builder.compact_json(triggered_effects or [])),
             rng_trace=trace_builder.build_rng_trace(result),
             special_result=trace_builder.build_special_result(result),
             result_snapshot=trace_builder.build_result_snapshot(result),
@@ -177,6 +224,40 @@ class FishingLedgerService:
         )
         self._record_item_drop(cast, result)
         return cast
+
+    def record_rejected(
+        self,
+        *,
+        channel_id: int,
+        user_progress_id: int | None,
+        twitch_user_id: str,
+        username: str,
+        location_id: str,
+        status: str = CAST_STATUS_COOLDOWN_REJECTED,
+        error_code: str | None = None,
+        source: str = "twitch",
+        source_request_id: str | None = None,
+    ) -> Any:
+        """Append-only rejection row (cooldown/validation) for the ledger.
+
+        Rejected attempts are kept separate from processed casts; they never
+        carry RNG outcomes or reward rolls.
+        """
+        now = datetime.now(timezone.utc)
+        return self.repo.create_cast(
+            channel_id=channel_id,
+            user_progress_id=user_progress_id,
+            source=source,
+            source_request_id=source_request_id,
+            status=status,
+            error_code=error_code,
+            twitch_user_id_snapshot=twitch_user_id,
+            username_snapshot=username,
+            location_id=location_id,
+            requested_at=now,
+            started_at=now,
+            resolved_at=now,
+        )
 
     def record_failed(
         self,

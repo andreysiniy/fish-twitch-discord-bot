@@ -2074,6 +2074,14 @@ class DiscordAdminService:
         status: str | None = None,
         location_id: str | None = None,
         reward_type: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        username: str | None = None,
+        event_id: int | None = None,
+        item_id: str | None = None,
+        has_item: bool | None = None,
+        min_mass_delta: float | None = None,
+        max_mass_delta: float | None = None,
     ) -> dict:
         channel, _ = self._authorize(context, ChannelPermission.CASTS_READ, channel_twitch_id)
         limit = max(1, min(limit, 100))
@@ -2097,6 +2105,14 @@ class DiscordAdminService:
             status=status,
             location_id=location_id,
             reward_type=reward_type,
+            start=_parse_datetime(start),
+            end=_parse_datetime(end),
+            username=username,
+            event_id=event_id,
+            item_id=item_id,
+            has_item=has_item,
+            min_mass_delta=min_mass_delta,
+            max_mass_delta=max_mass_delta,
         )
         return {
             "items": [self._serialize_cast_summary(cast) for cast in casts],
@@ -2147,7 +2163,7 @@ class DiscordAdminService:
         mass_label = _format_delta(cast.mass_delta_applied)
         xp = int(cast.xp_gained or 0)
         return {
-            "cast_id": cast.id,
+            "cast_id": str(cast.id),
             "requested_at": _iso(cast.requested_at),
             "status": cast.status,
             "username": cast.username_snapshot,
@@ -2171,7 +2187,7 @@ class DiscordAdminService:
             for drop in cast.item_drops
         ]
         detail = {
-            "cast_id": cast.id,
+            "cast_id": str(cast.id),
             "status": cast.status,
             "error_code": cast.error_code,
             "channel_id": cast.channel_id,
@@ -2222,6 +2238,10 @@ class DiscordAdminService:
                 "modifier_sources": cast.modifier_sources,
                 "special_result": cast.special_result,
                 "result_snapshot": cast.result_snapshot,
-                "ruleset_snapshot_id": cast.ruleset_snapshot_id,
+                "ruleset_snapshot_id": (
+                    str(cast.ruleset_snapshot_id)
+                    if cast.ruleset_snapshot_id is not None
+                    else None
+                ),
             }
         return detail

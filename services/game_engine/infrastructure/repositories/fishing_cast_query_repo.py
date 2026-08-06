@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from infrastructure.models import FishingCast, FishingStatsDaily
+from infrastructure.models import FishingCast, FishingCastItemDrop, FishingStatsDaily
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -22,6 +22,14 @@ class FishingCastQueryRepository:
         status: str | None = None,
         location_id: str | None = None,
         reward_type: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        username: str | None = None,
+        event_id: int | None = None,
+        item_id: str | None = None,
+        has_item: bool | None = None,
+        min_mass_delta: float | None = None,
+        max_mass_delta: float | None = None,
     ) -> tuple[list[FishingCast], str | None]:
         """Return (casts, next_cursor) ordered by (requested_at desc, id desc).
 
@@ -37,6 +45,29 @@ class FishingCastQueryRepository:
             query = query.filter(FishingCast.location_id == location_id)
         if reward_type:
             query = query.filter(FishingCast.reward_type == reward_type)
+        if start:
+            query = query.filter(FishingCast.requested_at >= start)
+        if end:
+            query = query.filter(FishingCast.requested_at <= end)
+        if username:
+            query = query.filter(FishingCast.username_snapshot.ilike(f"%{username}%"))
+        if event_id is not None:
+            query = query.filter(FishingCast.event_id == event_id)
+        if has_item is not None:
+            if has_item:
+                query = query.filter(FishingCast.item_drop_count > 0)
+            else:
+                query = query.filter(FishingCast.item_drop_count == 0)
+        if min_mass_delta is not None:
+            query = query.filter(FishingCast.mass_delta_applied >= min_mass_delta)
+        if max_mass_delta is not None:
+            query = query.filter(FishingCast.mass_delta_applied <= max_mass_delta)
+        if item_id:
+            query = query.filter(
+                FishingCast.item_drops.any(
+                    FishingCastItemDrop.item_id_snapshot == item_id
+                )
+            )
         if cursor:
             anchor_requested_at, anchor_id = _decode_cursor(cursor)
             query = query.filter(
@@ -73,12 +104,12 @@ class FishingCastQueryRepository:
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> dict[str, Any]:
-        query = self.db.query(FishingCast).filter(FishingCast.channel_id == channel_id)
+        base = self.db.query(FishingCast).filter(FishingCast.channel_id == channel_id)
         if start:
-            query = query.filter(FishingCast.requested_at >= start)
+            base = base.filter(FishingCast.requested_at >= start)
         if end:
-            query = query.filter(FishingCast.requested_at <= end)
-        resolved = query.filter(FishingCast.status == "resolved").all()
+            base = base.filter(FishingCast.requested_at <= end)
+        resolved = base.filter(FishingCast.status == "resolved").all()
 
         total_casts = len(resolved)
         items_expected = 0.0
@@ -98,23 +129,31 @@ class FishingCastQueryRepository:
             total_xp += int(cast.xp_gained or 0)
             level_ups += 1 if cast.was_level_up else 0
 
-        failures = (
-            self.db.query(FishingCast)
-            .filter(
-                FishingCast.channel_id == channel_id,
-                FishingCast.status.in_(["failed", "compensated"]),
-            )
-            .count()
+        rejected = (
+            base.filter(
+                FishingCast.status.in_(
+                    ["cooldown_rejected", "validation_rejected", "failed", "compensated"]
+                )
+            ).count()
         )
+        failures = base.filter(
+            FishingCast.status.in_(["failed", "compensated"])
+        ).count()
         unique_players = (
             self.db.query(func.count(func.distinct(FishingCast.user_progress_id)))
-            .filter(FishingCast.channel_id == channel_id)
+            .filter(
+                FishingCast.channel_id == channel_id,
+                FishingCast.status == "resolved",
+                FishingCast.requested_at >= (start or datetime.min.replace(tzinfo=timezone.utc)),
+                FishingCast.requested_at <= (end or datetime.max.replace(tzinfo=timezone.utc)),
+            )
             .scalar()
             or 0
         )
         return {
             "casts": total_casts,
             "unique_players": unique_players,
+            "rejected": rejected,
             "failures": failures,
             "mass_positive": mass_positive,
             "mass_negative": mass_negative,

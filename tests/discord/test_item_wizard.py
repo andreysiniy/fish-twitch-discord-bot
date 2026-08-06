@@ -59,7 +59,7 @@ def test_effects_preview_human_readable() -> None:
         [{"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"}]
     )
     assert "•" in text
-    assert "Positive Mass Bonus" in text or "positive_mass_bonus_pct" in text
+    assert "Positive Fish Reward" in text or "positive_fish_reward_change_ratio" in text
     assert effects_preview([]) == "No effects."
 
 

@@ -61,6 +61,8 @@ def build_ruleset_snapshot_payload(
     engine_version: str,
     event_snapshot: dict,
     effective_params_snapshot: dict,
+    item_loot_table_id: int | None = None,
+    item_loot_table_version: int | None = None,
 ) -> dict:
     """Assemble the canonical snapshot of static rules applied to a cast."""
     location_id = user.current_location_id or "default"
@@ -71,6 +73,8 @@ def build_ruleset_snapshot_payload(
         },
         "channel_config_version": channel_config_version,
         "items_drop_rate": str(items_drop_rate),
+        "item_loot_table_id": item_loot_table_id,
+        "item_loot_table_version": item_loot_table_version,
         "reward_entries": [_safe_reward_entry(entry) for entry in rewards],
         "item_entries": [
             {

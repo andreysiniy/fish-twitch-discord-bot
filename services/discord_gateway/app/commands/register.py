@@ -145,7 +145,7 @@ def register_commands(
             "`reward` — weighted channel rewards\n"
             "`event` — channel events\n"
             "`placeholders` — message placeholder reference\n"
-            "`cast` — fishing cast history and statistics"
+            "`cast` — fishing cast history, search, and statistics"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
