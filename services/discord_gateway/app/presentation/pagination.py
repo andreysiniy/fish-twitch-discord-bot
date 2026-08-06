@@ -10,16 +10,21 @@ class PagedEmbedView(discord.ui.View):
         initiator_id: int,
         title: str,
         items: Sequence[dict[str, Any]],
-        formatter: Callable[[dict[str, Any]], tuple[str, str]],
+        formatter: Callable[[dict[str, Any]], tuple[str, str]] | None = None,
         *,
         page_size: int = 10,
+        embed_builder: Callable[[dict[str, Any]], discord.Embed] | None = None,
     ):
         super().__init__(timeout=600)
+        if embed_builder is None and formatter is None:
+            raise ValueError("PagedEmbedView requires formatter or embed_builder")
         self.initiator_id = initiator_id
         self.title = title
         self.items = list(items)
         self.formatter = formatter
-        self.page_size = page_size
+        self.embed_builder = embed_builder
+        # Rich detail views render one entry per page.
+        self.page_size = 1 if embed_builder is not None else page_size
         self.page = 0
         self._update_buttons()
 
@@ -28,11 +33,25 @@ class PagedEmbedView(discord.ui.View):
         return max(1, (len(self.items) + self.page_size - 1) // self.page_size)
 
     def embed(self) -> discord.Embed:
-        embed = discord.Embed(title=self.title, color=discord.Color.blurple())
         start = self.page * self.page_size
         page_items = self.items[start : start + self.page_size]
+        if self.embed_builder is not None:
+            embed = (
+                self.embed_builder(page_items[0])
+                if page_items
+                else discord.Embed(
+                    title=self.title, description="No entries.",
+                    color=discord.Color.blurple(),
+                )
+            )
+            embed.set_footer(
+                text=f"Page {self.page + 1}/{self.page_count} • {len(self.items)} entries"
+            )
+            return embed
+        embed = discord.Embed(title=self.title, color=discord.Color.blurple())
         if not page_items:
             embed.description = "No entries."
+        assert self.formatter is not None
         for item in page_items:
             name, value = self.formatter(item)
             chunks = _field_chunks(value)
