@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
@@ -531,10 +532,14 @@ class AdminService:
         if not activated:
             raise ValueError("Fishing event not found")
 
+        now = datetime.now(timezone.utc)
         scheduled_disable_at = None
         scheduler_job = None
         if duration_seconds is not None:
             duration_seconds = validate_event_duration_seconds(duration_seconds)
+            # Durable deadline in PostgreSQL: the reconciler ends the event at
+            # this time even if the Redis job is lost (plan §15).
+            activated.ends_at = now + timedelta(seconds=duration_seconds)
             scheduler_job = self.event_lifecycle.schedule_auto_disable(
                 channel_twitch_id=channel.twitch_id,
                 channel_id=channel.id,
@@ -544,6 +549,11 @@ class AdminService:
                 requested_by=requester_twitch_id,
             )
             scheduled_disable_at = int(scheduler_job.get("execute_at", 0) or 0)
+        else:
+            # Indefinite activation: clear the stale deactivation timestamp so
+            # the durable reconciler does not end the event immediately.
+            activated.ends_at = None
+        self.repo.db.flush()
 
         return FishingEventToggleResponseDTO(
             status="activated",
