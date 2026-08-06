@@ -16,6 +16,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = inspect(bind)
 
+    _preflight_legacy_base_stats(bind)
+
     _add_column(inspector, "item_definitions", sa.Column("max_durability", sa.Integer()))
     _add_column(
         inspector,
@@ -344,6 +346,27 @@ def _add_constraints(inspector) -> None:
     for table, name, condition in constraints:
         if name not in existing:
             op.create_check_constraint(name, table, condition)
+
+
+def _preflight_legacy_base_stats(bind) -> None:
+    """Abort the legacy effects migration if unknown base_stats keys exist.
+
+    The migration only understands ``durability``; every other key would be
+    silently wiped by the ``base_stats = '{}'`` update, so it must be mapped
+    manually before this revision can run.
+    """
+    allowed = {"durability"}
+    rows = bind.exec_driver_sql(
+        "SELECT id, jsonb_object_keys(base_stats) AS key FROM item_definitions "
+        "WHERE jsonb_typeof(base_stats) = 'object' AND base_stats <> '{}'::jsonb"
+    ).fetchall()
+    unknown = sorted({key for _, key in rows if key not in allowed})
+    if unknown:
+        raise RuntimeError(
+            "Cannot migrate legacy item_definitions.base_stats with unknown keys: "
+            + ", ".join(unknown)
+            + ". Provide an explicit mapping before upgrading."
+        )
 
 
 def _migrate_legacy_effects() -> None:
