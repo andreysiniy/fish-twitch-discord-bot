@@ -222,6 +222,19 @@ class InventoryRepository:
             raise ValueError(f"{definition.title} cannot be used")
 
         consumed_item_id = item.id
+        # The use record must be inserted while the consumed item row still
+        # exists so the FK holds; deleting the item afterwards nulls the
+        # reference (SET NULL) but keeps the idempotent replay row intact.
+        use_record = InventoryItemUseRecord(
+            id=str(uuid.uuid4()),
+            user_id=locked_user.id,
+            inventory_item_id=consumed_item_id,
+            idempotency_key=idempotency_key,
+            response_json={},
+        )
+        self.db.add(use_record)
+        self.db.flush()
+
         item.quantity -= 1
         if item.quantity == 0:
             self.db.delete(item)
@@ -288,15 +301,7 @@ class InventoryRepository:
             ],
             "actions": actions,
         }
-        self.db.add(
-            InventoryItemUseRecord(
-                id=str(uuid.uuid4()),
-                user_id=locked_user.id,
-                inventory_item_id=consumed_item_id,
-                idempotency_key=idempotency_key,
-                response_json=response,
-            )
-        )
+        use_record.response_json = response
         self.db.flush()
         return response
 
