@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timezone
 
+from core import metrics as metrics_module
+
 from infrastructure.models import FishingEvent
 from infrastructure.redis_client import RedisClient
 from services.eventing.event_scheduler import FishingEventScheduler
@@ -60,6 +62,7 @@ class FishingEventLifecycleService:
             self.channel_repo.set_active_fishing_event(event.channel_id, None)
             self._mark_event_ended(event)
             self.scheduler.cancel_scheduled_disable(str(event.channel_id))
+            metrics_module.inc("fishing_events_auto_disabled_total", {"source": "postgres"})
         return len(due)
 
     def _apply_redis_schedule(self, limit: int = 50) -> None:

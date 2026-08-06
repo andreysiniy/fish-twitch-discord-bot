@@ -2,6 +2,8 @@ from collections.abc import Callable
 
 import discord
 
+from app.interactions.metrics import count_wizard_timeout
+
 
 class ModalLauncherView(discord.ui.View):
     def __init__(
@@ -33,9 +35,10 @@ class ModalLauncherView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         message = self.message
+        count_wizard_timeout("modal_launcher")
         if message is not None:
             await message.edit(
-                content="⏱ Форма истекла. Запустите команду заново.",
+                content="⏱ The form expired. Run the command again.",
                 view=self,
             )
         self.stop()
