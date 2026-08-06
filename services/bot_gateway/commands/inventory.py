@@ -53,14 +53,19 @@ class InventoryCog(commands.Cog):
             await ctx.send("Inventory is empty.")
             return
 
-        equipped_ids = set((response.get("equipped_slots") or {}).values())
+        equipped_by_slot = response.get("equipped_slots") or {}
         max_slots = int(response.get("max_slots") or 0)
         lines = []
         for item in items[:8]:
             slot_id = item.get("slot_id", "?")
             name = item.get("title", "Unknown")
             qty = item.get("quantity", 1)
-            marker = " [EQUIPPED]" if item.get("id") in equipped_ids else ""
+            # equipped_slots maps an equipment slot (rod/bait/...) to the
+            # inventory slot number that is currently worn.
+            equipped = (
+                equipped_by_slot.get(item.get("equipment_slot")) == item.get("slot_id")
+            )
+            marker = " [EQUIPPED]" if equipped else ""
             durability = ""
             max_durability = item.get("max_durability")
             if max_durability is not None:
