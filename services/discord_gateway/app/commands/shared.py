@@ -112,7 +112,14 @@ async def _simple_mutation(interaction, operation, success: str) -> None:
 
 
 async def _mutation_response(interaction, operation, success: str) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    if interaction.type is discord.InteractionType.component:
+        # Confirm buttons may only ack with DEFERRED_MESSAGE_UPDATE (type 6);
+        # discord.py maps thinking=True to DEFERRED_CHANNEL_MESSAGE (type 5),
+        # which Discord rejects for component interactions, leaving the click
+        # unanswered and timing out after 3 seconds.
+        await interaction.response.defer()
+    else:
+        await interaction.response.defer(ephemeral=True, thinking=True)
     try:
         await operation()
         await interaction.edit_original_response(content=success, embed=None, view=None)

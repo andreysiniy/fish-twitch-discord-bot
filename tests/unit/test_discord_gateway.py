@@ -409,6 +409,7 @@ async def test_item_json_preview_requires_confirmation_before_mutation() -> None
             self.user = SimpleNamespace(id=42)
             self.response = FakeResponse()
             self.edited = None
+            self.type = __import__("discord").InteractionType.application_command
 
         async def edit_original_response(self, **kwargs):
             self.edited = kwargs
