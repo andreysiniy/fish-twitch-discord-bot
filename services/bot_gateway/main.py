@@ -36,6 +36,11 @@ class BotGateway(commands.Bot):
 
     async def event_ready(self):
         logger.info("Twitch bot ready nick=%s engine_url=%s", self.nick, self.cfg.engine_url)
+        if not self.cfg.twitch_client_id:
+            logger.warning(
+                "TWITCH_CLIENT_ID is not set: moderation actions (timeout/ban) "
+                "will be rejected by the Twitch API"
+            )
 
     async def event_error(self, error: Exception, data=None):
         logger.exception("Unhandled Twitch bot error", exc_info=error)
