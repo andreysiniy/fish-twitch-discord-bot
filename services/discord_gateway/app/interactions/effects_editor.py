@@ -9,6 +9,11 @@ from app.interactions.effect_builder import (
     modal_for_effect,
 )
 
+# Spec §12/§35: the standard editor allows at most 10 effects so the list
+# stays manageable in a Discord select. The advanced editor uses a separate
+# (higher) limit; the backend may accept more for legacy/imported items.
+STANDARD_MAX_EFFECTS = 10
+
 
 class EffectsEditorView(discord.ui.View):
     """Lets an admin assemble the typed effects list for an item draft.
@@ -54,6 +59,15 @@ class EffectsEditorView(discord.ui.View):
                 marker = "▸" if index - 1 == self._selected_index else " "
                 lines.append(f"{marker} {index}. {describe_effect(effect)}")
             embed.add_field(name="Effects", value="\n".join(lines)[:1024], inline=False)
+        if len(self.effects) >= STANDARD_MAX_EFFECTS:
+            embed.add_field(
+                name="Effect limit",
+                value=(
+                    "This item already has the maximum number of effects allowed "
+                    "in the standard editor."
+                ),
+                inline=False,
+            )
         embed.set_footer(text=f"{len(self.effects)} effect(s)")
         return embed
 
@@ -90,7 +104,7 @@ class EffectsEditorView(discord.ui.View):
             or self._selected_index is None
             or self._selected_index >= len(self.effects) - 1
         )
-        self.add_effect.disabled = len(self.effects) >= 50
+        self.add_effect.disabled = len(self.effects) >= STANDARD_MAX_EFFECTS
 
     @discord.ui.select(
         placeholder="Select an effect to edit/remove/move…",
@@ -111,9 +125,7 @@ class EffectsEditorView(discord.ui.View):
             # Discord rejects a select without at least one option, so an
             # empty draft shows a disabled placeholder select instead of
             # serializing an options-less component (400 on edit_message).
-            self.pick_effect.options = [
-                discord.SelectOption(label="No effects yet", value="-1")
-            ]
+            self.pick_effect.options = [discord.SelectOption(label="No effects yet", value="-1")]
             self.pick_effect.disabled = True
             self.pick_effect.placeholder = "Add an effect first"
             return
@@ -137,11 +149,16 @@ class EffectsEditorView(discord.ui.View):
         min_values=1,
         max_values=1,
     )
-    async def add_effect(
-        self, interaction: discord.Interaction, select: discord.ui.Select
-    ) -> None:
+    async def add_effect(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
         effect_type = select.values[0]
-        await interaction.response.send_modal(modal_for_effect(effect_type, self._on_added))
+        await interaction.response.send_modal(
+            modal_for_effect(effect_type, self._on_added, self._refresh_after_save)
+        )
+
+    async def _refresh_after_save(self, interaction: discord.Interaction) -> None:
+        """Spec §34: after a modal submits, update the editor message in place
+        instead of leaving the draft list stale."""
+        await interaction.response.edit_message(embed=self._embed(), view=self)
 
     def _on_added(self, payload: dict) -> None:
         self.effects.append(payload)
@@ -167,7 +184,7 @@ class EffectsEditorView(discord.ui.View):
         def _on_edited(payload: dict) -> None:
             self._replace_effect(selected_index, payload)
 
-        modal = modal_for_effect(effect_type, _on_edited)
+        modal = modal_for_effect(effect_type, _on_edited, self._refresh_after_save)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Remove selected", style=discord.ButtonStyle.danger)
@@ -183,9 +200,7 @@ class EffectsEditorView(discord.ui.View):
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     @discord.ui.button(label="Move up", style=discord.ButtonStyle.secondary)
-    async def move_up(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
+    async def move_up(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if self._selected_index is None or self._selected_index <= 0:
             return
         index = self._selected_index
@@ -198,13 +213,8 @@ class EffectsEditorView(discord.ui.View):
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     @discord.ui.button(label="Move down", style=discord.ButtonStyle.secondary)
-    async def move_down(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
-        if (
-            self._selected_index is None
-            or self._selected_index >= len(self.effects) - 1
-        ):
+    async def move_down(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self._selected_index is None or self._selected_index >= len(self.effects) - 1:
             return
         index = self._selected_index
         self.effects[index], self.effects[index + 1] = (
