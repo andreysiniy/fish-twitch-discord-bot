@@ -155,7 +155,7 @@ def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     return item.get("title") or item.get("item_id", "?"), " · ".join(detail_parts)
 
 
-def item_detail_embed(item: dict[str, Any]) -> discord.Embed:
+def item_detail_embed(item: dict[str, Any], *, effects_value: str | None = None) -> discord.Embed:
     archived = item.get("is_active") is False
     embed = info_embed(item.get("title") or item.get("item_id", "Item"))
     embed.description = item.get("description") or None
@@ -173,9 +173,14 @@ def item_detail_embed(item: dict[str, Any]) -> discord.Embed:
         embed.add_field(name="Break policy", value=item.get("break_policy", "?"), inline=True)
     effects = item.get("effects") or []
     if effects:
+        rendered = (
+            effects_value
+            if effects_value is not None
+            else "\n".join("- " + _effect_one_line(effect) for effect in effects)
+        )
         embed.add_field(
             name=f"Effects ({len(effects)})",
-            value="\n".join("- " + _effect_one_line(effect) for effect in effects)[:1024],
+            value=rendered[:1024],
             inline=False,
         )
     footer = [f"version {item.get('version')}"]
@@ -394,7 +399,9 @@ def location_detail_embed(item: dict[str, Any]) -> discord.Embed:
     if drops:
         embed.add_field(
             name="Item drops",
-            value="\n".join(f"`{drop.get('item_id')}` · w{drop.get('weight')}" for drop in drops[:8])[:1024],
+            value="\n".join(
+                f"`{drop.get('item_id')}` · w{drop.get('weight')}" for drop in drops[:8]
+            )[:1024],
             inline=True,
         )
     if item.get("updated_at"):

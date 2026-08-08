@@ -56,6 +56,64 @@ def test_build_payload_carries_version_fields() -> None:
     assert payload["schema_version"] == 2
 
 
+def test_payload_builder_preserves_schema_version_from_draft() -> None:
+    """Spec test 15: the shared builder must not reset schema_version."""
+    payload = build_item_payload(
+        {
+            "item_id": "x",
+            "title": "X",
+            "item_type": "material",
+            "rarity": "rare",
+            "schema_version": 3,
+        }
+    )
+    assert payload["schema_version"] == 3
+
+
+def test_payload_builder_preserves_image_url_from_draft() -> None:
+    """Spec test 16: the shared builder must not drop image_url."""
+    payload = build_item_payload(
+        {
+            "item_id": "x",
+            "title": "X",
+            "item_type": "material",
+            "rarity": "rare",
+            "image_url": "https://example.com/icon.png",
+        }
+    )
+    assert payload["image_url"] == "https://example.com/icon.png"
+
+
+def test_payload_builder_preserves_value_from_draft() -> None:
+    """Spec test 17: the shared builder must not drop value."""
+    payload = build_item_payload(
+        {
+            "item_id": "x",
+            "title": "X",
+            "item_type": "material",
+            "rarity": "rare",
+            "value": "150.5",
+        }
+    )
+    assert payload["value"] == "150.5"
+
+
+def test_payload_builder_carries_expected_version_from_draft() -> None:
+    """Spec test 18: edit payloads keep expected_version for optimistic locking."""
+    payload = build_item_payload(
+        {
+            "item_id": "x",
+            "title": "X",
+            "item_type": "material",
+            "rarity": "rare",
+            "expected_version": 7,
+            "schema_version": 3,
+        }
+    )
+    assert payload["expected_version"] == 7
+    assert payload["schema_version"] == 3
+
+
 def test_effects_preview_human_readable() -> None:
     text = effects_preview(
         [{"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"}]
@@ -83,7 +141,7 @@ def test_item_preview_view_embed_renders() -> None:
     )
     embed = view.embed()
     assert embed.color == discord.Color.blurple()
-    assert "Effects" in {field.name for field in embed.fields}
+    assert any(field.name.startswith("Effects") for field in embed.fields)
 
 
 def test_item_preview_view_has_effects_button_and_cancel_hook() -> None:
@@ -124,7 +182,7 @@ def test_item_preview_view_has_effects_button_and_cancel_hook() -> None:
     assert plain.edit_effects.disabled is True
 
     embed = view.embed()
-    assert any(field.name == "Effects" for field in embed.fields)
+    assert any(field.name == "Effects (1)" for field in embed.fields)
 
 
 @pytest.mark.asyncio
