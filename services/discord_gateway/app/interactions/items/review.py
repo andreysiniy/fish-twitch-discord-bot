@@ -27,6 +27,8 @@ from app.interactions.metrics import count_wizard_timeout
 
 logger = logging.getLogger("discord.item_review")
 
+CONFIRM_TIMEOUT_SECONDS = 180
+
 ConfirmCallback = Callable[[discord.Interaction], Awaitable[None]]
 EditCallback = Callable[[discord.Interaction], Awaitable[None]]
 
@@ -170,6 +172,7 @@ class ItemReviewView(discord.ui.View):
         schema_version: int | None = None,
         version: int | None = None,
         timeout: int = 600,
+        restart_text: str = "Run /fish item create again.",
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
@@ -182,6 +185,7 @@ class ItemReviewView(discord.ui.View):
         self.on_edit_mechanics = on_edit_mechanics
         self.on_edit_effects = on_edit_effects
         self.on_cancel = on_cancel
+        self._restart_text = restart_text
         self._extra_errors: list[str] = []
         self._confirming = False
         self.confirm.label = confirm_label
@@ -221,7 +225,7 @@ class ItemReviewView(discord.ui.View):
         count_wizard_timeout("item_review")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The item review expired. Run /fish item create again.",
+                content=f"⏱ The item review expired. {self._restart_text}",
                 view=self,
             )
         self.stop()
@@ -282,6 +286,72 @@ class ItemReviewView(discord.ui.View):
     ) -> None:
         self.stop()
         await self.on_edit_effects(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=0)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.stop()
+        await self.on_cancel(interaction)
+
+
+class VersionConflictView(discord.ui.View):
+    """Optimistic-locking conflict recovery (wizard spec §55).
+
+    When the backend rejects an edit with ``ITEM_VERSION_CONFLICT`` the flow is
+    kept open: the admin either reloads the latest version (refetching the
+    backend item and re-seeding the draft) or cancels. There is never an
+    automatic overwrite of the newer definition.
+    """
+
+    def __init__(
+        self,
+        *,
+        initiator_id: int,
+        on_reload: Callable[[discord.Interaction], Awaitable[None]],
+        on_cancel: Callable[[discord.Interaction], Awaitable[None]],
+        timeout: int = CONFIRM_TIMEOUT_SECONDS,
+    ):
+        super().__init__(timeout=timeout)
+        self.initiator_id = initiator_id
+        self.on_reload = on_reload
+        self.on_cancel = on_cancel
+
+    def embed(self) -> discord.Embed:
+        # Conflict → red/danger so the admin notices the state was rejected.
+        embed = discord.Embed(
+            title="Item Changed Elsewhere",
+            description=(
+                "This item was changed by another administrator while you were "
+                "editing it. Reload the latest version to continue, or cancel "
+                "the edit."
+            ),
+            color=discord.Color.red(),
+        )
+        embed.set_footer(text="Your unsaved draft was not applied.")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.initiator_id:
+            await interaction.response.send_message(
+                "These controls belong to another user.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
+        count_wizard_timeout("item_version_conflict")
+        if self.message is not None:
+            await self.message.edit(
+                content="⏱ The edit expired. Run /fish item edit again.",
+                view=self,
+            )
+        self.stop()
+
+    @discord.ui.button(label="Reload Latest Version", style=discord.ButtonStyle.success, row=0)
+    async def reload(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.stop()
+        await self.on_reload(interaction)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=0)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:

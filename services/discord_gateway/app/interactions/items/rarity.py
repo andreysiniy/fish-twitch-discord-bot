@@ -35,12 +35,14 @@ class RarityView(discord.ui.View):
         *,
         current: str = "common",
         timeout: int = 600,
+        restart_text: str = "Run /fish item create again.",
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
         self.on_continue = on_continue
         self.on_back = on_back
         self.on_cancel = on_cancel
+        self._restart_text = restart_text
         self._selected = current
         self.rarity_select.options = [
             discord.SelectOption(label=name, value=value, default=(value == current))
@@ -94,7 +96,7 @@ class RarityView(discord.ui.View):
         count_wizard_timeout("item_rarity")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The rarity selection expired. Run /fish item create again.",
+                content=f"⏱ The rarity selection expired. {self._restart_text}",
                 view=self,
             )
         self.stop()

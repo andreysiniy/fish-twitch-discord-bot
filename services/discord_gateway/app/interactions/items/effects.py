@@ -57,6 +57,7 @@ class ItemEffectsView(discord.ui.View):
         api,
         on_back: Callable[[discord.Interaction], Awaitable[None]] | None = None,
         timeout: int = 600,
+        restart_text: str = "Run /fish item create again.",
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
@@ -64,6 +65,7 @@ class ItemEffectsView(discord.ui.View):
         self.on_done = on_done
         self.on_back = on_back
         self.api = api
+        self._restart_text = restart_text
         self._selected_index: int | None = None
         self._rebuild_pick_options()
         self._update_buttons()
@@ -120,7 +122,7 @@ class ItemEffectsView(discord.ui.View):
         count_wizard_timeout("item_effects")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The effects step expired. Run /fish item create again.",
+                content=f"⏱ The effects step expired. {self._restart_text}",
                 view=self,
             )
         self.stop()
@@ -608,7 +610,7 @@ class EffectFormView(discord.ui.View):
         count_wizard_timeout("item_effect_form")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The effect form expired. Run /fish item create again.",
+                content=f"⏱ The effect form expired. {self.editor._restart_text}",
                 view=self,
             )
         self.stop()

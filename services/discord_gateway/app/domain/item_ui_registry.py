@@ -175,6 +175,26 @@ def template_to_defaults(template: str) -> dict[str, Any]:
     return defaults
 
 
+def template_for_item_type(item_type: str, equipment_slot: str | None = None) -> str | None:
+    """Derive the UI template key from backend item data (wizard spec §54).
+
+    The template is UI metadata only (never part of the backend payload). Editing
+    a ``fishing_rod``-style item must re-use the same template so the mechanics
+    view and review label agree with the create flow.
+    """
+    if item_type == "equipment":
+        if equipment_slot in ("charm_1", "charm_2"):
+            return "charm"
+        slot_map = {
+            "rod": "fishing_rod",
+            "bait": "bait",
+            "defense": "defense",
+            "storage": "storage",
+        }
+        return slot_map.get(equipment_slot, "fishing_rod")
+    return item_type if item_type in TEMPLATES_BY_VALUE else None
+
+
 def validate_item_id(item_id: str) -> bool:
     return bool(ITEM_ID_PATTERN.fullmatch(item_id.strip().lower()))
 

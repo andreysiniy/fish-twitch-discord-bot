@@ -6,11 +6,7 @@ effects with the typed effect builder — no raw ``effects_json`` required.
 
 from typing import Any
 
-import discord
-
-from app.interactions.confirms import ConfirmView
 from app.interactions.effect_builder import describe_effect
-from app.presentation.embeds import item_detail_embed
 
 EQUIPMENT_SLOTS = {"rod", "bait", "defense", "storage", "charm_1", "charm_2"}
 VALID_TYPES = {
@@ -85,58 +81,3 @@ def effects_preview(effects: list[dict[str, Any]]) -> str:
     if not effects:
         return "No effects."
     return "\n".join(f"• {describe_effect(effect)}" for effect in effects)
-
-
-class ItemPreviewView(ConfirmView):
-    """Final confirmation card showing the full human-readable item preview.
-
-    ``on_edit_effects`` (optional) swaps the message to the typed effects
-    editor; ``on_cancel`` (optional) cleans up the wizard draft when the admin
-    cancels (audit 10.6).
-    """
-
-    def __init__(
-        self,
-        initiator_id: int,
-        draft: dict[str, Any],
-        on_confirm,
-        danger: bool = False,
-        on_edit_effects=None,
-        on_cancel=None,
-    ):
-        self.draft = draft
-        self.on_edit_effects = on_edit_effects
-        self.on_cancel = on_cancel
-        super().__init__(initiator_id, on_confirm, danger=danger)
-        if on_edit_effects is None:
-            self.edit_effects.disabled = True
-
-    def embed(self) -> discord.Embed:
-        display = normalize_draft(self.draft)
-        return item_detail_embed(
-            display, effects_value=effects_preview(self.draft.get("effects") or [])
-        )
-
-    @discord.ui.button(
-        label="Edit effects",
-        style=discord.ButtonStyle.secondary,
-        row=1,
-    )
-    async def edit_effects(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
-        if self.on_edit_effects is not None:
-            await self.on_edit_effects(interaction)
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=1)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        for item in self.children:
-            item.disabled = True
-        if self.on_cancel is not None:
-            try:
-                await self.on_cancel(interaction)
-            except Exception:
-                pass
-        await interaction.response.edit_message(
-            content="Operation cancelled.", embed=None, view=self
-        )
