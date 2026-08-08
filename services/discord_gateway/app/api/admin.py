@@ -306,14 +306,20 @@ class AdminApi:
             interaction, "GET", f"/v1/admin/channels/{channel}/items/{item_id}"
         )
 
-    async def upsert_item(self, interaction, payload: dict[str, Any]):
+    async def upsert_item(
+        self,
+        interaction,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "PUT",
             f"/v1/admin/channels/{channel}/items",
             json=payload,
-            idempotency_key=interaction_key(interaction.id, "item.upsert"),
+            idempotency_key=idempotency_key or interaction_key(interaction.id, "item.upsert"),
         )
 
     async def archive_item(self, interaction, item_id: str, version: int):
