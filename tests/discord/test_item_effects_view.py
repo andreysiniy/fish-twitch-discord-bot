@@ -1,13 +1,21 @@
 """Tests for the category-driven item effects editor (spec §12/§21/§34/§35)."""
 
+import asyncio
 
-from app.domain.item_effect_registry import TRIGGERED_EFFECT_FORMS
+from app.domain.item_effect_registry import (
+    ADVANCED_MAX_EFFECTS,
+    CATEGORY_ADVANCED,
+    STANDARD_MAX_EFFECTS,
+    TRIGGERED_EFFECT_FORMS,
+)
 from app.interactions.items.effect_forms import StatValueModal
 from app.interactions.items.effects import (
     AdvancedEffectPickerView,
+    AdvancedModeWarningView,
     EffectCategoryPickerView,
     EffectFormView,
     ItemEffectsView,
+    _auto_advanced,
 )
 
 
@@ -19,12 +27,40 @@ class FakeApi:
         return {"items": [{"table_id": "pool-1", "title": "River Loot"}]}
 
 
-def _editor(effects):
+class FakeResponse:
+    def __init__(self, owner):
+        self.owner = owner
+
+    def is_done(self):
+        return False
+
+    async def edit_message(self, *args, **kwargs):
+        self.owner.edited = kwargs
+
+    async def send_modal(self, modal):
+        self.owner.modal = modal
+
+    async def send_message(self, *args, **kwargs):
+        self.owner.sent_message = (args, kwargs)
+
+
+class FakeInteraction:
+    def __init__(self):
+        self.id = 1
+        self.user = type("U", (), {"id": 1})()
+        self.response = FakeResponse(self)
+        self.edited = None
+        self.modal = None
+        self.sent_message = None
+
+
+def _editor(effects, *, advanced=False):
     return ItemEffectsView(
         initiator_id=1,
         effects=effects,
         on_done=lambda *_: None,
         api=FakeApi(),
+        advanced=advanced,
     )
 
 
@@ -157,3 +193,112 @@ def test_stat_value_modal_prefills_current_percent() -> None:
         current="0.25",
     )
     assert modal.value.default == "25"
+
+
+# --- advanced mode (spec §32/§35) ---------------------------------------------
+
+
+def test_auto_advanced_stays_off_for_empty_and_standard_drafts() -> None:
+    assert _auto_advanced([]) is False
+    effects = [{"type": "grant_mass", "mass": str(i)} for i in range(STANDARD_MAX_EFFECTS)]
+    assert _auto_advanced(effects) is False
+
+
+def test_auto_advanced_arms_on_overflowing_effect_count() -> None:
+    effects = [{"type": "grant_mass", "mass": str(i)} for i in range(STANDARD_MAX_EFFECTS + 1)]
+    assert _auto_advanced(effects) is True
+
+
+def test_auto_advanced_arms_on_legacy_advanced_stats() -> None:
+    assert _auto_advanced([{"type": "stat_multiply", "stat": "xp_gain_change_ratio", "value": "2"}])
+    assert _auto_advanced([{"type": "stat_add", "stat": "points_flat_bonus", "value": "5"}])
+
+
+def test_advanced_mode_raises_effect_cap_and_labels_footer() -> None:
+    view = _editor([], advanced=True)
+    assert view._advanced is True
+    assert view._max_effects == ADVANCED_MAX_EFFECTS
+    footer = view._embed().footer.text
+    assert "0/25 effect(s) · Advanced editor" in footer
+
+
+def test_standard_mode_keeps_default_cap_and_label() -> None:
+    view = _editor([])
+    assert view._advanced is False
+    assert view._max_effects == STANDARD_MAX_EFFECTS
+    footer = view._embed().footer.text
+    assert "0/10 effect(s) · Standard editor" in footer
+
+
+def test_advanced_cap_disables_add_button_only_at_twenty_five() -> None:
+    effects = [{"type": "grant_mass", "mass": str(i)} for i in range(ADVANCED_MAX_EFFECTS)]
+    view = _editor(effects, advanced=True)
+    assert view.add_button.disabled is True
+    assert "maximum number of effects" in "".join(field.value for field in view._embed().fields)
+
+    below = _editor(effects[:-1], advanced=True)
+    assert below.add_button.disabled is False
+
+
+def test_advanced_mode_button_is_disabled_when_already_advanced() -> None:
+    view = _editor([], advanced=True)
+    assert view.advanced_mode.disabled is True
+
+
+def test_advanced_mode_button_opens_warning_view() -> None:
+    view = _editor([])
+    assert view.advanced_mode.disabled is False
+    interaction = FakeInteraction()
+    asyncio.run(view.advanced_mode.callback(interaction))
+    warning = interaction.edited["view"]
+    assert isinstance(warning, AdvancedModeWarningView)
+    assert "low-level effect controls" in interaction.edited["embed"].description
+
+
+def test_advanced_warning_continue_arms_advanced_and_returns_to_editor() -> None:
+    editor = _editor([])
+    interaction = FakeInteraction()
+
+    async def on_continue(done):
+        await editor.show(done)
+
+    warning = AdvancedModeWarningView(editor, on_continue=on_continue)
+    asyncio.run(warning.continue_button.callback(interaction))
+    assert editor._advanced is True
+    assert editor.add_button.disabled is False
+    assert interaction.edited["embed"].footer.text.endswith("Advanced editor")
+
+
+def test_advanced_warning_cancel_keeps_standard_mode() -> None:
+    editor = _editor([])
+    interaction = FakeInteraction()
+    warning = AdvancedModeWarningView(editor)
+    asyncio.run(warning.cancel_button.callback(interaction))
+    assert editor._advanced is False
+    assert interaction.edited["embed"].footer.text.endswith("Standard editor")
+
+
+def test_advanced_category_shows_warning_before_revealing_stats() -> None:
+    editor = _editor([])
+    picker = EffectCategoryPickerView(editor)
+    interaction = FakeInteraction()
+    picker.category_select._values = [CATEGORY_ADVANCED]
+
+    asyncio.run(picker.category_select.callback(interaction))
+    assert isinstance(interaction.edited["view"], AdvancedModeWarningView)
+
+    asyncio.run(interaction.edited["view"].continue_button.callback(interaction))
+    assert editor._advanced is True
+    assert interaction.edited["view"].effect_select.disabled is False
+    assert interaction.edited["view"].effect_select.options
+
+
+def test_advanced_category_skips_warning_when_already_advanced() -> None:
+    editor = _editor([], advanced=True)
+    picker = EffectCategoryPickerView(editor)
+    interaction = FakeInteraction()
+    picker.category_select._values = [CATEGORY_ADVANCED]
+
+    asyncio.run(picker.category_select.callback(interaction))
+    assert isinstance(interaction.edited["view"], EffectCategoryPickerView)
+    assert interaction.edited["view"].effect_select.disabled is False
