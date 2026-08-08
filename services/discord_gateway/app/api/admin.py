@@ -306,6 +306,12 @@ class AdminApi:
             interaction, "GET", f"/v1/admin/channels/{channel}/items/{item_id}"
         )
 
+    async def loot_tables(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction, "GET", f"/v1/admin/channels/{channel}/loot-tables"
+        )
+
     async def upsert_item(
         self,
         interaction,

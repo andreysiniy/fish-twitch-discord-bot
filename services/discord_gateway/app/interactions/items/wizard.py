@@ -11,9 +11,9 @@ from typing import Any
 import discord
 
 from app.domain.item_ui_registry import ITEM_TEMPLATES
-from app.interactions.effects_editor import EffectsEditorView
 from app.interactions.item_wizard import ItemPreviewView, build_item_payload
 from app.interactions.items.basic_info import BasicInfoModal
+from app.interactions.items.effects import ItemEffectsView
 from app.interactions.items.mechanics import MechanicsView, mechanics_embed
 from app.interactions.items.rarity import RarityView, rarity_embed
 from app.interactions.items.session import ItemWizardSession, WizardStep
@@ -209,10 +209,16 @@ async def _render_effects(
         await session.transition(WizardStep.REVIEW)
         await _render_review(done, session, api)
 
-    view = EffectsEditorView(
+    async def on_back(done: discord.Interaction) -> None:
+        await session.transition(WizardStep.MECHANICS)
+        await _render_mechanics(done, session, api)
+
+    view = ItemEffectsView(
         int(session.discord_user_id),
         list(session.draft.get("effects") or []),
         on_done,
+        api=api,
+        on_back=on_back,
     )
     await interaction.response.edit_message(
         content=view.message_text, embed=view._embed(), view=view
@@ -243,17 +249,12 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
         effects = list((state or {}).get("draft", {}).get("effects") or [])
 
         async def effects_done(done_interaction: discord.Interaction, final_effects) -> None:
-            if final_effects is None:
-                await done_interaction.followup.send(
-                    "Effect editing cancelled; the item draft is unchanged.",
-                    ephemeral=True,
-                )
-                return
-            session.draft["effects"] = final_effects
-            await session.save()
+            if final_effects is not None:
+                session.draft["effects"] = final_effects
+                await session.save()
             await _render_review(done_interaction, session, api)
 
-        editor = EffectsEditorView(int(session.discord_user_id), effects, effects_done)
+        editor = ItemEffectsView(int(session.discord_user_id), effects, effects_done, api=api)
         await editor_interaction.response.edit_message(
             content=editor.message_text,
             embed=editor._embed(),

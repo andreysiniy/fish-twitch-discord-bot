@@ -575,6 +575,31 @@ class DiscordAdminService:
         rows = query.order_by(ItemDefinition.item_id.asc()).all()
         return {"items": [self._serialize_item_definition(row, channel) for row in rows]}
 
+    def list_loot_tables(self, context, channel_twitch_id: str) -> dict:
+        """List the channel's loot tables for entity-referencing effects.
+
+        Loot tables are part of the item subsystem, so the read is guarded by
+        the same permission as item reads.
+        """
+        channel, _ = self._authorize(context, ChannelPermission.ITEMS_READ, channel_twitch_id)
+        rows = (
+            self.db.query(LootTable)
+            .filter(LootTable.channel_id == channel.id, LootTable.is_active.is_(True))
+            .order_by(LootTable.title.asc(), LootTable.table_id.asc())
+            .all()
+        )
+        return {
+            "items": [
+                {
+                    "table_id": row.table_id,
+                    "title": row.title,
+                    "is_active": row.is_active,
+                    "version": row.version,
+                }
+                for row in rows
+            ]
+        }
+
     def get_item(self, context, channel_twitch_id: str, item_id: str) -> dict:
         channel, _ = self._authorize(context, ChannelPermission.ITEMS_READ, channel_twitch_id)
         row = self._find_item_definition(channel.id, item_id)
