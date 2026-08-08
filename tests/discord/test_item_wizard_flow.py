@@ -443,6 +443,9 @@ async def test_review_confirm_uses_flow_based_idempotency_key() -> None:
             "effects": [],
         }
     )
+    # The confirm closure transitions REVIEW → SUBMITTING before the backend
+    # call (spec §61), so the session must already be at REVIEW.
+    session.step = WizardStep.REVIEW
 
     calls: list[tuple] = []
 
@@ -504,3 +507,87 @@ def test_rarity_defaults_continue_enabled_and_template_disabled() -> None:
 
     template = TemplateSelectView(1, noop, noop)
     assert template.continue_button.disabled is True
+
+
+# --- review edit-back returns to review (spec §6/§40) -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_edit_basic_returns_to_review_with_updated_draft() -> None:
+    from app.interactions.items.review import ItemReviewView
+    from app.interactions.items.wizard import _render_review
+
+    store = FakeSessionStore()
+    session = await ItemWizardSession.create(
+        store,
+        flow_type="item_create",
+        discord_user_id=1,
+        discord_guild_id=2,
+        channel_id=3,
+        template="material",
+    )
+    session.step = WizardStep.REVIEW
+    session.draft.update(
+        {
+            "title": "Iron Ore",
+            "item_id": "iron_ore",
+            "item_type": "material",
+            "rarity": "common",
+            "stack_size": 100,
+            "break_policy": "indestructible",
+            "max_durability": None,
+            "effects": [],
+        }
+    )
+
+    class EditInteraction:
+        def __init__(self):
+            self.view = None
+            self.embed = None
+            self.modal = None
+
+            class Response:
+                def is_done(self):
+                    return False
+
+                async def edit_message(self, *args, **kwargs):
+                    return None
+
+            self.response = Response()
+            self.user = type("U", (), {"id": 1})()
+            self.guild_id = 2
+            self.channel_id = 3
+
+        async def edit_original_response(self, *, content=None, embed=None, view=None):
+            self.view = view
+            self.embed = embed
+
+    interaction = EditInteraction()
+    await _render_review(interaction, session, api=None)
+    assert isinstance(interaction.view, ItemReviewView)
+
+    button_interaction = EditInteraction()
+
+    async def send_modal(modal):
+        button_interaction.modal = modal
+
+    button_interaction.response.send_modal = send_modal
+    await interaction.view.edit_basic.callback(button_interaction)
+
+    assert button_interaction.modal is not None
+    assert isinstance(button_interaction.modal, BasicInfoModal)
+
+    # Submit the modal with a new display name; the flow must return to Review,
+    # not walk the wizard forward.
+    submit_interaction = EditInteraction()
+    button_interaction.modal.display_name._value = "Refined Ore"
+    button_interaction.modal.item_id._value = ""
+    button_interaction.modal.description._value = ""
+    await button_interaction.modal.on_submit(submit_interaction)
+
+    assert submit_interaction.view is not None
+    assert isinstance(submit_interaction.view, ItemReviewView)
+    assert session.draft["title"] == "Refined Ore"
+    assert session.draft["item_id"] == "refined_ore"
+    # Draft stays at REVIEW: no backend mutation happened and nothing was deleted.
+    assert await store.get(1, session.flow_id) is not None
