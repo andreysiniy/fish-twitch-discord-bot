@@ -38,6 +38,15 @@ def list_items(
     return service.list_items(context, channel_twitch_id, include_archived)
 
 
+@router.get("/channels/{channel_twitch_id}/loot-tables")
+def list_loot_tables(
+    channel_twitch_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_loot_tables(context, channel_twitch_id)
+
+
 @router.get("/channels/{channel_twitch_id}/items/{item_id}")
 def get_item(
     channel_twitch_id: str,

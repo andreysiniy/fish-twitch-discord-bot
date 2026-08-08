@@ -384,6 +384,69 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
 
 
 @pytest.mark.integration
+def test_list_loot_tables_is_tenant_scoped_and_filters_inactive() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(twitch_id="loot-channel", name="loot_channel", config={})
+        other = Channel(twitch_id="loot-other", name="loot_other", config={})
+        db.add_all([channel, other])
+        db.flush()
+        db.add_all(
+            [
+                DiscordAccountLink(
+                    discord_user_id="1001",
+                    twitch_user_id="loot-channel",
+                    twitch_login="loot_channel",
+                    verified_at=now,
+                    last_verified_at=now,
+                ),
+                DiscordGuildBinding(
+                    discord_guild_id="2001",
+                    channel_id=channel.id,
+                    configured_by_discord_id="1001",
+                ),
+                LootTable(
+                    channel_id=channel.id,
+                    table_id="river_items",
+                    title="River Items",
+                    is_active=True,
+                ),
+                LootTable(
+                    channel_id=channel.id,
+                    table_id="lake_items",
+                    title="Lake Items",
+                    is_active=True,
+                ),
+                LootTable(
+                    channel_id=channel.id,
+                    table_id="retired",
+                    title="Retired Pool",
+                    is_active=False,
+                ),
+                # Belongs to another channel: must never leak across tenants.
+                LootTable(
+                    channel_id=other.id,
+                    table_id="other_items",
+                    title="Other Items",
+                    is_active=True,
+                ),
+            ]
+        )
+        db.flush()
+        service = DiscordAdminService(db)
+
+        result = service.list_loot_tables(_context("loot-tables"), channel.twitch_id)
+        table_ids = [entry["table_id"] for entry in result["items"]]
+        assert table_ids == ["lake_items", "river_items"]
+        assert all(entry["is_active"] for entry in result["items"])
+        assert all("title" in entry for entry in result["items"])
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
 def test_fishing_cast_history_is_tenant_scoped_and_paginated() -> None:
     db = SessionLocal()
     try:
