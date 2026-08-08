@@ -269,6 +269,27 @@ async def _session(
     return state
 
 
+async def _require_owner(api, interaction: discord.Interaction) -> None:
+    """Owner gate for raw/advanced commands (wizard spec §56).
+
+    The owner is the Twitch account that owns the bound channel — the same rule
+    the backend applies in ``_authorize`` (``link.twitch_user_id ==
+    channel.twitch_id``). The backend remains authoritative for the mutation
+    itself; this is the UI-level policy that keeps raw JSON owner-only.
+    """
+    status = await api.status(interaction)
+    twitch = status.get("twitch") or {}
+    binding = status.get("binding") or {}
+    if not twitch.get("id") or not binding.get("channel_twitch_id"):
+        raise EngineError(
+            403, "TWITCH_OWNER_REQUIRED", "Only the Twitch channel owner can use this."
+        )
+    if str(twitch["id"]) != str(binding["channel_twitch_id"]):
+        raise EngineError(
+            403, "TWITCH_OWNER_REQUIRED", "Only the Twitch channel owner can use this."
+        )
+
+
 def _parse_effects(raw: str | None) -> list[dict[str, Any]]:
     if raw is None or not raw.strip():
         return []

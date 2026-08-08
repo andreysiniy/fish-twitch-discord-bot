@@ -13,7 +13,8 @@ Triggered effects that reference channel entities (``grant_item``,
 ``loot_table_roll``) load their options from the current channel through the
 admin API (spec §27/§30/§62). The editor refreshes its own message in place
 after every change (spec §34) and keeps the list capped at
-``STANDARD_MAX_EFFECTS`` (spec §35).
+``STANDARD_MAX_EFFECTS`` in standard mode / ``ADVANCED_MAX_EFFECTS`` in
+advanced mode (spec §35).
 """
 
 from collections.abc import Awaitable, Callable
@@ -22,16 +23,17 @@ from typing import Any
 import discord
 
 from app.domain.item_effect_registry import (
+    ADVANCED_MAX_EFFECTS,
     ADVANCED_STAT_DEFINITIONS,
     CATEGORY_ADVANCED,
     CATEGORY_TRIGGERED,
+    STANDARD_MAX_EFFECTS,
     TRIGGERED_EFFECT_FORMS,
     TRIGGERED_EFFECT_OPTIONS,
     UI_STAT_DEFINITIONS,
     describe_effect,
     stat_options,
 )
-from app.interactions.effects_editor import STANDARD_MAX_EFFECTS
 from app.interactions.items.effect_forms import (
     EffectNumbersModal,
     StatMultiplyModal,
@@ -45,8 +47,26 @@ def _embed_for(title: str, description: str) -> discord.Embed:
     return discord.Embed(title=title, description=description, color=discord.Color.gold())
 
 
+def _auto_advanced(effects: list[dict]) -> bool:
+    """A draft that already overflows the standard editor must open in advanced
+    mode: legacy/imported items can have more than ``STANDARD_MAX_EFFECTS`` or
+    carry advanced-only stats (``stat_multiply``, ``points_flat_bonus``)."""
+    if len(effects) > STANDARD_MAX_EFFECTS:
+        return True
+    return any(
+        effect.get("type") == "stat_multiply" or effect.get("stat") == "points_flat_bonus"
+        for effect in effects
+    )
+
+
 class ItemEffectsView(discord.ui.View):
-    """Standard list editor for a draft item's effects (spec §12/§34/§35)."""
+    """Standard list editor for a draft item's effects (spec §12/§34/§35).
+
+    In standard mode the list is capped at ``STANDARD_MAX_EFFECTS`` (spec §35)
+    and advanced stats are hidden behind a warning (spec §32). Once advanced
+    mode is enabled the cap becomes ``ADVANCED_MAX_EFFECTS`` and low-level
+    controls (``stat_multiply``, ``points_flat_bonus``) become reachable.
+    """
 
     def __init__(
         self,
@@ -58,6 +78,7 @@ class ItemEffectsView(discord.ui.View):
         on_back: Callable[[discord.Interaction], Awaitable[None]] | None = None,
         timeout: int = 600,
         restart_text: str = "Run /fish item create again.",
+        advanced: bool = False,
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
@@ -66,11 +87,20 @@ class ItemEffectsView(discord.ui.View):
         self.on_back = on_back
         self.api = api
         self._restart_text = restart_text
+        self._advanced = advanced or _auto_advanced(effects)
         self._selected_index: int | None = None
         self._rebuild_pick_options()
         self._update_buttons()
 
     # --- presentation --------------------------------------------------------
+
+    @property
+    def _max_effects(self) -> int:
+        return ADVANCED_MAX_EFFECTS if self._advanced else STANDARD_MAX_EFFECTS
+
+    @property
+    def _mode_label(self) -> str:
+        return "Advanced editor" if self._advanced else "Standard editor"
 
     def _embed(self) -> discord.Embed:
         embed = _embed_for(
@@ -90,16 +120,18 @@ class ItemEffectsView(discord.ui.View):
                 marker = "▸" if index - 1 == self._selected_index else " "
                 lines.append(f"{marker} {index}. {describe_effect(effect)}")
             embed.add_field(name="Effects", value="\n".join(lines)[:1024], inline=False)
-        if len(self.effects) >= STANDARD_MAX_EFFECTS:
+        if len(self.effects) >= self._max_effects:
             embed.add_field(
                 name="Effect limit",
                 value=(
-                    "This item already has the maximum number of effects allowed "
-                    "in the standard editor."
+                    f"This item already has the maximum number of effects allowed "
+                    f"in the {self._mode_label.lower()}."
                 ),
                 inline=False,
             )
-        embed.set_footer(text=f"{len(self.effects)} effect(s)")
+        embed.set_footer(
+            text=f"{len(self.effects)}/{self._max_effects} effect(s) · {self._mode_label}"
+        )
         return embed
 
     @property
@@ -158,7 +190,8 @@ class ItemEffectsView(discord.ui.View):
             or self._selected_index is None
             or self._selected_index >= len(self.effects) - 1
         )
-        self.add_button.disabled = len(self.effects) >= STANDARD_MAX_EFFECTS
+        self.add_button.disabled = len(self.effects) >= self._max_effects
+        self.advanced_mode.disabled = self._advanced
 
     async def show(self, interaction: discord.Interaction) -> None:
         """Re-render this editor on the same message (spec §34)."""
@@ -246,10 +279,20 @@ class ItemEffectsView(discord.ui.View):
 
     @discord.ui.button(label="Add effect", style=discord.ButtonStyle.primary, row=2)
     async def add_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if len(self.effects) >= STANDARD_MAX_EFFECTS:
+        if len(self.effects) >= self._max_effects:
             return
         picker = EffectCategoryPickerView(self)
         await interaction.response.edit_message(embed=picker._embed(), view=picker)
+
+    @discord.ui.button(label="Advanced mode", style=discord.ButtonStyle.blurple, row=1)
+    async def advanced_mode(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Spec §32/§35: warn before exposing the low-level advanced editor."""
+        if self._advanced:
+            return
+        view = AdvancedModeWarningView(self, on_continue=lambda done: self.show(done))
+        await interaction.response.edit_message(embed=view._embed(), view=view)
 
     # --- navigation -------------------------------------------------------------
 
@@ -378,6 +421,17 @@ class EffectCategoryPickerView(discord.ui.View):
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
         self._category = select.values[0]
+        if self._category == CATEGORY_ADVANCED and not self.editor._advanced:
+            # Spec §32: entering the advanced flow shows the warning first;
+            # Continue arms advanced mode and exposes the low-level stats.
+            async def open_advanced(interaction: discord.Interaction) -> None:
+                self.effect_select.options = self._effect_options()
+                self.effect_select.disabled = False
+                await interaction.response.edit_message(embed=self._embed(), view=self)
+
+            view = AdvancedModeWarningView(self.editor, on_continue=open_advanced)
+            await interaction.response.edit_message(embed=view._embed(), view=view)
+            return
         self.effect_select.options = self._effect_options()
         self.effect_select.disabled = False
         await interaction.response.edit_message(embed=self._embed(), view=self)
@@ -400,6 +454,70 @@ class EffectCategoryPickerView(discord.ui.View):
             await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=2)
+    async def cancel_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await self.editor.show(interaction)
+
+
+class AdvancedModeWarningView(discord.ui.View):
+    """Spec §32: warning shown before exposing the low-level advanced editor.
+
+    Reached either from the editor's ``Advanced mode`` button (which raises the
+    effect cap to ``ADVANCED_MAX_EFFECTS``, spec §35) or by picking the
+    Advanced Effect category. Continue arms advanced mode and hands control to
+    ``on_continue``; Cancel returns to the standard editor.
+    """
+
+    def __init__(
+        self,
+        editor: ItemEffectsView,
+        *,
+        on_continue: Callable[[discord.Interaction], Awaitable[None]] | None = None,
+        timeout: int = 600,
+    ):
+        super().__init__(timeout=timeout)
+        self.editor = editor
+        self.initiator_id = editor.initiator_id
+        self._on_continue = on_continue
+
+    def _embed(self) -> discord.Embed:
+        return _embed_for(
+            "Advanced Effect",
+            "This editor exposes low-level effect controls intended for "
+            "experienced administrators.",
+        )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.initiator_id:
+            await interaction.response.send_message(
+                "These controls belong to another user.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
+        count_wizard_timeout("item_advanced_warning")
+        if self.message is not None:
+            await self.message.edit(
+                content=f"⏱ The advanced editor expired. {self.editor._restart_text}",
+                view=self,
+            )
+        self.stop()
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.success, row=0)
+    async def continue_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.editor._advanced = True
+        if self._on_continue is not None:
+            await self._on_continue(interaction)
+        else:
+            await self.editor.show(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -638,6 +756,7 @@ class EffectFormView(discord.ui.View):
 __all__ = [
     "ItemEffectsView",
     "EffectCategoryPickerView",
+    "AdvancedModeWarningView",
     "AdvancedEffectPickerView",
     "EffectFormView",
 ]

@@ -35,6 +35,13 @@ global Discord command propagation can take longer.
 - `/fish item edit` opens the same wizard with the current definition prefilled and a final
   "Save Changes" button; if another administrator saved a newer version first, the wizard offers to
   reload the latest version instead of overwriting it.
+- `/fish item export-json` and `/fish item import-json` (Twitch channel owner only) round-trip a raw
+  definition file for backup and cross-channel migration; import reviews the JSON with the same
+  compatibility validation as the wizard before confirming.
+- The effects step runs in a Standard editor (up to 10 effects) by default. An "Advanced mode"
+  button raises the cap to 25 and exposes low-level stats (`stat_multiply`, `points_flat_bonus`),
+  always behind a warning; imported or legacy items that already overflow the standard editor open
+  in advanced mode automatically.
 
 Edit forms capture an entity version. If another administrator changes the same entity first, the
 backend rejects the stale form and no data is overwritten. Destructive operations use a

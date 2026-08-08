@@ -30,6 +30,14 @@ UNIT_PERCENTAGE_POINTS = "percentage_points"
 UNIT_MASS_KG = "mass_kg"
 UNIT_FLAT = "flat"
 
+# Effect-count limits (spec §35). The standard editor caps the list at 10 so
+# it stays manageable in a Discord select; the advanced editor (entered through
+# the §32 warning) allows 25. The backend may accept more for legacy/imported
+# items, but the standard UI must not create items that cannot be managed
+# through the select-based editor.
+STANDARD_MAX_EFFECTS = 10
+ADVANCED_MAX_EFFECTS = 25
+
 # Effect categories shown on the effects screen (spec §12).
 CATEGORY_FISHING = "fishing"
 CATEGORY_ITEM_DROP = "item_drop"
@@ -883,6 +891,8 @@ __all__ = [
     "UNIT_PERCENTAGE_POINTS",
     "UNIT_MASS_KG",
     "UNIT_FLAT",
+    "STANDARD_MAX_EFFECTS",
+    "ADVANCED_MAX_EFFECTS",
     "CATEGORY_FISHING",
     "CATEGORY_ITEM_DROP",
     "CATEGORY_ROBBERY",

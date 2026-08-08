@@ -56,7 +56,7 @@ def register_commands(tree, api, sessions) -> None:
             "`location` — fishing locations\n"
             "`reward` — weighted channel rewards\n"
             "`event` — channel events\n"
-            "`item` — typed item definitions and effects\n"
+            "`item` — typed items via the wizard; JSON import/export for owners\n"
             "`item-drop` — location item drops\n"
             "`player` — viewer inventory and stats\n"
             "`player-modifier` — per-player stat modifiers\n"
@@ -81,12 +81,12 @@ def register_commands(tree, api, sessions) -> None:
     _wire_cross_group_autocompletes(api, locations, rewards, events, items, item_drops, players)
 
 
-def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item_drops, players) -> None:
+def _wire_cross_group_autocompletes(
+    api, locations, rewards, events, items, item_drops, players
+) -> None:
     """Attach shared autocompletes to commands across domain modules."""
 
-    async def message_key_autocomplete(
-        interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def message_key_autocomplete(interaction, current: str) -> list[app_commands.Choice[str]]:
         try:
             result = await api.message_placeholders(interaction)
         except EngineError:
@@ -98,9 +98,7 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
             if needle in item["message_key"].casefold()
         ][:25]
 
-    async def location_autocomplete(
-        interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def location_autocomplete(interaction, current: str) -> list[app_commands.Choice[str]]:
         try:
             result = await api.locations(interaction)
         except EngineError:
@@ -116,9 +114,7 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
             or needle in item["location_name"].casefold()
         ][:25]
 
-    async def reward_autocomplete(
-        interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def reward_autocomplete(interaction, current: str) -> list[app_commands.Choice[str]]:
         try:
             result = await api.rewards(interaction)
         except EngineError:
@@ -133,9 +129,7 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
             if needle in item["reward_id"].casefold()
         ][:25]
 
-    async def event_autocomplete(
-        interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def event_autocomplete(interaction, current: str) -> list[app_commands.Choice[str]]:
         try:
             result = await api.events(interaction)
         except EngineError:
@@ -147,9 +141,7 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
             if needle in str(item["id"]).casefold() or needle in item["event_title"].casefold()
         ][:25]
 
-    async def item_autocomplete(
-        interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    async def item_autocomplete(interaction, current: str) -> list[app_commands.Choice[str]]:
         try:
             result = await api.items(interaction, include_archived=True)
         except EngineError:
@@ -161,8 +153,7 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
                 value=entry["item_id"],
             )
             for entry in result["items"]
-            if needle in entry["item_id"].casefold()
-            or needle in entry["title"].casefold()
+            if needle in entry["item_id"].casefold() or needle in entry["title"].casefold()
         ][:25]
 
     for command in (
@@ -186,7 +177,12 @@ def _wire_cross_group_autocompletes(api, locations, rewards, events, items, item
         command.autocomplete("event_id")(event_autocomplete)
     for command in (events["placeholders_show"], events["placeholders_edit"]):
         command.autocomplete("message_key")(message_key_autocomplete)
-    for command in (items["item_show"], items["item_edit"], items["item_archive"]):
+    for command in (
+        items["item_show"],
+        items["item_edit"],
+        items["item_archive"],
+        items["item_export_json"],
+    ):
         command.autocomplete("item_id")(item_autocomplete)
     for command in (
         item_drops["item_drop_list"],
