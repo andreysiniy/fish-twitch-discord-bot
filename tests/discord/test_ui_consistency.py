@@ -195,3 +195,51 @@ def test_stale_component_click_is_acked_instead_of_timing_out() -> None:
         assert ghost.response.sent is not None
 
     asyncio.run(run())
+
+
+def test_shared_item_payload_preserves_version_fields() -> None:
+    """Spec §53: the shared payload builder must preserve schema_version,
+    image_url, value, and expected_version."""
+    from app.commands.shared import _item_payload
+
+    payload = _item_payload(
+        item_id="x",
+        title="X",
+        item_type="material",
+        rarity="rare",
+        equipment_slot=None,
+        stack_size=10,
+        max_durability=None,
+        break_policy="indestructible",
+        effects=[{"type": "grant_mass", "mass": "5"}],
+        description="desc",
+        schema_version=3,
+        image_url="https://example.com/i.png",
+        value="42.5",
+        expected_version=7,
+    )
+    assert payload["schema_version"] == 3
+    assert payload["image_url"] == "https://example.com/i.png"
+    assert payload["value"] == "42.5"
+    assert payload["expected_version"] == 7
+
+
+def test_shared_item_payload_applies_create_defaults() -> None:
+    from app.commands.shared import _item_payload
+
+    payload = _item_payload(
+        item_id="x",
+        title="X",
+        item_type="material",
+        rarity="rare",
+        equipment_slot=None,
+        stack_size=10,
+        max_durability=None,
+        break_policy="indestructible",
+        effects=[],
+        description=None,
+    )
+    assert payload["schema_version"] == 1
+    assert payload["image_url"] is None
+    assert payload["value"] is None
+    assert "expected_version" not in payload

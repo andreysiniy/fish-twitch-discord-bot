@@ -202,8 +202,7 @@ def _player_modifier_preview_embed(
     embed = discord.Embed(
         title=f"Player modifier preview — {user_twitch_id}",
         description=(
-            f"Scope: `{scope}` · Stat: `{stat_key}`\n"
-            f"Operation: **{op_label}** with value `{value}`"
+            f"Scope: `{scope}` · Stat: `{stat_key}`\nOperation: **{op_label}** with value `{value}`"
         ),
         color=discord.Color.orange(),
     )
@@ -252,9 +251,7 @@ async def _send_json_embed(
     kwargs: dict[str, Any] = {"ephemeral": True}
     if len(rendered) > 3900:
         embed.description = f"```json\n{rendered[:900]}\n```\n(full JSON attached as a file)"
-        kwargs["file"] = discord.File(
-            io.StringIO(rendered), filename=f"{title.lower()}.json"
-        )
+        kwargs["file"] = discord.File(io.StringIO(rendered), filename=f"{title.lower()}.json")
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, **kwargs)
     else:
@@ -296,6 +293,10 @@ def _item_payload(
     break_policy: str,
     effects: list[dict[str, Any]],
     description: str | None,
+    schema_version: int | None = None,
+    image_url: str | None = None,
+    value: str | None = None,
+    expected_version: int | None = None,
 ) -> dict[str, Any]:
     if item_type == "equipment" and not equipment_slot:
         raise ValueError("Equipment slot is required for equipment")
@@ -305,7 +306,7 @@ def _item_payload(
         raise ValueError("Equipment must use stack size 1")
     if break_policy != "indestructible" and max_durability is None:
         raise ValueError("Maximum durability is required for breakable items")
-    return {
+    payload = {
         "item_id": item_id.strip().lower(),
         "title": title.strip(),
         "description": description.strip() if description else None,
@@ -315,11 +316,14 @@ def _item_payload(
         "stack_size": stack_size,
         "max_durability": max_durability,
         "break_policy": break_policy,
-        "schema_version": 1,
+        "schema_version": schema_version if schema_version is not None else 1,
         "effects": effects,
-        "image_url": None,
-        "value": None,
+        "image_url": image_url,
+        "value": value,
     }
+    if expected_version is not None:
+        payload["expected_version"] = expected_version
+    return payload
 
 
 def _epoch_from_iso(value: str) -> int:
