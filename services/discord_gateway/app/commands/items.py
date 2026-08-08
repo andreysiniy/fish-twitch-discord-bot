@@ -6,8 +6,10 @@ import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
+from app.domain.item_ui_registry import TEMPLATES_BY_VALUE
 from app.interactions.effects_editor import EffectsEditorView
 from app.interactions.item_wizard import ItemPreviewView, build_item_payload
+from app.interactions.items.wizard import start_item_create, template_choices
 from app.presentation.embeds import (
     item_detail_embed,
     item_list_entry,
@@ -65,62 +67,26 @@ def register_items_group(tree, api, sessions, fish) -> None:
 
         await _deferred(interaction, operation)
 
-    @item.command(name="create", description="Create a strict typed item definition")
-    @app_commands.choices(
-        item_type=ITEM_TYPE_CHOICES,
-        rarity=RARITY_CHOICES,
-        equipment_slot=EQUIPMENT_SLOT_CHOICES,
-        break_policy=BREAK_POLICY_CHOICES,
-    )
-    @app_commands.describe(
-        item_id="Stable lowercase ID, for example carbon_rod",
-        title="Display name",
-        item_type="Item behavior category",
-        rarity="Rarity used by item-drop luck",
-        equipment_slot="Required only for equipment",
-        stack_size="Maximum quantity in one inventory slot; equipment must use 1",
-        max_durability="Required for breakable items",
-        break_policy="Behavior when durability reaches zero",
-        description="Optional item description",
-    )
+    @item.command(name="create", description="Create a typed item with the step-by-step wizard")
+    @app_commands.choices(template=template_choices())
+    @app_commands.describe(template="Optional template to prefill the wizard")
     async def item_create(
         interaction: discord.Interaction,
-        item_id: str,
-        title: str,
-        item_type: app_commands.Choice[str],
-        rarity: app_commands.Choice[str],
-        equipment_slot: app_commands.Choice[str] | None = None,
-        stack_size: app_commands.Range[int, 1, 1_000_000] = 1,
-        max_durability: app_commands.Range[int, 1, 1_000_000] | None = None,
-        break_policy: app_commands.Choice[str] | None = None,
-        description: str | None = None,
+        template: str | None = None,
     ) -> None:
-        async def operation() -> None:
-            draft = {
-                "item_id": item_id,
-                "title": title,
-                "item_type": item_type.value,
-                "rarity": rarity.value,
-                "equipment_slot": equipment_slot.value if equipment_slot else None,
-                "stack_size": stack_size,
-                "max_durability": max_durability,
-                "break_policy": break_policy.value if break_policy else "indestructible",
-                "description": description,
-                "effects": [],
-            }
-            flow_id = await sessions.create(interaction.user.id, draft)
-            await _show_item_preview(
-                interaction=interaction,
-                sessions=sessions,
-                api=api,
-                flow_id=flow_id,
-                title=f"Create item: {title}",
-                draft=draft,
-                mutation=lambda confirmed, payload: api.upsert_item(confirmed, payload),
-                success="Item created.",
+        if template and template not in TEMPLATES_BY_VALUE:
+            await interaction.response.send_message(
+                "Unknown template. Run /fish item create without arguments.", ephemeral=True
             )
-
-        await _deferred(interaction, operation)
+            return
+        try:
+            await start_item_create(interaction, sessions, api, template=template)
+        except (EngineError, ValueError) as error:
+            content = _error_text(error)
+            if interaction.response.is_done():
+                await interaction.followup.send(content, ephemeral=True)
+            else:
+                await interaction.response.send_message(content, ephemeral=True)
 
     @item.command(name="edit", description="Replace a versioned typed item definition")
     @app_commands.choices(
