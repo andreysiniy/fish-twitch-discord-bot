@@ -84,6 +84,7 @@ class ItemWizardSession:
         template: str | None = None,
         draft: dict[str, Any] | None = None,
         expected_version: int | None = None,
+        step: WizardStep = WizardStep.TEMPLATE,
     ) -> "ItemWizardSession":
         session = cls(
             store=store,
@@ -92,7 +93,7 @@ class ItemWizardSession:
             discord_user_id=str(discord_user_id),
             discord_guild_id=str(discord_guild_id) if discord_guild_id else None,
             channel_id=channel_id,
-            step=WizardStep.TEMPLATE,
+            step=step,
             template=template,
             draft=draft or {},
             expected_version=expected_version,

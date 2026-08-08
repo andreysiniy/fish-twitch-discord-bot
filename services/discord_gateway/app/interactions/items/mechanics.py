@@ -158,6 +158,7 @@ class MechanicsView(discord.ui.View):
         on_back: BackCallback,
         on_cancel: CancelCallback,
         timeout: int = 600,
+        restart_text: str = "Run /fish item create again.",
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
@@ -167,6 +168,7 @@ class MechanicsView(discord.ui.View):
         self.on_continue = on_continue
         self.on_back = on_back
         self.on_cancel = on_cancel
+        self._restart_text = restart_text
         self._configure_controls()
         self._update_state()
 
@@ -307,7 +309,7 @@ class MechanicsView(discord.ui.View):
         count_wizard_timeout("item_mechanics")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The item mechanics step expired. Run /fish item create again.",
+                content=f"⏱ The item mechanics step expired. {self._restart_text}",
                 view=self,
             )
         self.stop()

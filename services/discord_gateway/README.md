@@ -32,6 +32,9 @@ global Discord command propagation can take longer.
 - `/fish item create` runs the step-by-step wizard: pick a template, then fill basic info, rarity,
   mechanics, and effects before reviewing and confirming. Effects are added with the typed builder,
   not raw JSON.
+- `/fish item edit` opens the same wizard with the current definition prefilled and a final
+  "Save Changes" button; if another administrator saved a newer version first, the wizard offers to
+  reload the latest version instead of overwriting it.
 
 Edit forms capture an entity version. If another administrator changes the same entity first, the
 backend rejects the stale form and no data is overwritten. Destructive operations use a

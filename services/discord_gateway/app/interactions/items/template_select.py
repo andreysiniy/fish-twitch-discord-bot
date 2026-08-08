@@ -43,11 +43,13 @@ class TemplateSelectView(discord.ui.View):
         on_cancel: CancelCallback,
         *,
         timeout: int = 600,
+        restart_text: str = "Run /fish item create again.",
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
         self.on_continue = on_continue
         self.on_cancel = on_cancel
+        self._restart_text = restart_text
         self._selected: str | None = None
         self.template_select.placeholder = "Select a template…"
         self.template_select.options = [
@@ -94,7 +96,7 @@ class TemplateSelectView(discord.ui.View):
         count_wizard_timeout("item_template")
         if self.message is not None:
             await self.message.edit(
-                content="⏱ The template selection expired. Run /fish item create again.",
+                content=f"⏱ The template selection expired. {self._restart_text}",
                 view=self,
             )
         self.stop()

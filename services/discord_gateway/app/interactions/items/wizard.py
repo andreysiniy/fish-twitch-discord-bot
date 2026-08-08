@@ -4,19 +4,30 @@ Drives the create flow through the step views: template → basic info → rarit
 mechanics → effects → review. Every step loads the Redis session, mutates the
 draft, saves it back and renders the next screen. Confirm is only reachable
 from REVIEW, so a half-finished draft never reaches the backend (spec §44).
+
+``/fish item edit`` (spec §54) reuses the same views: the draft is seeded from
+the backend definition with ``expected_version`` set so the backend optimistic
+lock rejects stale saves, and the final button reads "Save Changes". A
+``ITEM_VERSION_CONFLICT`` (spec §55) keeps the flow open and offers to reload
+the latest version instead of silently overwriting a newer definition.
 """
 
 from typing import Any
 
 import discord
 
-from app.domain.item_ui_registry import ITEM_TEMPLATES, TEMPLATES_BY_VALUE
+from app.api.errors import EngineError
+from app.domain.item_ui_registry import (
+    ITEM_TEMPLATES,
+    TEMPLATES_BY_VALUE,
+    template_for_item_type,
+)
 from app.interactions.item_wizard import build_item_payload
 from app.interactions.items.basic_info import BasicInfoModal
 from app.interactions.items.effects import ItemEffectsView
 from app.interactions.items.mechanics import MechanicsView, mechanics_embed
 from app.interactions.items.rarity import RarityView, rarity_embed
-from app.interactions.items.review import ItemReviewView
+from app.interactions.items.review import ItemReviewView, VersionConflictView
 from app.interactions.items.session import ItemWizardSession, WizardStep
 from app.interactions.items.template_select import TemplateSelectView, template_embed
 
@@ -28,6 +39,45 @@ def template_choices() -> list[discord.app_commands.Choice[str]]:
         discord.app_commands.Choice(name=item["label"], value=item["value"])
         for item in ITEM_TEMPLATES
     ]
+
+
+def _restart_text(session: ItemWizardSession) -> str:
+    return (
+        "Run /fish item edit again."
+        if session.flow_type == "item_edit"
+        else "Run /fish item create again."
+    )
+
+
+def _cancel_text(session: ItemWizardSession) -> str:
+    return (
+        "Item edit cancelled." if session.flow_type == "item_edit" else "Item creation cancelled."
+    )
+
+
+def _seed_draft_from_item(item_id: str, current: dict[str, Any]) -> dict[str, Any]:
+    """Translate a backend item definition into a wizard draft (spec §54).
+
+    The edit draft carries the backend's current version so the confirm submit
+    can use optimistic locking: a stale draft is rejected with
+    ``ITEM_VERSION_CONFLICT`` and the flow stays open (spec §55).
+    """
+    return {
+        "item_id": item_id,
+        "title": current.get("title", ""),
+        "item_type": current.get("item_type", "material"),
+        "rarity": current.get("rarity", "common"),
+        "equipment_slot": current.get("equipment_slot"),
+        "stack_size": current.get("stack_size", 1),
+        "max_durability": current.get("max_durability"),
+        "break_policy": current.get("break_policy", "indestructible"),
+        "effects": list(current.get("effects") or []),
+        "description": current.get("description"),
+        "schema_version": current.get("schema_version", 1),
+        "image_url": current.get("image_url"),
+        "value": current.get("value"),
+        "expected_version": current.get("version"),
+    }
 
 
 async def start_item_create(
@@ -54,6 +104,86 @@ async def start_item_create(
         await _render_template(interaction, session, api)
 
 
+async def start_item_edit(
+    interaction: discord.Interaction,
+    sessions,
+    api,
+    *,
+    item_id: str,
+) -> None:
+    """Entry point for ``/fish item edit`` (spec §54).
+
+    Fetches the current definition, seeds the draft from it and jumps straight
+    to Basic Info so the admin edits a complete item instead of rebuilding it.
+    """
+    current = await api.item(interaction, item_id)
+    template = template_for_item_type(
+        current.get("item_type", "material"), current.get("equipment_slot")
+    )
+    session = await ItemWizardSession.create(
+        sessions,
+        flow_type="item_edit",
+        discord_user_id=interaction.user.id,
+        discord_guild_id=interaction.guild_id,
+        channel_id=interaction.channel_id,
+        template=template,
+        draft=_seed_draft_from_item(item_id, current),
+        expected_version=current.get("version"),
+        step=WizardStep.BASIC_INFO,
+    )
+    await _render_basic_info(interaction, session, api)
+
+
+async def start_effect_edit(
+    interaction: discord.Interaction,
+    sessions,
+    api,
+    *,
+    item_id: str,
+) -> None:
+    """Entry point for ``/fish item effect-edit`` (spec §54).
+
+    Loads the current definition into an edit session at the Effects step and
+    opens the typed effects editor directly. Completing the editor routes to the
+    shared review screen so the admin can still adjust anything before saving.
+    """
+    current = await api.item(interaction, item_id)
+    template = template_for_item_type(
+        current.get("item_type", "material"), current.get("equipment_slot")
+    )
+    session = await ItemWizardSession.create(
+        sessions,
+        flow_type="item_edit",
+        discord_user_id=interaction.user.id,
+        discord_guild_id=interaction.guild_id,
+        channel_id=interaction.channel_id,
+        template=template,
+        draft=_seed_draft_from_item(item_id, current),
+        expected_version=current.get("version"),
+        step=WizardStep.EFFECTS,
+    )
+
+    async def on_done(done: discord.Interaction, final_effects) -> None:
+        if final_effects is None:
+            await session.delete()
+            await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
+            return
+        session.draft["effects"] = final_effects
+        await session.transition(WizardStep.REVIEW)
+        await _render_review(done, session, api)
+
+    view = ItemEffectsView(
+        int(session.discord_user_id),
+        list(session.draft.get("effects") or []),
+        on_done,
+        api=api,
+        restart_text=_restart_text(session),
+    )
+    await interaction.response.send_message(
+        view.message_text, embed=view._embed(), view=view, ephemeral=True
+    )
+
+
 async def _render_template(
     interaction: discord.Interaction, session: ItemWizardSession, api
 ) -> None:
@@ -64,7 +194,7 @@ async def _render_template(
             await session.transition(WizardStep.BASIC_INFO)
         except (KeyError, ValueError):
             await done.response.send_message(
-                "Unknown template. Run /fish item create again.", ephemeral=True
+                f"Unknown template. {_restart_text(session)}", ephemeral=True
             )
             await session.delete()
             return
@@ -72,9 +202,14 @@ async def _render_template(
 
     async def on_cancel(done: discord.Interaction) -> None:
         await session.delete()
-        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
-    view = TemplateSelectView(interaction.user.id, on_continue, on_cancel)
+    view = TemplateSelectView(
+        interaction.user.id,
+        on_continue,
+        on_cancel,
+        restart_text=_restart_text(session),
+    )
     if interaction.response.is_done():
         await interaction.edit_original_response(
             content=None,
@@ -117,7 +252,7 @@ async def _render_rarity(interaction: discord.Interaction, session: ItemWizardSe
 
     async def on_cancel(done: discord.Interaction) -> None:
         await session.delete()
-        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
     view = RarityView(
         interaction.user.id,
@@ -125,6 +260,7 @@ async def _render_rarity(interaction: discord.Interaction, session: ItemWizardSe
         on_back,
         on_cancel,
         current=session.draft.get("rarity", "common"),
+        restart_text=_restart_text(session),
     )
     await interaction.response.edit_message(
         content=None, embed=rarity_embed(view._selected), view=view
@@ -151,7 +287,7 @@ async def _render_mechanics(
 
     async def on_cancel(done: discord.Interaction) -> None:
         await session.delete()
-        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
     view = _build_mechanics_view(session, api, on_persist, on_continue, on_back, on_cancel)
     await interaction.response.edit_message(
@@ -183,7 +319,7 @@ def _build_mechanics_view(
 
     async def default_cancel(done: discord.Interaction) -> None:
         await session.delete()
-        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
     return MechanicsView(
         initiator_id=int(session.discord_user_id),
@@ -193,6 +329,7 @@ def _build_mechanics_view(
         on_continue=on_continue or default_continue,
         on_back=on_back or default_back,
         on_cancel=on_cancel or default_cancel,
+        restart_text=_restart_text(session),
     )
 
 
@@ -202,9 +339,7 @@ async def _render_effects(
     async def on_done(done: discord.Interaction, final_effects) -> None:
         if final_effects is None:
             await session.delete()
-            await done.response.edit_message(
-                content="Item creation cancelled.", embed=None, view=None
-            )
+            await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
             return
         session.draft["effects"] = final_effects
         await session.transition(WizardStep.REVIEW)
@@ -220,6 +355,7 @@ async def _render_effects(
         on_done,
         api=api,
         on_back=on_back,
+        restart_text=_restart_text(session),
     )
     await interaction.response.edit_message(
         content=view.message_text, embed=view._embed(), view=view
@@ -235,13 +371,27 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
 
     async def confirm(done: discord.Interaction) -> None:
         # Spec §61: mark SUBMITTING in Redis before the backend call so a second
-        # click or an HTTP retry can never create a second item. Recoverable
+        # click or an HTTP retry can never create/update twice. Recoverable
         # errors move back to REVIEW and are re-rendered by the view.
         await session.transition(WizardStep.SUBMITTING)
         payload = build_item_payload(session.draft)
-        key = f"discord:item-create:{session.flow_id}"
+        is_edit = session.flow_type == "item_edit"
+        key = (
+            f"discord:item-edit:{session.flow_id}"
+            if is_edit
+            else f"discord:item-create:{session.flow_id}"
+        )
         try:
             await api.upsert_item(done, payload, idempotency_key=key)
+        except EngineError as error:
+            try:
+                await session.transition(WizardStep.REVIEW)
+            except Exception:
+                pass
+            if error.code == "ITEM_VERSION_CONFLICT" and is_edit:
+                await _render_conflict(done, session, api)
+                return
+            raise
         except Exception:
             try:
                 await session.transition(WizardStep.REVIEW)
@@ -249,10 +399,11 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
                 pass
             raise
         await _delete()
+        message = "Item updated." if is_edit else "Item created."
         if done.response.is_done():
-            await done.edit_original_response(content="Item created.", embed=None, view=None)
+            await done.edit_original_response(content=message, embed=None, view=None)
         else:
-            await done.response.send_message("Item created.", ephemeral=True)
+            await done.response.send_message(message, ephemeral=True)
 
     async def on_edit_basic(editor_interaction: discord.Interaction) -> None:
         async def on_submit(done: discord.Interaction, values: dict) -> None:
@@ -285,6 +436,7 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
             effects_done,
             api=api,
             on_back=lambda done: _render_review(done, session, api),
+            restart_text=_restart_text(session),
         )
         await editor_interaction.response.edit_message(
             content=editor.message_text,
@@ -295,13 +447,13 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
     async def on_cancel(cancel_interaction: discord.Interaction) -> None:
         await _delete()
         await cancel_interaction.response.edit_message(
-            content="Item creation cancelled.", embed=None, view=None
+            content=_cancel_text(session), embed=None, view=None
         )
 
     view = ItemReviewView(
         initiator_id=int(session.discord_user_id),
         draft=session.draft,
-        confirm_label="Create Item" if session.flow_type == "item_create" else "Save Changes",
+        confirm_label="Save Changes" if session.flow_type == "item_edit" else "Create Item",
         on_confirm=confirm,
         on_edit_basic=on_edit_basic,
         on_edit_mechanics=on_edit_mechanics,
@@ -309,8 +461,58 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
         on_cancel=on_cancel,
         template_label=_template_label(session.template),
         schema_version=session.draft.get("schema_version", 1),
+        version=session.expected_version,
+        restart_text=_restart_text(session),
     )
     await interaction.edit_original_response(content=None, embed=view.embed(), view=view)
+
+
+async def _render_conflict(
+    interaction: discord.Interaction, session: ItemWizardSession, api
+) -> None:
+    """Show the optimistic-locking recovery card (spec §55)."""
+
+    async def on_reload(done: discord.Interaction) -> None:
+        item_id = session.draft.get("item_id")
+        if not item_id:
+            await session.delete()
+            await done.response.edit_message(
+                content="The item could not be reloaded. Run /fish item edit again.",
+                embed=None,
+                view=None,
+            )
+            return
+        try:
+            current = await api.item(done, item_id)
+        except Exception:
+            await done.response.edit_message(
+                content="The item could not be reloaded. Try again.",
+                embed=None,
+                view=None,
+            )
+            return
+        template = template_for_item_type(
+            current.get("item_type", "material"), current.get("equipment_slot")
+        )
+        session.template = template or session.template
+        session.draft = _seed_draft_from_item(item_id, current)
+        session.expected_version = current.get("version")
+        await session.save()
+        await _render_review(done, session, api)
+
+    async def on_cancel(done: discord.Interaction) -> None:
+        await session.delete()
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
+
+    view = VersionConflictView(
+        initiator_id=int(session.discord_user_id),
+        on_reload=on_reload,
+        on_cancel=on_cancel,
+    )
+    if interaction.response.is_done():
+        await interaction.edit_original_response(content=None, embed=view.embed(), view=view)
+    else:
+        await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
 
 
 def _template_label(template: str | None) -> str | None:
@@ -343,6 +545,6 @@ def _mechanics_review_view(session: ItemWizardSession, api) -> MechanicsView:
             await session.delete()
         except Exception:
             pass
-        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+        await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
     return _build_mechanics_view(session, api, on_persist, on_continue, on_back, on_cancel)
