@@ -10,12 +10,13 @@ from typing import Any
 
 import discord
 
-from app.domain.item_ui_registry import ITEM_TEMPLATES
-from app.interactions.item_wizard import ItemPreviewView, build_item_payload
+from app.domain.item_ui_registry import ITEM_TEMPLATES, TEMPLATES_BY_VALUE
+from app.interactions.item_wizard import build_item_payload
 from app.interactions.items.basic_info import BasicInfoModal
 from app.interactions.items.effects import ItemEffectsView
 from app.interactions.items.mechanics import MechanicsView, mechanics_embed
 from app.interactions.items.rarity import RarityView, rarity_embed
+from app.interactions.items.review import ItemReviewView
 from app.interactions.items.session import ItemWizardSession, WizardStep
 from app.interactions.items.template_select import TemplateSelectView, template_embed
 
@@ -233,16 +234,40 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
             pass
 
     async def confirm(done: discord.Interaction) -> None:
-        # Imported lazily: app.commands.shared pulls in the command tree, which
-        # imports this module — a module-scope import would be circular.
-        from app.commands.shared import _mutation_response
-
+        # Spec §61: mark SUBMITTING in Redis before the backend call so a second
+        # click or an HTTP retry can never create a second item. Recoverable
+        # errors move back to REVIEW and are re-rendered by the view.
+        await session.transition(WizardStep.SUBMITTING)
         payload = build_item_payload(session.draft)
         key = f"discord:item-create:{session.flow_id}"
-        await _mutation_response(
-            done, lambda: api.upsert_item(done, payload, idempotency_key=key), "Item created."
-        )
+        try:
+            await api.upsert_item(done, payload, idempotency_key=key)
+        except Exception:
+            try:
+                await session.transition(WizardStep.REVIEW)
+            except Exception:
+                pass
+            raise
         await _delete()
+        if done.response.is_done():
+            await done.edit_original_response(content="Item created.", embed=None, view=None)
+        else:
+            await done.response.send_message("Item created.", ephemeral=True)
+
+    async def on_edit_basic(editor_interaction: discord.Interaction) -> None:
+        async def on_submit(done: discord.Interaction, values: dict) -> None:
+            session.draft.update(values)
+            await session.save()
+            await _render_review(done, session, api)
+
+        modal = BasicInfoModal(on_submit, current=session.draft)
+        await editor_interaction.response.send_modal(modal)
+
+    async def on_edit_mechanics(editor_interaction: discord.Interaction) -> None:
+        view = _mechanics_review_view(session, api)
+        await editor_interaction.response.edit_message(
+            content=None, embed=mechanics_embed(session.draft), view=view
+        )
 
     async def on_edit_effects(editor_interaction: discord.Interaction) -> None:
         state = await session.store.get(session.discord_user_id, session.flow_id)
@@ -254,7 +279,13 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
                 await session.save()
             await _render_review(done_interaction, session, api)
 
-        editor = ItemEffectsView(int(session.discord_user_id), effects, effects_done, api=api)
+        editor = ItemEffectsView(
+            int(session.discord_user_id),
+            effects,
+            effects_done,
+            api=api,
+            on_back=lambda done: _render_review(done, session, api),
+        )
         await editor_interaction.response.edit_message(
             content=editor.message_text,
             embed=editor._embed(),
@@ -263,14 +294,55 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
 
     async def on_cancel(cancel_interaction: discord.Interaction) -> None:
         await _delete()
+        await cancel_interaction.response.edit_message(
+            content="Item creation cancelled.", embed=None, view=None
+        )
 
-    view = ItemPreviewView(
-        int(session.discord_user_id),
-        session.draft,
-        confirm,
+    view = ItemReviewView(
+        initiator_id=int(session.discord_user_id),
+        draft=session.draft,
+        confirm_label="Create Item" if session.flow_type == "item_create" else "Save Changes",
+        on_confirm=confirm,
+        on_edit_basic=on_edit_basic,
+        on_edit_mechanics=on_edit_mechanics,
         on_edit_effects=on_edit_effects,
         on_cancel=on_cancel,
+        template_label=_template_label(session.template),
+        schema_version=session.draft.get("schema_version", 1),
     )
-    embed = view.embed()
-    embed.title = f"Review item: {session.draft.get('title', session.draft.get('item_id'))}"
-    await interaction.edit_original_response(content=None, embed=embed, view=view)
+    await interaction.edit_original_response(content=None, embed=view.embed(), view=view)
+
+
+def _template_label(template: str | None) -> str | None:
+    """Human label for the session template (spec §8/§38)."""
+    if not template:
+        return None
+    spec = TEMPLATES_BY_VALUE.get(template)
+    return spec["label"] if spec else template.replace("_", " ").title()
+
+
+def _mechanics_review_view(session: ItemWizardSession, api) -> MechanicsView:
+    """Mechanics editor that returns to REVIEW instead of walking the wizard."""
+
+    async def on_persist(done: discord.Interaction) -> None:
+        await session.save()
+        view = _mechanics_review_view(session, api)
+        await done.response.edit_message(
+            content=None, embed=mechanics_embed(session.draft), view=view
+        )
+
+    async def on_continue(done: discord.Interaction) -> None:
+        await session.save()
+        await _render_review(done, session, api)
+
+    async def on_back(done: discord.Interaction) -> None:
+        await _render_review(done, session, api)
+
+    async def on_cancel(done: discord.Interaction) -> None:
+        try:
+            await session.delete()
+        except Exception:
+            pass
+        await done.response.edit_message(content="Item creation cancelled.", embed=None, view=None)
+
+    return _build_mechanics_view(session, api, on_persist, on_continue, on_back, on_cancel)
