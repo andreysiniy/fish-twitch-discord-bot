@@ -253,6 +253,8 @@ class FakeInteraction:
     def __init__(self, failures: list[str] | None = None):
         self._failures = failures if failures is not None else []
         self.modal = None
+        self.message = None
+        self.edits = []
 
         class Response:
             def __init__(self, owner):
@@ -270,6 +272,9 @@ class FakeInteraction:
 
             async def send_modal(self, modal):
                 self.owner.modal = modal
+
+            async def edit_message(self, *args, **kwargs):
+                self.owner.edits.append((kwargs.get("embed"), kwargs.get("view")))
 
             async def edit_original_response(self, *args, **kwargs):
                 return None
@@ -631,3 +636,59 @@ async def test_review_edit_basic_returns_to_review_with_updated_draft() -> None:
     assert session.draft["item_id"] == "refined_ore"
     # Draft stays at REVIEW: no backend mutation happened and nothing was deleted.
     assert await store.get(1, session.flow_id) is not None
+
+# --- modal submit render path (spec §6) -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_modal_submit_without_parent_message_sends_next_step() -> None:
+    """Regression (Discord 404 NotFound): a modal launched straight from a slash
+    command has no parent message, so the wizard must reply with a fresh
+    ephemeral message for the next step instead of calling edit_message."""
+    from app.interactions.items.wizard import start_item_create
+
+    store = FakeSessionStore()
+    interaction = FakeInteraction()
+    await start_item_create(interaction, store, api=None, template="fishing_rod")
+
+    modal = interaction.modal
+    assert isinstance(modal, BasicInfoModal)
+    modal.display_name._value = "Storm Rod"
+    modal.item_id._value = ""
+    modal.description._value = ""
+
+    submit = FakeInteraction()  # message stays None: modal was not opened from a message
+    await modal.on_submit(submit)
+
+    assert submit.response.sent, "wizard must reply with a new ephemeral message"
+    embed, view = submit.response.sent[0]
+    assert isinstance(view, RarityView)
+    assert embed.title == "Choose Rarity"
+    state = await store.get(interaction.user.id, "flow-1")
+    assert state["step"] == WizardStep.RARITY.value
+
+
+@pytest.mark.asyncio
+async def test_modal_submit_with_parent_message_edits_in_place() -> None:
+    """A modal opened from a message component keeps the parent message; the
+    wizard edits it in place (existing behavior preserved)."""
+    from app.interactions.items.wizard import start_item_create
+
+    store = FakeSessionStore()
+    interaction = FakeInteraction()
+    await start_item_create(interaction, store, api=None, template="fishing_rod")
+
+    modal = interaction.modal
+    assert isinstance(modal, BasicInfoModal)
+    modal.display_name._value = "Storm Rod"
+    modal.item_id._value = ""
+    modal.description._value = ""
+
+    submit = FakeInteraction()
+    submit.message = object()  # modal was opened from a message component
+    await modal.on_submit(submit)
+
+    assert submit.edits, "wizard must edit the parent message in place"
+    embed, view = submit.edits[0]
+    assert isinstance(view, RarityView)
+    assert submit.response.sent == []
