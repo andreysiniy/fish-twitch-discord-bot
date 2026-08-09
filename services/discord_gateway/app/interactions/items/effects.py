@@ -26,6 +26,7 @@ from app.domain.item_effect_registry import (
     ADVANCED_MAX_EFFECTS,
     ADVANCED_STAT_DEFINITIONS,
     CATEGORY_ADVANCED,
+    EFFECT_CATEGORIES,
     CATEGORY_TRIGGERED,
     STANDARD_MAX_EFFECTS,
     TRIGGERED_EFFECT_FORMS,
@@ -380,6 +381,9 @@ class EffectCategoryPickerView(discord.ui.View):
         self.editor = editor
         self.initiator_id = editor.initiator_id
         self._category: str | None = None
+        self.category_select.options = [
+            discord.SelectOption(label=label, value=value) for label, value in EFFECT_CATEGORIES
+        ]
         self.effect_select.options = [
             discord.SelectOption(label="Choose a category first", value="-1")
         ]
