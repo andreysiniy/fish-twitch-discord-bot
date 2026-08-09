@@ -164,3 +164,35 @@ def test_item_drop_list_entry_hides_database_id() -> None:
     assert "Weight: 25" in details
     assert "Stock: 3" in details
     assert "XP: 5" in details
+
+
+def test_item_drop_list_entry_shows_effects() -> None:
+    entry = {
+        "item_id": "storm_rod",
+        "title": "Storm Rod",
+        "weight": 25,
+        "xp_gain": 0,
+        "quantity": None,
+        "message": "m",
+        "version": 1,
+        "effects": [
+            {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"}
+        ],
+    }
+    title, details = item_drop_list_entry(entry)
+    assert "Effects:" in details
+    assert "stat_add" in details
+
+
+def test_item_drop_list_entry_without_effects_skips_segment() -> None:
+    entry = {
+        "item_id": "plain",
+        "title": "Plain",
+        "weight": 100,
+        "xp_gain": 0,
+        "quantity": None,
+        "message": "m",
+        "version": 1,
+    }
+    title, details = item_drop_list_entry(entry)
+    assert "Effects:" not in details

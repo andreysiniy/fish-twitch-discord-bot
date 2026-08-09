@@ -218,6 +218,10 @@ def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     message = item.get("message")
     if message:
         detail_parts.append(f"Message: {str(message)[:200]}")
+    effects = item.get("effects") or []
+    if effects:
+        rendered = ", ".join(_effect_one_line(effect) for effect in effects)
+        detail_parts.append(f"Effects: {rendered[:200]}")
     return item.get("title") or item.get("item_id", "?"), " · ".join(detail_parts)
 
 
