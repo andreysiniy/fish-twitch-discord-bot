@@ -432,3 +432,161 @@ def player_modifiers_embed(result: dict[str, Any]) -> discord.Embed:
     if len(items) > 10:
         embed.set_footer(text=f"Showing 10 of {len(items)}")
     return embed
+
+
+def player_inventory_embed(result: dict[str, Any], *, viewer: str) -> discord.Embed:
+    """Human-readable player inventory card (no raw JSON in the primary UI).
+
+    Each inventory row keeps the fields an administrator needs to revoke or
+    diagnose (slot, title, quantity, durability, charges, inventory id) without
+    dumping the full payload including definition effects and meta.
+    """
+    items = result.get("items") or []
+    equipped_slots = result.get("equipped_slots") or {}
+    equipped_values = set(equipped_slots.values())
+    max_slots = result.get("max_slots")
+
+    embed = info_embed("Player inventory")
+    embed.description = (
+        f"Viewer: `{viewer}`\nItems: `{len(items)}` · Slots: `{len(items)}/{max_slots or '?'}`"
+    )
+    if equipped_slots:
+        lines = [
+            f"`{slot}` → `[{inventory_slot}]`"
+            for slot, inventory_slot in sorted(equipped_slots.items())
+        ]
+        embed.add_field(name="Equipped", value="\n".join(lines)[:1024], inline=False)
+
+    if not items:
+        embed.add_field(name="Items", value="No items.", inline=False)
+        return embed
+
+    item_lines = []
+    for entry in items:
+        parts = [f"[{entry.get('slot_id')}]"]
+        if entry.get("slot_id") in equipped_values:
+            parts.append("⭐")
+        parts.append(f"**{entry.get('title') or entry.get('item_id')}** ×{entry.get('quantity')}")
+        parts.append(f"({entry.get('item_type')} · {entry.get('rarity')})")
+        parts.append(f"id `{entry.get('id')}`")
+        if entry.get("max_durability") is not None:
+            parts.append(f"dur {entry.get('current_durability')}/{entry['max_durability']}")
+        if entry.get("max_charges") is not None:
+            parts.append(f"charges {entry.get('current_charges')}/{entry['max_charges']}")
+        item_lines.append(" ".join(parts))
+
+    chunks = _line_chunks(item_lines)
+    shown_items = 0
+    for index, chunk in enumerate(chunks[:20]):
+        label = "Items" if len(chunks) == 1 else f"Items ({index + 1}/{len(chunks)})"
+        embed.add_field(name=label, value=chunk, inline=False)
+        shown_items += chunk.count("\n") + 1
+    footer = f"{len(items)} item(s)"
+    if len(chunks) > 20:
+        footer += f" · {len(items) - shown_items} more"
+    embed.set_footer(text=footer)
+    return embed
+
+
+def player_stats_explain_embed(result: dict[str, Any]) -> discord.Embed:
+    """Human-readable resolved stat breakdown (no raw JSON in the primary UI).
+
+    Only stats with at least one resolved source are rendered. Values are shown
+    exactly as the backend resolved them; the per-stat contribution list names
+    each source (item title, event title, or modifier reason).
+    """
+    embed = info_embed("Resolved player stats")
+    embed.description = (
+        f"Viewer: `{result.get('user_twitch_id') or '?'}`\nScope: `{result.get('scope') or '?'}`"
+    )
+    stats = result.get("stats") or {}
+    rendered = 0
+    for stat_key, entry in stats.items():
+        contributions = entry.get("contributions") or []
+        if not contributions:
+            continue
+        lines = []
+        for contribution in contributions:
+            source = contribution.get("label") or contribution.get("source_key") or "?"
+            source_key = contribution.get("source_key")
+            suffix = f" (`{source_key}`)" if source_key and source_key != source else ""
+            lines.append(
+                f"**{contribution.get('operation')}** {contribution.get('value')} — {source}{suffix}"
+            )
+        lines.append(f"→ **{entry.get('value')}**")
+        embed.add_field(name=f"`{stat_key}`", value="\n".join(lines)[:1024], inline=False)
+        rendered += 1
+        if rendered >= 18:
+            break
+    if rendered == 0:
+        embed.add_field(name="Stats", value="No modifiers resolved for this scope.", inline=False)
+
+    effects = result.get("behavioral_effects") or []
+    if effects:
+        lines = [
+            f"- **{effect.get('type')}**"
+            f" ({effect.get('source_item_key') or effect.get('source_item_id') or '?'})"
+            for effect in effects[:10]
+        ]
+        embed.add_field(
+            name=f"Behavioral effects ({len(effects)})",
+            value="\n".join(lines)[:1024],
+            inline=False,
+        )
+    return embed
+
+
+def reward_detail_embed(item: dict[str, Any], *, location_id: str) -> discord.Embed:
+    """Human-readable reward card (no raw JSON in the primary UI).
+
+    Base fields render as labelled fields; reward-type-specific parameters
+    render as a compact ``key: value`` list, excluding already-shown fields.
+    """
+    title = item.get("name") or item["type"].replace("_", " ").title()
+    embed = info_embed(f"Reward — {title}")
+    embed.add_field(name="Reward ID", value=f"`{item.get('reward_id')}`", inline=True)
+    embed.add_field(name="Type", value=item.get("type", "?"), inline=True)
+    embed.add_field(name="Location", value=f"`{location_id}`", inline=True)
+    embed.add_field(name="Weight", value=str(item.get("weight", "?")), inline=True)
+    probability = item.get("probability")
+    if probability is not None:
+        embed.add_field(name="Probability", value=f"{float(probability):.2%}", inline=True)
+    if item.get("xp") is not None:
+        embed.add_field(name="XP", value=str(item["xp"]), inline=True)
+    if item.get("message"):
+        embed.add_field(name="Message", value=str(item["message"])[:1024], inline=False)
+    payload_lines = [
+        f"{key}: `{value}`"
+        for key, value in sorted(item.items())
+        if key not in _REWARD_BASE_FIELDS and value not in (None, "")
+    ]
+    if payload_lines:
+        embed.add_field(
+            name="Parameters",
+            value="\n".join(payload_lines)[:1024],
+            inline=False,
+        )
+    return embed
+
+
+_REWARD_BASE_FIELDS = frozenset(
+    {"reward_id", "type", "name", "weight", "xp", "message", "probability"}
+)
+
+
+def _line_chunks(lines: list[str], *, max_chars: int = 1024) -> list[str]:
+    """Split display lines into chunks that each fit a Discord field value."""
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in lines:
+        length = len(line) + 1
+        if current and current_len + length > max_chars:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += length
+    if current:
+        chunks.append("\n".join(current))
+    return chunks

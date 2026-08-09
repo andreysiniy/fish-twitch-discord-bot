@@ -14,6 +14,7 @@ from app.interactions.modals import (
 )
 from app.presentation.embeds import (
     legacy_import_embed,
+    reward_detail_embed,
     reward_list_entry,
 )
 from app.presentation.pagination import PagedEmbedView
@@ -32,13 +33,10 @@ from app.commands.shared import (  # noqa: F401  (shared helpers)
     _deferred,
     _error_text,
     _item_payload,
-    _json_confirmation,
-    _json_embed,
     _mutation_response,
     _parse_effects,
     _player_modifier_preview_embed,
     _send_error,
-    _send_json_embed,
     _session,
     _simple_mutation,
 )
@@ -75,7 +73,10 @@ def register_rewards_group(tree, api, sessions, fish) -> None:
                 )
                 if item is None:
                     raise EngineError(404, "REWARD_NOT_FOUND", "Reward not found")
-                await _send_json_embed(interaction, "Reward", item)
+                await interaction.followup.send(
+                    embed=reward_detail_embed(item, location_id=location_id),
+                    ephemeral=True,
+                )
 
             await _deferred(interaction, operation)
 

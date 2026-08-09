@@ -9,7 +9,11 @@ from discord import app_commands
 
 from app.api.errors import EngineError
 from app.interactions.confirms import ConfirmView
-from app.presentation.embeds import player_modifiers_embed
+from app.presentation.embeds import (
+    player_inventory_embed,
+    player_modifiers_embed,
+    player_stats_explain_embed,
+)
 from app.presentation.formatting import parse_duration
 
 from app.commands.shared import (  # noqa: F401  (shared helpers)
@@ -26,13 +30,10 @@ from app.commands.shared import (  # noqa: F401  (shared helpers)
     _deferred,
     _error_text,
     _item_payload,
-    _json_confirmation,
-    _json_embed,
     _mutation_response,
     _parse_effects,
     _player_modifier_preview_embed,
     _send_error,
-    _send_json_embed,
     _session,
     _simple_mutation,
 )
@@ -71,7 +72,9 @@ def register_players_group(tree, api, sessions, fish) -> None:
             async def operation() -> None:
                 resolved = await _resolve_viewer(api, interaction, viewer)
                 result = await api.player_inventory(interaction, resolved)
-                await _send_json_embed(interaction, "Player inventory", result)
+                await interaction.followup.send(
+                    embed=player_inventory_embed(result, viewer=resolved), ephemeral=True
+                )
 
             await _deferred(interaction, operation)
 
@@ -336,7 +339,9 @@ def register_players_group(tree, api, sessions, fish) -> None:
                 result = await api.explain_player_stats(
                     interaction, resolved, scope.value
                 )
-                await _send_json_embed(interaction, "Resolved player stats", result)
+                await interaction.followup.send(
+                    embed=player_stats_explain_embed(result), ephemeral=True
+                )
 
             await _deferred(interaction, operation)
 
