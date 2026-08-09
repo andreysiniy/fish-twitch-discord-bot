@@ -203,25 +203,22 @@ def _effect_one_line(effect: dict[str, Any]) -> str:
 
 
 def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
-    order = (
-        "id",
-        "item_id",
-        "title",
-        "weight",
-        "xp_gain",
-        "quantity",
-        "message",
-        "version",
-    )
-    details = _entity_details(item, order)
+    detail_parts = [f"ID: `{item.get('item_id', '?')}`"]
+    detail_parts.append(f"Weight: {item.get('weight', '?')}")
     probability = item.get("drop_probability")
     if probability is not None:
+        chance = f"{probability * 100:.2f}% per cast"
         expected = item.get("expected_casts_to_drop")
-        probability_part = f"Drop chance: {probability * 100:.2f}% per cast"
         if expected is not None:
-            probability_part += f" (≈{expected} casts)"
-        details = (probability_part + "\n" + details).rstrip("\n")
-    return item["title"], details
+            chance += f" (≈{expected} casts)"
+        detail_parts.append(f"Chance: {chance}")
+    detail_parts.append(f"XP: {item.get('xp_gain', 0)}")
+    quantity = item.get("quantity")
+    detail_parts.append(f"Stock: {'unlimited' if quantity is None else quantity}")
+    message = item.get("message")
+    if message:
+        detail_parts.append(f"Message: {str(message)[:200]}")
+    return item.get("title") or item.get("item_id", "?"), " · ".join(detail_parts)
 
 
 def _format_percent(value: float, places: int = 2) -> str:

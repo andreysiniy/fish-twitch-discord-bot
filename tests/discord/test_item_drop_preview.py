@@ -142,3 +142,25 @@ def test_item_drop_preview_embed_without_derived_stats() -> None:
     assert "0.00% per cast" in fields["Chance per cast"]
     assert "Expected active time" not in fields
     assert "Median / 90th percentile" not in fields
+
+
+def test_item_drop_list_entry_hides_database_id() -> None:
+    entry = {
+        "id": 12345,
+        "title": "Storm Rod",
+        "item_id": "storm_rod",
+        "weight": 25,
+        "xp_gain": 5,
+        "quantity": 3,
+        "message": "m",
+        "version": 1,
+        "drop_probability": 0.5,
+        "expected_casts_to_drop": 2.0,
+    }
+    title, details = item_drop_list_entry(entry)
+    assert title == "Storm Rod"
+    assert "12345" not in details
+    assert "ID: `storm_rod`" in details
+    assert "Weight: 25" in details
+    assert "Stock: 3" in details
+    assert "XP: 5" in details
