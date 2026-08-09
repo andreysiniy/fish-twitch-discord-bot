@@ -346,13 +346,17 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops",
         )
 
-    async def preview_item_drop(self, interaction, location_id: str, item_weight: int):
+    async def preview_item_drop(
+        self, interaction, location_id: str, item_weight: int, item_id: str | None = None
+    ):
         channel = await self.channel_id(interaction)
+        query = f"?item_weight={item_weight}"
+        if item_id is not None:
+            query += f"&item_id={item_id}"
         return await self.client.request(
             interaction,
             "GET",
-            f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops"
-            f"?item_weight={item_weight}",
+            f"/v1/admin/channels/{channel}/locations/{location_id}/item-drops{query}",
         )
 
     async def upsert_item_drop(self, interaction, location_id: str, payload: dict[str, Any]):

@@ -8,6 +8,7 @@ from app.api.errors import EngineError
 from app.interactions.confirms import ConfirmView
 from app.presentation.embeds import (
     item_drop_list_entry,
+    item_drop_preview_embed,
 )
 from app.presentation.pagination import PagedEmbedView
 
@@ -75,8 +76,6 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
         ) -> None:
             async def operation() -> None:
                 preview = await api.preview_item_drop(interaction, location_id, weight)
-                probability = preview.get("drop_probability", 0.0)
-                expected = preview.get("expected_casts_to_drop")
 
                 async def confirm(confirmed: discord.Interaction) -> None:
                     await _mutation_response(
@@ -95,27 +94,17 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                         "Item drop added.",
                     )
 
-                embed = discord.Embed(
-                    title=f"Add item drop: {item_id}",
-                    description=f"Location `{location_id}` · weight `{weight}`",
-                    color=discord.Color.orange(),
-                )
-                embed.add_field(
-                    name="Drop chance",
-                    value=(
-                        f"{probability * 100:.2f}% per cast"
-                        + (f" (≈{expected} casts)" if expected is not None else "")
-                    ),
-                    inline=False,
-                )
-                embed.add_field(
-                    name="Details",
-                    value=(
-                        f"XP: {xp_gain}\n"
-                        f"Stock: {'unlimited' if quantity is None else quantity}\n"
-                        f"Message: {message}"
-                    ),
-                    inline=False,
+                embed = item_drop_preview_embed(
+                    action="Add",
+                    location_id=location_id,
+                    preview=preview,
+                    payload={
+                        "item_id": item_id,
+                        "weight": weight,
+                        "xp_gain": xp_gain,
+                        "quantity": quantity,
+                        "message": message,
+                    },
                 )
                 await interaction.edit_original_response(
                     content=None, embed=embed, view=ConfirmView(interaction.user.id, confirm)
@@ -159,12 +148,11 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                     "expected_version": row["version"],
                 }
                 # Same calculated preview as add: chance per cast, expected
-                # casts, XP, stock and message (audit 10.11).
+                # casts, active time, p50/p90, XP, stock, message and the diff
+                # vs the current configuration (audit 10.11, §10).
                 preview = await api.preview_item_drop(
-                    interaction, location_id, payload["weight"]
+                    interaction, location_id, payload["weight"], item_id=item_id
                 )
-                probability = preview.get("drop_probability", 0.0)
-                expected = preview.get("expected_casts_to_drop")
 
                 async def confirm(confirmed: discord.Interaction) -> None:
                     await _mutation_response(
@@ -175,22 +163,13 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                         "Item drop updated.",
                     )
 
-                embed = discord.Embed(
-                    title=f"Edit item drop: {item_id}",
-                    description=f"Location `{location_id}` · weight `{payload['weight']}`",
-                    color=discord.Color.orange(),
+                embed = item_drop_preview_embed(
+                    action="Edit",
+                    location_id=location_id,
+                    preview=preview,
+                    payload=payload,
+                    current=row,
                 )
-                embed.add_field(name="Chance per cast", value=f"{float(probability):.2%}")
-                if expected is not None:
-                    embed.add_field(name="Expected casts to drop", value=str(expected))
-                embed.add_field(name="XP", value=str(payload["xp_gain"]))
-                embed.add_field(
-                    name="Stock",
-                    value="unlimited"
-                    if payload["quantity"] is None
-                    else str(payload["quantity"]),
-                )
-                embed.add_field(name="Message", value=str(payload["message"] or "")[:200])
                 view = ConfirmView(
                     interaction.user.id,
                     confirm,

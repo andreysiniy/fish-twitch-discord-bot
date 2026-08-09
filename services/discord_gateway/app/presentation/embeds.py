@@ -224,6 +224,111 @@ def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     return item["title"], details
 
 
+def _format_percent(value: float, places: int = 2) -> str:
+    return f"{value * 100:.{places}f}%"
+
+
+def _format_duration_minutes(minutes: float) -> str:
+    if minutes >= 60:
+        return f"{minutes / 60:.1f} h"
+    return f"{minutes:.0f} min"
+
+
+def item_drop_preview_embed(
+    *,
+    action: str,
+    location_id: str,
+    preview: dict[str, Any],
+    payload: dict[str, Any],
+    current: dict[str, Any] | None = None,
+) -> discord.Embed:
+    """Shared add/edit preview for item drops (audit §5.5, §10, §14#11)."""
+    embed = preview_embed(f"{action} item drop: {payload['item_id']}")
+    embed.description = f"Location `{location_id}` · weight `{payload['weight']}`"
+
+    share = preview.get("selection_weight_share")
+    drop_rate = preview.get("items_drop_rate")
+    if share is not None and drop_rate is not None:
+        embed.add_field(
+            name="Pool share",
+            value=(
+                f"{_format_percent(float(share))} of the pool "
+                f"(location drop rate {_format_percent(float(drop_rate))})"
+            ),
+            inline=False,
+        )
+
+    probability = preview.get("drop_probability")
+    expected = preview.get("expected_casts_to_drop")
+    if probability is not None:
+        chance_text = f"{_format_percent(float(probability))} per cast"
+        if expected is not None:
+            chance_text += f" (≈{expected} casts)"
+        embed.add_field(name="Chance per cast", value=chance_text, inline=False)
+
+    active = preview.get("expected_active_time_minutes") or {}
+    expected_active = [
+        (
+            f"{cooldown} min: {_format_duration_minutes(float(active[cooldown]))}"
+        )
+        for cooldown in ("5", "7.5", "10")
+        if cooldown in active
+    ]
+    if expected_active:
+        embed.add_field(
+            name="Expected active time",
+            value="\n".join(expected_active),
+            inline=False,
+        )
+
+    p50 = preview.get("p50")
+    p90 = preview.get("p90")
+    if p50 is not None and p90 is not None:
+        embed.add_field(
+            name="Median / 90th percentile",
+            value=f"p50 {p50} casts · p90 {p90} casts",
+            inline=False,
+        )
+
+    if current is not None:
+        changes = _item_drop_changes(current, payload)
+        if changes:
+            embed.add_field(
+                name="Change vs current",
+                value="\n".join(changes),
+                inline=False,
+            )
+
+    embed.add_field(
+        name="Details",
+        value=(
+            f"XP: {payload.get('xp_gain', 0)}\n"
+            f"Stock: {'unlimited' if payload.get('quantity') is None else payload['quantity']}\n"
+            f"Message: {(payload.get('message') or '')[:200]}"
+        ),
+        inline=False,
+    )
+    return embed
+
+
+def _item_drop_changes(current: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    changes = []
+    for key, label in (
+        ("weight", "Weight"),
+        ("xp_gain", "XP"),
+        ("quantity", "Stock"),
+        ("message", "Message"),
+    ):
+        old = current.get(key)
+        new = payload.get(key)
+        if old == new:
+            continue
+        old_text = "unlimited" if key == "quantity" and old is None else str(old)
+        new_text = "unlimited" if key == "quantity" and new is None else str(new)
+        changes.append(f"{label}: {old_text} → {new_text}")
+    return changes
+
+
 def placeholder_help_embeds(
     items: list[dict[str, Any]],
     message_key: str | None = None,
