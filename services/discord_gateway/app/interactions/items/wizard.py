@@ -55,6 +55,29 @@ def _cancel_text(session: ItemWizardSession) -> str:
     )
 
 
+async def _render_step(
+    interaction: discord.Interaction,
+    *,
+    content: str | None = None,
+    embed: discord.Embed | None = None,
+    view: discord.ui.View,
+) -> None:
+    """Render the next wizard step onto the interaction's message.
+
+    Component clicks and modals launched from a message component update that
+    message in place. A modal opened straight from a slash command has no
+    parent message (``interaction.message`` is None), so Discord rejects
+    ``edit_message`` with 404; in that case reply with a fresh ephemeral
+    message carrying the next step instead.
+    """
+    if interaction.message is not None:
+        await interaction.response.edit_message(content=content, embed=embed, view=view)
+    else:
+        await interaction.response.send_message(
+            content=content, embed=embed, view=view, ephemeral=True
+        )
+
+
 def _seed_draft_from_item(item_id: str, current: dict[str, Any]) -> dict[str, Any]:
     """Translate a backend item definition into a wizard draft (spec §54).
 
@@ -263,9 +286,7 @@ async def _render_rarity(interaction: discord.Interaction, session: ItemWizardSe
         current=session.draft.get("rarity", "common"),
         restart_text=_restart_text(session),
     )
-    await interaction.response.edit_message(
-        content=None, embed=rarity_embed(view._selected), view=view
-    )
+    await _render_step(interaction, embed=rarity_embed(view._selected), view=view)
 
 
 async def _render_mechanics(
@@ -291,9 +312,7 @@ async def _render_mechanics(
         await done.response.edit_message(content=_cancel_text(session), embed=None, view=None)
 
     view = _build_mechanics_view(session, api, on_persist, on_continue, on_back, on_cancel)
-    await interaction.response.edit_message(
-        content=None, embed=mechanics_embed(session.draft), view=view
-    )
+    await _render_step(interaction, embed=mechanics_embed(session.draft), view=view)
 
 
 def _build_mechanics_view(
@@ -358,9 +377,7 @@ async def _render_effects(
         on_back=on_back,
         restart_text=_restart_text(session),
     )
-    await interaction.response.edit_message(
-        content=view.message_text, embed=view._embed(), view=view
-    )
+    await _render_step(interaction, content=view.message_text, embed=view._embed(), view=view)
 
 
 async def _render_review(interaction: discord.Interaction, session: ItemWizardSession, api) -> None:
