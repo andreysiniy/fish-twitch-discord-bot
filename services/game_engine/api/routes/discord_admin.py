@@ -85,10 +85,11 @@ def list_item_drops(
     context: DiscordServiceContext = Depends(get_discord_service_context),
     service: DiscordAdminService = Depends(get_discord_admin_service),
     item_weight: int | None = Query(default=None, ge=1, le=1_000_000),
+    item_id: str | None = Query(default=None),
 ):
     if item_weight is not None:
         return service.preview_item_drop(
-            context, channel_twitch_id, location_id, item_weight
+            context, channel_twitch_id, location_id, item_weight, item_id=item_id
         )
     return service.list_item_drops(context, channel_twitch_id, location_id)
 

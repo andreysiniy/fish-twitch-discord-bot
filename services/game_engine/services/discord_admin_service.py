@@ -14,6 +14,7 @@ from core.messages import message_placeholder_catalog, validate_custom_message_t
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
 from domain.item_schema import ModifierScope
+from domain.logic.formulas import geometric_first_success_stats
 from domain.schemas.admin import ChannelCreateDTO
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
@@ -77,6 +78,9 @@ CONFIG_SECTIONS = {
     },
     "cooldown": {"fishing_cooldown", "subs_fishing_cooldown"},
 }
+
+# Cooldowns used for the item-drop "expected active time" preview (audit §10).
+DROP_PREVIEW_COOLDOWNS = (Decimal("5"), Decimal("7.5"), Decimal("10"))
 
 
 def _iso(value) -> str | None:
@@ -751,31 +755,74 @@ class DiscordAdminService:
         )
 
     def preview_item_drop(
-        self, context, channel_twitch_id: str, location_id: str, item_weight: int
+        self,
+        context,
+        channel_twitch_id: str,
+        location_id: str,
+        item_weight: int,
+        item_id: str | None = None,
     ) -> dict:
         """Compute the runtime drop probability for a prospective item weight.
 
-        The display must come from the backend calculation so the shown chance
-        matches runtime selection (audit §10).
+        The displayed values come from the backend calculation so the shown
+        chance matches runtime selection (audit §10). Derived statistics
+        (p50/p90 and expected active time at the standard cooldowns) are also
+        computed here so Discord only formats them.
+
+        When ``item_id`` is supplied (edit flow) the existing weight of that
+        item is replaced instead of added, so the preview reflects the pool
+        after the edit.
         """
         pool, _, _ = self._resolve_pool(
             context, channel_twitch_id, location_id, ChannelPermission.ITEMS_READ
         )
         rows = self._item_drop_rows(pool)
-        total_weight = sum(int(row.weight) for row in rows) + max(int(item_weight), 1)
+        proposed_weight = max(int(item_weight), 1)
+        existing_weight = 0
+        if item_id:
+            existing = next(
+                (row for row in rows if row.definition.item_id == item_id), None
+            )
+            if existing is not None:
+                existing_weight = int(existing.weight)
+        total_weight = (
+            sum(int(row.weight) for row in rows) - existing_weight + proposed_weight
+        )
         if total_weight <= 0:
             probability = 0.0
         else:
             probability = float(pool.items_drop_rate or 0.0) * (
-                max(int(item_weight), 1) / total_weight
+                proposed_weight / total_weight
             )
+        probability = round(probability, 6)
+        selection_weight_share = (
+            round(proposed_weight / total_weight, 6) if total_weight > 0 else 0.0
+        )
+        if probability > 0:
+            expected, p50, p90 = geometric_first_success_stats(
+                Decimal(str(probability))
+            )
+            expected_casts = float(expected)
+            expected_active_time_minutes = {
+                str(cooldown): round(expected_casts * float(cooldown), 1)
+                for cooldown in DROP_PREVIEW_COOLDOWNS
+            }
+        else:
+            expected_casts = None
+            p50 = None
+            p90 = None
+            expected_active_time_minutes = None
         return {
             "location_id": pool.location_id,
             "items_drop_rate": pool.items_drop_rate,
-            "proposed_weight": max(int(item_weight), 1),
+            "proposed_weight": proposed_weight,
             "total_weight": total_weight,
-            "drop_probability": round(probability, 6),
-            "expected_casts_to_drop": round(1.0 / probability, 1) if probability > 0 else None,
+            "selection_weight_share": selection_weight_share,
+            "drop_probability": probability,
+            "expected_casts_to_drop": expected_casts,
+            "p50": p50,
+            "p90": p90,
+            "expected_active_time_minutes": expected_active_time_minutes,
         }
 
     def list_item_drops(

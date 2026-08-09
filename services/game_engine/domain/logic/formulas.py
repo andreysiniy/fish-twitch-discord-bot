@@ -1,4 +1,4 @@
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 
@@ -102,3 +102,24 @@ def calculate_typed_robbery(
     stolen *= Decimal("1") - victim_protection
     stolen = quantize_mass(min(max(stolen, ZERO_MASS), stealable))
     return chance, stealable, stolen
+
+
+def geometric_first_success_stats(probability: Decimal) -> tuple[Decimal, int, int]:
+    """Expected casts, p50 and p90 for a geometric first-success process.
+
+    Each cast succeeds independently with per-cast probability ``probability``:
+
+    - expected casts to first success = 1 / p;
+    - p50 = ceil(ln(2) / -ln(1 - p));
+    - p90 = ceil(ln(10) / -ln(1 - p)).
+
+    Raises ``ValueError`` when ``probability`` is not within (0, 1).
+    """
+    p = to_decimal(probability)
+    if p <= Decimal("0") or p >= Decimal("1"):
+        raise ValueError("probability must be in (0, 1)")
+    log_fail = (Decimal("1") - p).ln()
+    expected = (Decimal("1") / p).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    p50 = int((-Decimal("2").ln() / log_fail).to_integral_value(rounding=ROUND_CEILING))
+    p90 = int((-Decimal("10").ln() / log_fail).to_integral_value(rounding=ROUND_CEILING))
+    return expected, p50, p90

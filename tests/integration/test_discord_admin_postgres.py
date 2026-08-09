@@ -352,6 +352,23 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
         )
         assert preview["drop_probability"] == pytest.approx(0.05, abs=1e-6)
         assert preview["expected_casts_to_drop"] == pytest.approx(20.0, abs=0.1)
+        assert preview["selection_weight_share"] == pytest.approx(0.5, abs=1e-6)
+        assert preview["p50"] == 14
+        assert preview["p90"] == 45
+        assert preview["expected_active_time_minutes"]["10"] == pytest.approx(
+            200.0, abs=0.1
+        )
+
+        preview_edit = service.preview_item_drop(
+            _context("item-drop-preview-edit"),
+            channel.twitch_id,
+            "default",
+            25,
+            item_id="discord_rod",
+        )
+        assert preview_edit["selection_weight_share"] == pytest.approx(1.0, abs=1e-6)
+        assert preview_edit["drop_probability"] == pytest.approx(0.1, abs=1e-6)
+        assert preview_edit["expected_casts_to_drop"] == pytest.approx(10.0, abs=0.1)
 
         grant = service.grant_player_item(
             _context("item-grant"),
