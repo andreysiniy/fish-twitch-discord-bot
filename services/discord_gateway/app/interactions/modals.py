@@ -5,6 +5,7 @@ from typing import Any
 
 import discord
 
+from app.api.errors import EngineError, localize_error
 from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.reward_payloads import (
@@ -12,7 +13,7 @@ from app.interactions.reward_payloads import (
     build_roulette_outcome,
     complete_reward_payload,
 )
-from app.presentation.embeds import diff_embed
+from app.presentation.embeds import diff_embed, item_drop_preview_embed
 from app.presentation.formatting import parse_decimal
 
 
@@ -169,6 +170,127 @@ class LocationModal(discord.ui.Modal):
             await self.on_save(confirm_interaction, payload)
 
         await _show_preview(interaction, "Location preview", payload, confirm)
+
+
+class ItemDropModal(discord.ui.Modal):
+    def __init__(
+        self,
+        on_save,
+        previewer,
+        location_id: str,
+        item_id: str,
+        *,
+        action: str,
+        defaults: dict[str, Any] | None = None,
+    ):
+        defaults = defaults or {}
+        super().__init__(title="Edit item drop" if defaults else "Add item drop")
+        self.on_save = on_save
+        self.previewer = previewer
+        self.location_id = location_id
+        self.item_id = item_id
+        self.action = action
+        self.current = defaults or None
+        self.weight = discord.ui.TextInput(
+            label="Weight",
+            default=str(defaults.get("weight", 100)),
+            placeholder="Relative selection weight from 1 to 1000000",
+            max_length=16,
+        )
+        self.xp_gain = discord.ui.TextInput(
+            label="XP gain",
+            default=str(defaults.get("xp_gain", 0)),
+            placeholder="Extra XP from 0 to 1000000",
+            max_length=16,
+        )
+        self.quantity = discord.ui.TextInput(
+            label="Stock",
+            default="" if defaults.get("quantity") is None else str(defaults["quantity"]),
+            placeholder="Finite stock; leave empty for unlimited",
+            required=False,
+            max_length=16,
+        )
+        self.message = discord.ui.TextInput(
+            label="Chat message",
+            default=str(defaults.get("message") or ""),
+            placeholder="Use {name} for the item title",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=200,
+        )
+        for item in (self.weight, self.xp_gain, self.quantity, self.message):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = self._parse_payload()
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        try:
+            preview = await self.previewer(interaction, payload)
+        except EngineError as error:
+            await interaction.response.send_message(
+                localize_error(error), ephemeral=True
+            )
+            return
+
+        async def confirm(confirm_interaction: discord.Interaction) -> None:
+            await self.on_save(confirm_interaction, payload)
+
+        embed = item_drop_preview_embed(
+            action=self.action,
+            location_id=self.location_id,
+            preview=preview,
+            payload=payload,
+            current=self.current,
+        )
+        await interaction.response.send_message(
+            embed=embed,
+            view=ConfirmView(interaction.user.id, confirm),
+            ephemeral=True,
+        )
+
+    def _parse_payload(self) -> dict[str, Any]:
+        weight = self._parse_int(
+            self.weight.value, "Weight", 1, 1_000_000, required=True
+        )
+        xp_gain = self._parse_int(self.xp_gain.value, "XP gain", 0, 1_000_000)
+        quantity_text = self.quantity.value.strip()
+        quantity = (
+            None
+            if not quantity_text
+            else self._parse_int(self.quantity.value, "Stock", 0, 1_000_000_000)
+        )
+        return {
+            "item_id": self.item_id,
+            "weight": weight,
+            "xp_gain": xp_gain,
+            "quantity": quantity,
+            "message": self.message.value.strip() or None,
+        }
+
+    @staticmethod
+    def _parse_int(
+        value: str,
+        label: str,
+        minimum: int,
+        maximum: int,
+        *,
+        required: bool = False,
+    ) -> int:
+        text = value.strip()
+        if not text:
+            if required:
+                raise ValueError(f"{label} is required")
+            return minimum
+        try:
+            parsed = int(text)
+        except ValueError as error:
+            raise ValueError(f"{label} must be an integer") from error
+        if not minimum <= parsed <= maximum:
+            raise ValueError(f"{label} must be between {minimum} and {maximum}")
+        return parsed
 
 
 def create_reward_modal(

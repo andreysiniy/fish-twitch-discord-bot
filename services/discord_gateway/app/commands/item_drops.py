@@ -5,11 +5,9 @@ import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
-from app.interactions.confirms import ConfirmView
-from app.presentation.embeds import (
-    item_drop_list_entry,
-    item_drop_preview_embed,
-)
+from app.interactions.launchers import ModalLauncherView
+from app.interactions.modals import ItemDropModal
+from app.presentation.embeds import item_drop_list_entry
 from app.presentation.pagination import PagedEmbedView
 
 from app.commands.shared import (  # noqa: F401  (shared helpers)
@@ -60,72 +58,49 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
 
         @item_drop.command(name="add", description="Add an item drop to a location")
         @app_commands.describe(
-            quantity="Finite channel stock; omit for unlimited stock",
-            weight="Relative item selection weight",
-            xp_gain="Extra XP awarded with this item",
-            message="Chat message; {name} is the item title",
+            location_id="Location that drops the item",
+            item_id="Item to add to the location drops",
         )
         async def item_drop_add(
             interaction: discord.Interaction,
             location_id: str,
             item_id: str,
-            weight: app_commands.Range[int, 1, 1_000_000] = 100,
-            xp_gain: app_commands.Range[int, 0, 1_000_000] = 0,
-            quantity: app_commands.Range[int, 0, 1_000_000_000] | None = None,
-            message: str = "You caught {name}!",
         ) -> None:
-            async def operation() -> None:
-                preview = await api.preview_item_drop(interaction, location_id, weight)
+            async def save(
+                modal_interaction: discord.Interaction, payload: dict
+            ) -> None:
+                await _mutation_response(
+                    modal_interaction,
+                    lambda: api.upsert_item_drop(modal_interaction, location_id, payload),
+                    "Item drop added.",
+                )
 
-                async def confirm(confirmed: discord.Interaction) -> None:
-                    await _mutation_response(
-                        confirmed,
-                        lambda: api.upsert_item_drop(
-                            confirmed,
-                            location_id,
-                            {
-                                "item_id": item_id,
-                                "weight": weight,
-                                "xp_gain": xp_gain,
-                                "quantity": quantity,
-                                "message": message,
-                            },
-                        ),
-                        "Item drop added.",
-                    )
+            async def previewer(
+                modal_interaction: discord.Interaction, payload: dict
+            ) -> dict:
+                return await api.preview_item_drop(
+                    modal_interaction, location_id, payload["weight"]
+                )
 
-                embed = item_drop_preview_embed(
-                    action="Add",
+            await interaction.response.send_modal(
+                ItemDropModal(
+                    on_save=save,
+                    previewer=previewer,
                     location_id=location_id,
-                    preview=preview,
-                    payload={
-                        "item_id": item_id,
-                        "weight": weight,
-                        "xp_gain": xp_gain,
-                        "quantity": quantity,
-                        "message": message,
-                    },
+                    item_id=item_id,
+                    action="Add",
                 )
-                await interaction.edit_original_response(
-                    content=None, embed=embed, view=ConfirmView(interaction.user.id, confirm)
-                )
-
-            await _deferred(interaction, operation)
+            )
 
         @item_drop.command(name="edit", description="Edit a versioned item drop")
         @app_commands.describe(
-            unlimited_stock="Set true to remove the finite stock limit",
-            quantity="New finite stock; omit to preserve the current value",
+            location_id="Location with the item drop",
+            item_id="Item whose drop to edit",
         )
         async def item_drop_edit(
             interaction: discord.Interaction,
             location_id: str,
             item_id: str,
-            weight: app_commands.Range[int, 1, 1_000_000] | None = None,
-            xp_gain: app_commands.Range[int, 0, 1_000_000] | None = None,
-            quantity: app_commands.Range[int, 0, 1_000_000_000] | None = None,
-            message: str | None = None,
-            unlimited_stock: bool = False,
         ) -> None:
             async def operation() -> None:
                 current = await api.item_drops(interaction, location_id)
@@ -135,49 +110,43 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                 )
                 if not row:
                     raise EngineError(404, "ITEM_DROP_NOT_FOUND", "Item drop not found in this channel")
-                payload = {
-                    "item_id": item_id,
-                    "weight": weight if weight is not None else row["weight"],
-                    "xp_gain": xp_gain if xp_gain is not None else row["xp_gain"],
-                    "quantity": (
-                        None
-                        if unlimited_stock
-                        else quantity if quantity is not None else row["quantity"]
-                    ),
-                    "message": message if message is not None else row["message"],
-                    "expected_version": row["version"],
-                }
-                # Same calculated preview as add: chance per cast, expected
-                # casts, active time, p50/p90, XP, stock, message and the diff
-                # vs the current configuration (audit 10.11, §10).
-                preview = await api.preview_item_drop(
-                    interaction, location_id, payload["weight"], item_id=item_id
-                )
 
-                async def confirm(confirmed: discord.Interaction) -> None:
+                async def save(
+                    modal_interaction: discord.Interaction, payload: dict
+                ) -> None:
                     await _mutation_response(
-                        confirmed,
+                        modal_interaction,
                         lambda: api.upsert_item_drop(
-                            confirmed, location_id, payload
+                            modal_interaction,
+                            location_id,
+                            {**payload, "expected_version": row["version"]},
                         ),
                         "Item drop updated.",
                     )
 
-                embed = item_drop_preview_embed(
-                    action="Edit",
-                    location_id=location_id,
-                    preview=preview,
-                    payload=payload,
-                    current=row,
-                )
-                view = ConfirmView(
+                async def previewer(
+                    modal_interaction: discord.Interaction, payload: dict
+                ) -> dict:
+                    return await api.preview_item_drop(
+                        modal_interaction,
+                        location_id,
+                        payload["weight"],
+                        item_id=item_id,
+                    )
+
+                view = ModalLauncherView(
                     interaction.user.id,
-                    confirm,
+                    lambda: ItemDropModal(
+                        on_save=save,
+                        previewer=previewer,
+                        location_id=location_id,
+                        item_id=item_id,
+                        action="Edit",
+                        defaults=row,
+                    ),
                 )
-                await interaction.edit_original_response(
-                    content=None,
-                    embed=embed,
-                    view=view,
+                await interaction.followup.send(
+                    "The item drop form is ready.", view=view, ephemeral=True
                 )
 
             await _deferred(interaction, operation)
