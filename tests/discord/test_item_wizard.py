@@ -110,6 +110,35 @@ def test_payload_builder_carries_expected_version_from_draft() -> None:
     assert payload["schema_version"] == 3
 
 
+def test_normalize_charge_based_consumable_forces_single_stack() -> None:
+    payload = build_item_payload(
+        {
+            "item_id": "spell_potion",
+            "title": "Spell Potion",
+            "item_type": "consumable",
+            "rarity": "rare",
+            "stack_size": 20,
+            "max_charges": 5,
+        }
+    )
+    assert payload["max_charges"] == 5
+    assert payload["stack_size"] == 1
+
+
+def test_normalize_clears_charges_for_non_consumable() -> None:
+    payload = build_item_payload(
+        {
+            "item_id": "ore",
+            "title": "Ore",
+            "item_type": "material",
+            "rarity": "common",
+            "stack_size": 10,
+            "max_charges": 5,
+        }
+    )
+    assert payload["max_charges"] is None
+
+
 def test_effects_preview_human_readable() -> None:
     text = effects_preview(
         [{"type": "stat_add", "stat": "positive_fish_reward_change_ratio", "value": "0.05"}]

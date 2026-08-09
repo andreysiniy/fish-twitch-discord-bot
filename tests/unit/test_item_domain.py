@@ -148,3 +148,119 @@ def test_admin_item_contract_rejects_legacy_free_form_stats() -> None:
         ],
     )
     assert item.effects[0].stat == StatKey.FISH_LUCK_CHANGE_RATIO
+
+
+def test_max_charges_is_consumable_only_and_forces_single_stack() -> None:
+    item = ItemDefinitionData(
+        item_id="spell_potion",
+        title="Spell Potion",
+        item_type="consumable",
+        stack_size=1,
+        max_charges=5,
+        effects=[
+            {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+            {"type": "grant_mass", "mass": "5"},
+        ],
+    )
+    assert item.max_charges == 5
+    assert item.stack_size == 1
+
+    with pytest.raises(ValidationError, match="max_charges is only allowed for consumables"):
+        ItemDefinitionData(
+            item_id="bad_equip_charges",
+            title="Bad",
+            item_type="equipment",
+            equipment_slot="rod",
+            max_charges=5,
+        )
+    with pytest.raises(ValidationError, match="max_charges is only allowed for consumables"):
+        ItemDefinitionData(
+            item_id="bad_material_charges",
+            title="Bad",
+            item_type="material",
+            max_charges=5,
+        )
+    with pytest.raises(ValidationError, match="stack_size 1"):
+        ItemDefinitionData(
+            item_id="stacked_charges",
+            title="Bad",
+            item_type="consumable",
+            stack_size=20,
+            max_charges=5,
+        )
+
+
+def test_durability_is_equipment_only() -> None:
+    with pytest.raises(ValidationError, match="max_durability is only allowed for equipment"):
+        ItemDefinitionData(
+            item_id="bad_consumable_durability",
+            title="Bad",
+            item_type="consumable",
+            max_durability=150,
+            break_policy="unequip_broken",
+        )
+    with pytest.raises(ValidationError, match="max_durability is only allowed for equipment"):
+        ItemDefinitionData(
+            item_id="bad_material_durability",
+            title="Bad",
+            item_type="material",
+            max_durability=150,
+            break_policy="destroy_at_zero",
+        )
+
+
+def test_consume_durability_is_equipment_only() -> None:
+    with pytest.raises(ValidationError, match="consume_durability is only allowed for equipment"):
+        ItemDefinitionData(
+            item_id="bad_consumable_durability_effect",
+            title="Bad",
+            item_type="consumable",
+            effects=[{"type": "consume_durability", "trigger": "after_cast", "amount": 1}],
+        )
+
+    item = ItemDefinitionData(
+        item_id="self_consuming_rod",
+        title="Self Consuming Rod",
+        item_type="equipment",
+        equipment_slot="rod",
+        max_durability=150,
+        break_policy="unequip_broken",
+        effects=[{"type": "consume_durability", "trigger": "after_cast", "amount": 1}],
+    )
+    assert item.effects[0].type == "consume_durability"
+
+
+def test_consume_charge_requires_consumable_with_max_charges() -> None:
+    with pytest.raises(ValidationError, match="consume_charge is only allowed for consumables"):
+        ItemDefinitionData(
+            item_id="bad_equip_charge_effect",
+            title="Bad",
+            item_type="equipment",
+            equipment_slot="rod",
+            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
+        )
+    with pytest.raises(ValidationError, match="consume_charge requires max_charges"):
+        ItemDefinitionData(
+            item_id="bad_charge_without_max",
+            title="Bad",
+            item_type="consumable",
+            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
+        )
+
+
+def test_equipment_rejects_max_charges_and_consumable_rejects_slot() -> None:
+    with pytest.raises(ValidationError, match="max_charges is only allowed for consumables"):
+        ItemDefinitionData(
+            item_id="equip_with_charges",
+            title="Bad",
+            item_type="equipment",
+            equipment_slot="rod",
+            max_charges=3,
+        )
+    with pytest.raises(ValidationError, match="equipment_slot is only allowed for equipment"):
+        ItemDefinitionData(
+            item_id="consumable_with_slot",
+            title="Bad",
+            item_type="consumable",
+            equipment_slot="rod",
+        )

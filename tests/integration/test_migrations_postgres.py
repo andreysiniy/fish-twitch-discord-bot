@@ -512,7 +512,7 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "DROP TABLE inventory_item_use_records, loot_table_entry_stock, loot_table_entries, "
         "loot_tables, "
         "player_modifiers, equipped_items, idempotency_records, admin_audit_log, "
-        "discord_guild_bindings, discord_account_links CASCADE",
+        "discord_guild_bindings, discord_account_links, fishing_stats_daily CASCADE",
         "CREATE TABLE location_items ("
         "id SERIAL PRIMARY KEY, reward_pool_id INTEGER NOT NULL, "
         "item_id INTEGER NOT NULL, weight INTEGER NOT NULL DEFAULT 100, "
@@ -528,13 +528,17 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "DROP COLUMN modifiers_history",
         "ALTER TABLE users_progress DROP COLUMN base_inventory_slots, "
         "ADD COLUMN inventory JSONB DEFAULT '{\"equipped_rod_slot\": null, \"max_slots\": 20}'::jsonb",
-        "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version",
+        "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version, "
+        "DROP COLUMN current_charges",
+        "ALTER TABLE fishing_casts DROP COLUMN error_message, "
+        "DROP COLUMN item_drop_gate_success, DROP COLUMN item_drop_selection_success, "
+        "DROP COLUMN item_drop_stock_reserved, DROP COLUMN item_drop_grant_success",
         "ALTER TABLE outbox_events DROP COLUMN lease_expires_at",
         "ALTER TABLE economy_operations DROP COLUMN compensated_at",
         "ALTER TABLE item_definitions DROP COLUMN max_durability, DROP COLUMN break_policy, "
         "DROP COLUMN effects, DROP COLUMN value, DROP COLUMN schema_version, "
         "DROP COLUMN version, DROP COLUMN is_active, DROP COLUMN archived_at, "
-        "DROP COLUMN updated_at, DROP COLUMN updated_by",
+        "DROP COLUMN updated_at, DROP COLUMN updated_by, DROP COLUMN max_charges",
         "ALTER TABLE item_definitions ADD COLUMN sell_value NUMERIC(18, 2), "
         "ADD COLUMN is_sellable BOOLEAN NOT NULL DEFAULT TRUE, "
         "ADD COLUMN is_tradeable BOOLEAN NOT NULL DEFAULT TRUE, "
@@ -1124,5 +1128,95 @@ def test_cast_trace_backfill_recovers_probability_and_roll_from_jsonb() -> None:
                 sql.SQL("DROP DATABASE IF EXISTS {}").format(
                     sql.Identifier(database_name)
                 )
+            )
+        admin.close()
+
+
+@pytest.mark.integration
+def test_charges_migration_renames_legacy_consume_charge_and_adds_constraints() -> None:
+    """Upgrade 0026→head rewrites consume_charge to consume_durability and adds
+    the charge/durability columns and CHECK constraints (spec 11.4)."""
+    source_url = make_url(os.environ["DATABASE_URL"])
+    database_name = f"fish_charges_mig_{uuid.uuid4().hex[:12]}"
+    test_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    admin.autocommit = True
+    engine = None
+    original_override = settings.DATABASE_URL_OVERRIDE
+    try:
+        with admin.cursor() as cursor:
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+        engine = create_engine(test_url)
+        settings.DATABASE_URL_OVERRIDE = test_url.render_as_string(hide_password=False)
+        alembic_config = Config(os.path.join("services", "game_engine", "alembic.ini"))
+        alembic_config.set_main_option(
+            "script_location",
+            os.path.abspath(os.path.join("services", "game_engine", "migrations")),
+        )
+        command.upgrade(alembic_config, "20260806_0026")
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO channels (twitch_id, name, config, is_active, "
+                    "config_version, config_updated_at) VALUES "
+                    "('charges-mig-channel', 'Charges Mig', '{}'::jsonb, true, 1, now())"
+                )
+            )
+            channel_id = connection.execute(
+                text("SELECT id FROM channels WHERE twitch_id = 'charges-mig-channel'")
+            ).scalar_one()
+            connection.execute(
+                text(
+                    "INSERT INTO item_definitions (channel_id, item_id, title, type, slot, "
+                    "rarity, max_durability, break_policy, stack_size, effects, "
+                    "schema_version, version, is_active, updated_at) VALUES "
+                    "(:channel_id, 'legacy_charge_rod', 'Legacy Charge Rod', 'equipment', "
+                    "'rod', 'common', 150, 'unequip_broken', 1, "
+                    '\'[{"type": "consume_charge", "trigger": "after_cast", '
+                    '"amount": 1}]\'::jsonb, 1, 1, true, now())'
+                ),
+                {"channel_id": channel_id},
+            )
+
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+
+        inspector = inspect(engine)
+        item_columns = {column["name"] for column in inspector.get_columns("item_definitions")}
+        inventory_columns = {column["name"] for column in inspector.get_columns("inventory_items")}
+        assert "max_charges" in item_columns
+        assert "current_charges" in inventory_columns
+        charge_checks = {
+            check["name"] for check in inspector.get_check_constraints("item_definitions")
+        } | {check["name"] for check in inspector.get_check_constraints("inventory_items")}
+        assert {
+            "ck_item_definitions_charges_consumable_only",
+            "ck_item_definitions_max_charges_positive",
+            "ck_item_definitions_charges_single_stack",
+            "ck_item_definitions_durability_equipment_only",
+            "ck_inventory_items_charges_nonnegative",
+        } <= charge_checks
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT effects FROM item_definitions WHERE item_id = 'legacy_charge_rod'")
+            ).one()
+            assert row.effects[0]["type"] == "consume_durability"
+            assert row.effects[0]["trigger"] == "after_cast"
+            assert row.effects[0]["amount"] == 1
+    finally:
+        settings.DATABASE_URL_OVERRIDE = original_override
+        if engine is not None:
+            engine.dispose()
+        with admin.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            cursor.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name))
             )
         admin.close()
