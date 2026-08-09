@@ -125,6 +125,14 @@ def test_effect_category_picker_starts_with_category_placeholder() -> None:
     assert view.effect_select.options[0].value == "-1"
 
 
+def test_effect_category_picker_category_select_always_has_options() -> None:
+    """The category select must be sent with options or Discord rejects the
+    message with 50035 (``options`` is required)."""
+    view = EffectCategoryPickerView(_editor([]))
+    assert view.category_select.options
+    assert all(option.value for option in view.category_select.options)
+
+
 def test_advanced_effect_picker_needs_operation_first() -> None:
     view = AdvancedEffectPickerView(_editor([]), "points_flat_bonus")
     assert view.continue_button.disabled is True
