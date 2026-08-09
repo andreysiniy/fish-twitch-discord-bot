@@ -170,3 +170,163 @@ def test_player_modifiers_embed_lists_rows_without_raw_json() -> None:
     assert "add" in text
     assert "promo" in text
     assert "{" not in text
+
+
+def test_player_inventory_embed_renders_rows_without_raw_json() -> None:
+    from app.presentation.embeds import player_inventory_embed
+
+    embed = player_inventory_embed(
+        {
+            "items": [
+                {
+                    "id": 12,
+                    "item_id": "storm_rod",
+                    "title": "Storm Rod",
+                    "rarity": "epic",
+                    "item_type": "equipment",
+                    "max_durability": 150,
+                    "max_charges": None,
+                    "quantity": 1,
+                    "slot_id": 3,
+                    "current_durability": 150,
+                    "current_charges": None,
+                },
+                {
+                    "id": 13,
+                    "item_id": "bait",
+                    "title": "Bait",
+                    "rarity": "common",
+                    "item_type": "material",
+                    "max_durability": None,
+                    "max_charges": 5,
+                    "quantity": 10,
+                    "slot_id": 4,
+                    "current_durability": None,
+                    "current_charges": 3,
+                },
+            ],
+            "equipped_slots": {"rod": 3},
+            "max_slots": 20,
+        },
+        viewer="viewer1",
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert embed.title == "Player inventory"
+    assert "viewer1" in embed.description
+    assert "2/20" in embed.description
+    assert "`rod` → `[3]`" in fields["Equipped"]
+    assert "Storm Rod" in fields["Items"]
+    assert "×1" in fields["Items"]
+    assert "id `12`" in fields["Items"]
+    assert "dur 150/150" in fields["Items"]
+    assert "Bait" in fields["Items"]
+    assert "×10" in fields["Items"]
+    assert "charges 3/5" in fields["Items"]
+    text = "\n".join(field.value for field in embed.fields)
+    assert "{" not in text
+
+
+def test_player_inventory_embed_empty_state() -> None:
+    from app.presentation.embeds import player_inventory_embed
+
+    embed = player_inventory_embed({"items": [], "equipped_slots": {}, "max_slots": 20}, viewer="v")
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Items"] == "No items."
+
+
+def test_player_stats_explain_embed_renders_contributions() -> None:
+    from app.presentation.embeds import player_stats_explain_embed
+
+    result = {
+        "user_twitch_id": "viewer1",
+        "scope": "fishing",
+        "stats": {
+            "fish_luck_change_ratio": {
+                "value": "0.45",
+                "contributions": [
+                    {
+                        "operation": "add",
+                        "value": "0.40",
+                        "source_key": "7:fish_luck_change_ratio",
+                        "label": "Storm",
+                    },
+                    {
+                        "operation": "add",
+                        "value": "0.05",
+                        "source_key": "12:0",
+                        "label": "Storm Rod",
+                    },
+                ],
+            },
+            "xp_gain_change_ratio": {"value": "0", "contributions": []},
+        },
+        "behavioral_effects": [
+            {
+                "type": "mass_floor",
+                "protected_mass": "100",
+                "source_item_key": "shield",
+            }
+        ],
+    }
+    embed = player_stats_explain_embed(result)
+    fields = {field.name: field.value for field in embed.fields}
+    assert embed.title == "Resolved player stats"
+    assert "viewer1" in embed.description
+    assert "fishing" in embed.description
+    assert "add" in fields["`fish_luck_change_ratio`"]
+    assert "0.40" in fields["`fish_luck_change_ratio`"]
+    assert "Storm" in fields["`fish_luck_change_ratio`"]
+    assert "Storm Rod" in fields["`fish_luck_change_ratio`"]
+    assert "→ **0.45**" in fields["`fish_luck_change_ratio`"]
+    assert "`xp_gain_change_ratio`" not in fields  # no sources -> hidden
+    assert "mass_floor" in fields["Behavioral effects (1)"]
+    assert "shield" in fields["Behavioral effects (1)"]
+    text = "\n".join(field.value for field in embed.fields)
+    assert "{" not in text
+
+
+def test_player_stats_explain_embed_empty_state() -> None:
+    from app.presentation.embeds import player_stats_explain_embed
+
+    embed = player_stats_explain_embed(
+        {
+            "user_twitch_id": "v",
+            "scope": "robbery",
+            "stats": {"x": {"value": "0", "contributions": []}},
+        }
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Stats"] == "No modifiers resolved for this scope."
+
+
+def test_reward_detail_embed_renders_reward_card() -> None:
+    from app.presentation.embeds import reward_detail_embed
+
+    embed = reward_detail_embed(
+        {
+            "reward_id": "r1",
+            "type": "fish",
+            "name": "Big Trout",
+            "weight": 40,
+            "probability": 0.4,
+            "xp": 50,
+            "message": "You caught a big trout!",
+            "min_mass": "1.5",
+            "max_mass": "8.0",
+        },
+        location_id="lake",
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert embed.title == "Reward — Big Trout"
+    assert fields["Reward ID"] == "`r1`"
+    assert fields["Type"] == "fish"
+    assert fields["Location"] == "`lake`"
+    assert fields["Weight"] == "40"
+    assert fields["Probability"] == "40.00%"
+    assert fields["XP"] == "50"
+    assert fields["Message"] == "You caught a big trout!"
+    assert "min_mass: `1.5`" in fields["Parameters"]
+    assert "max_mass: `8.0`" in fields["Parameters"]
+    assert "weight:" not in fields["Parameters"]
+    text = "\n".join(field.value for field in embed.fields)
+    assert "{" not in text
