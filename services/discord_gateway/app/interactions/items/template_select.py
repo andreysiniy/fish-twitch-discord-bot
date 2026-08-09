@@ -73,6 +73,12 @@ class TemplateSelectView(discord.ui.View):
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
         self._selected = select.values[0] if select.values else None
+        self.template_select.options = [
+            discord.SelectOption(
+                label=item["label"], value=item["value"], default=(item["value"] == self._selected)
+            )
+            for item in ITEM_TEMPLATES
+        ]
         self.continue_button.disabled = self._selected is None
         await interaction.response.edit_message(view=self)
 

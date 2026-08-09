@@ -66,6 +66,10 @@ class RarityView(discord.ui.View):
     ) -> None:
         if select.values:
             self._selected = select.values[0]
+        self.rarity_select.options = [
+            discord.SelectOption(label=name, value=value, default=(value == self._selected))
+            for name, value in RARITY_OPTIONS
+        ]
         self.continue_button.disabled = False
         await interaction.response.edit_message(embed=rarity_embed(self._selected), view=self)
 

@@ -227,6 +227,7 @@ class ItemEffectsView(discord.ui.View):
         if select.values and select.values[0] == "-1":
             return
         self._selected_index = int(select.values[0]) if select.values else None
+        self._rebuild_pick_options()
         self._update_buttons()
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
@@ -738,6 +739,9 @@ class EffectFormView(discord.ui.View):
                 return
             self.select_values[field.key] = values[0] if field.max_values == 1 else values
             self._update_state()
+            widget = self.select_widgets.get(field.key)
+            if widget is not None:
+                widget.options = self._options_for(field)
             await interaction.response.edit_message(embed=self._embed(), view=self)
 
         return callback

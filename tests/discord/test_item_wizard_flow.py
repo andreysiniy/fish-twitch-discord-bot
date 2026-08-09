@@ -837,3 +837,43 @@ def test_template_select_preserves_selected_value_as_default() -> None:
         for item in ITEM_TEMPLATES
     ]
     assert _defaulted_values(view.template_select) == ["consumable"]
+
+
+@pytest.mark.asyncio
+async def test_template_select_pick_marks_chosen_value_as_default() -> None:
+    """Picking a template re-renders the view; the freshly chosen value must be
+    marked ``default`` so Discord keeps it visible instead of the placeholder."""
+
+    async def noop(*args, **kwargs):
+        return None
+
+    view = TemplateSelectView(1, noop, noop)
+    assert _defaulted_values(view.template_select) == []
+
+    interaction = FakeInteraction()
+    view.template_select._values = ["consumable"]
+    await view.template_select.callback(interaction)
+
+    assert view._selected == "consumable"
+    assert view.continue_button.disabled is False
+    assert _defaulted_values(view.template_select) == ["consumable"]
+
+
+@pytest.mark.asyncio
+async def test_rarity_select_pick_marks_chosen_rarity_as_default() -> None:
+    """Regression: selecting ``epic`` re-renders the rarity view; the options
+    must be rebuilt so ``epic`` stays selected instead of resetting to the
+    initial default (``common``)."""
+
+    async def noop(*args, **kwargs):
+        return None
+
+    rarity = RarityView(1, noop, noop, noop, current="common")
+    assert _defaulted_values(rarity.rarity_select) == ["common"]
+
+    interaction = FakeInteraction()
+    rarity.rarity_select._values = ["epic"]
+    await rarity.rarity_select.callback(interaction)
+
+    assert rarity._selected == "epic"
+    assert _defaulted_values(rarity.rarity_select) == ["epic"]

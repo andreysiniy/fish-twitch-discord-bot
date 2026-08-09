@@ -204,6 +204,35 @@ def test_effects_list_marks_selected_effect_as_default() -> None:
     assert defaults == ["1"]
 
 
+def test_effects_list_pick_marks_chosen_effect_as_default() -> None:
+    """Picking an effect re-renders the editor; the freshly chosen entry must be
+    marked ``default`` so Discord keeps it visible."""
+    view = _editor([{"type": "grant_mass", "mass": "5"}, {"type": "grant_mass", "mass": "3"}])
+    interaction = FakeInteraction()
+    view.pick_effect._values = ["1"]
+    asyncio.run(view.pick_effect.callback(interaction))
+
+    assert view._selected_index == 1
+    defaults = [option.value for option in view.pick_effect.options if option.default]
+    assert defaults == ["1"]
+
+
+def test_effect_form_select_pick_marks_chosen_value_as_default() -> None:
+    """Effect form selects re-render after each pick; the just-picked value must
+    be marked ``default`` on the rebuilt widget options."""
+    form = TRIGGERED_EFFECT_FORMS["block_action"]
+    view = EffectFormView(_editor([]), form)
+    widget = view.select_widgets["trigger"]
+    assert not any(option.default for option in widget.options)
+
+    interaction = FakeInteraction()
+    interaction.data = {"values": ["after_reward_roll"]}
+    asyncio.run(widget.callback(interaction))
+
+    defaults = [option.value for option in widget.options if option.default]
+    assert defaults == ["after_reward_roll"]
+
+
 def test_advanced_effect_picker_needs_operation_first() -> None:
     view = AdvancedEffectPickerView(_editor([]), "points_flat_bonus")
     assert view.continue_button.disabled is True
