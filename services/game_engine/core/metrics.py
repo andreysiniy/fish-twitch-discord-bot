@@ -49,7 +49,7 @@ def log_summary(logger: Any) -> None:
     values = snapshot()
     if not values:
         return
-    logger.info("fishing_metrics_snapshot", metrics=values)
+    logger.info("fishing_metrics_snapshot metrics=%s", values)
 
 
 def count_cast(status: str, reward_type: str | None = None) -> None:

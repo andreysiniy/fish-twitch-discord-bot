@@ -58,5 +58,5 @@ class DailyStatsJobRunner:
                 return {"buckets": buckets}
             buckets += repo.rebuild_daily_stats(now)
             db.commit()
-        logger.info("daily_stats_rebuilt", buckets=buckets)
+        logger.info("daily_stats_rebuilt buckets=%s", buckets)
         return {"buckets": buckets}
