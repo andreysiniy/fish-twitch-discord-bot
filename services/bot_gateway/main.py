@@ -9,6 +9,7 @@ from commands.inventory import InventoryCog
 from commands.travel import TravelCog
 from config import BotConfig
 from logging_config import configure_logging
+from reconnect_patch import patch_reconnect_init
 from twitchio.ext import commands
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class BotGateway(commands.Bot):
         self.cfg = cfg
         self.api_client = EngineApiClient(cfg.engine_url)
         self.action_handler = ActionHandler(self)
+        patch_reconnect_init(self._connection)
 
         self.add_cog(FishingCog(self))
         self.add_cog(EconomyCog(self))
