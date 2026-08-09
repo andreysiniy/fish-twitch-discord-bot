@@ -16,6 +16,7 @@ class BaseItemDTO(BaseModel):
     item_type: ItemType
     equipment_slot: EquipmentSlot | None = None
     max_durability: int | None = None
+    max_charges: int | None = None
     break_policy: BreakPolicy = BreakPolicy.INDESTRUCTIBLE
     stack_size: int = 1
     image_url: str | None = None
@@ -35,6 +36,7 @@ class InventoryItemDTO(BaseItemDTO):
     quantity: int = 1
     slot_id: int
     current_durability: int | None = None
+    current_charges: int | None = None
     obtained_at: str | None = None
     version: int = 1
     meta: Dict[str, Any] = Field(default_factory=dict)

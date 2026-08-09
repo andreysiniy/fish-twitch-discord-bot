@@ -226,6 +226,7 @@ class PlayerItemGrantRequest(StrictDTO):
     quantity: int = Field(1, ge=1, le=1_000_000)
     slot_id: int | None = Field(None, ge=1)
     current_durability: int | None = Field(None, ge=0)
+    current_charges: int | None = Field(None, ge=0)
     meta: dict[str, Any] = Field(default_factory=dict)
 
 

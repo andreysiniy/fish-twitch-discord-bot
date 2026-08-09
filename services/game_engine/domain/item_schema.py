@@ -327,7 +327,24 @@ class LootTableRollEffect(StrictItemModel):
     rolls: int = Field(1, ge=1, le=20)
 
 
+class ConsumeDurabilityEffect(StrictItemModel):
+    """Durability consumption for equipped equipment (spec §11.4).
+
+    Only valid on equipment; changes ``InventoryItem.current_durability``.
+    """
+
+    type: Literal["consume_durability"]
+    trigger: Literal["after_cast", "after_successful_cast", "after_item_drop"]
+    amount: int = Field(1, ge=1, le=1000)
+
+
 class ConsumeChargeEffect(StrictItemModel):
+    """Charge consumption for a charge-based consumable (spec §11.4).
+
+    Only valid on a consumable with ``max_charges`` set; changes
+    ``InventoryItem.current_charges``.
+    """
+
     type: Literal["consume_charge"]
     trigger: Literal["after_cast", "after_successful_cast", "after_item_drop"]
     amount: int = Field(1, ge=1, le=1000)
@@ -345,6 +362,7 @@ ItemEffect = Annotated[
     | GrantMassEffect
     | ApplyTimeoutEffect
     | LootTableRollEffect
+    | ConsumeDurabilityEffect
     | ConsumeChargeEffect,
     Field(discriminator="type"),
 ]
@@ -359,6 +377,7 @@ class ItemDefinitionData(StrictItemModel):
     rarity: ItemRarity = ItemRarity.COMMON
     stack_size: int = Field(1, ge=1, le=1_000_000)
     max_durability: int | None = Field(None, ge=1, le=1_000_000)
+    max_charges: int | None = Field(None, ge=1, le=1_000_000)
     break_policy: BreakPolicy = BreakPolicy.INDESTRUCTIBLE
     schema_version: int = Field(1, ge=1, le=1000)
     effects: list[ItemEffect] = Field(default_factory=list, max_length=100)
@@ -372,10 +391,27 @@ class ItemDefinitionData(StrictItemModel):
                 raise ValueError("equipment_slot is required for equipment")
             if self.stack_size != 1:
                 raise ValueError("equipment must use stack_size 1")
+            if self.max_charges is not None:
+                raise ValueError("max_charges is only allowed for consumables")
         elif self.equipment_slot is not None:
             raise ValueError("equipment_slot is only allowed for equipment")
+        if self.item_type != ItemType.CONSUMABLE and self.max_charges is not None:
+            raise ValueError("max_charges is only allowed for consumables")
+        if self.max_charges is not None and self.stack_size != 1:
+            raise ValueError("charge-based consumables must use stack_size 1")
         if self.break_policy != BreakPolicy.INDESTRUCTIBLE and self.max_durability is None:
             raise ValueError("max_durability is required for breakable items")
+        if self.max_durability is not None and self.item_type != ItemType.EQUIPMENT:
+            raise ValueError("max_durability is only allowed for equipment")
+        for effect in self.effects:
+            effect_type = effect.type
+            if effect_type == "consume_durability" and self.item_type != ItemType.EQUIPMENT:
+                raise ValueError("consume_durability is only allowed for equipment")
+            if effect_type == "consume_charge":
+                if self.item_type != ItemType.CONSUMABLE:
+                    raise ValueError("consume_charge is only allowed for consumables")
+                if self.max_charges is None:
+                    raise ValueError("consume_charge requires max_charges on the consumable")
         return self
 
 
