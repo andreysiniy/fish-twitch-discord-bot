@@ -181,7 +181,8 @@ def test_item_drop_list_entry_shows_effects() -> None:
     }
     title, details = item_drop_list_entry(entry)
     assert "Effects:" in details
-    assert "stat_add" in details
+    assert "Fish Luck: +10%" in details
+    assert "stat_add" not in details
 
 
 def test_item_drop_list_entry_without_effects_skips_segment() -> None:
