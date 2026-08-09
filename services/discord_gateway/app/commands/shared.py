@@ -311,6 +311,7 @@ def _item_payload(
     equipment_slot: str | None,
     stack_size: int,
     max_durability: int | None,
+    max_charges: int | None = None,
     break_policy: str,
     effects: list[dict[str, Any]],
     description: str | None,
@@ -327,6 +328,10 @@ def _item_payload(
         raise ValueError("Equipment must use stack size 1")
     if break_policy != "indestructible" and max_durability is None:
         raise ValueError("Maximum durability is required for breakable items")
+    if item_type != "consumable" and max_charges is not None:
+        raise ValueError("Maximum charges are only available for consumables")
+    if max_charges is not None and stack_size != 1:
+        raise ValueError("Charge-based consumables must use stack size 1")
     payload = {
         "item_id": item_id.strip().lower(),
         "title": title.strip(),
@@ -336,6 +341,7 @@ def _item_payload(
         "rarity": rarity,
         "stack_size": stack_size,
         "max_durability": max_durability,
+        "max_charges": max_charges,
         "break_policy": break_policy,
         "schema_version": schema_version if schema_version is not None else 1,
         "effects": effects,

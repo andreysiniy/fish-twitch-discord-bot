@@ -716,10 +716,32 @@ TRIGGERED_EFFECT_FORMS: dict[str, EffectForm] = {
             ),
         ),
     ),
+    "consume_durability": EffectForm(
+        type="consume_durability",
+        label="Consume Durability",
+        description="Consumes durability from equipped equipment after a trigger.",
+        defaults={},
+        fields=(
+            EffectField(
+                key="trigger",
+                kind="select",
+                label="Trigger",
+                options=CONSUME_TRIGGER_OPTIONS,
+            ),
+            EffectField(
+                key="amount",
+                kind="number",
+                label="Amount",
+                min=1,
+                max=1000,
+                default=1,
+            ),
+        ),
+    ),
     "consume_charge": EffectForm(
         type="consume_charge",
-        label="Consume Durability or Charge",
-        description="Consumes durability (equipment) or a charge (consumable) after a trigger.",
+        label="Consume Charge",
+        description="Consumes a charge from a charge-based consumable after a trigger.",
         defaults={},
         fields=(
             EffectField(
@@ -800,9 +822,12 @@ def describe_effect(effect: dict[str, Any]) -> str:
     if effect_type == "loot_table_roll":
         table = effect.get("loot_table_id") or "?"
         return f"Roll Loot Table: {table} ×{effect.get('rolls', 1)}"
+    if effect_type == "consume_durability":
+        trigger = _join_options([effect.get("trigger")], CONSUME_TRIGGER_OPTIONS)
+        return f"Consume Durability: {effect.get('amount', 1)} {trigger}"
     if effect_type == "consume_charge":
         trigger = _join_options([effect.get("trigger")], CONSUME_TRIGGER_OPTIONS)
-        return f"Consume Durability or Charge: {effect.get('amount', 1)} {trigger}"
+        return f"Consume Charge: {effect.get('amount', 1)} {trigger}"
     return effect_type
 
 

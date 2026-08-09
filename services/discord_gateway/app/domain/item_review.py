@@ -52,6 +52,7 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
     item_type = str(draft.get("item_type") or "material")
     equipment_slot = draft.get("equipment_slot")
     max_durability = draft.get("max_durability")
+    max_charges = draft.get("max_charges")
     break_policy = str(draft.get("break_policy") or "indestructible")
     stack_size = draft.get("stack_size", 1)
     effects = list(draft.get("effects") or [])
@@ -60,20 +61,17 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Slot / durability / break-behavior ownership (spec §36).
+    # Slot / durability / charges / break-behavior ownership (spec §36/§11.4).
     if item_type not in _EQUIPMENT_TYPES and equipment_slot:
         errors.append("This item type does not support an equipment slot.")
     if item_type not in _EQUIPMENT_TYPES and max_durability:
-        if item_type in _CONSUMABLE_TYPES:
-            errors.append(
-                "Consumables cannot use durability. Configure charges or stack consumption instead."
-            )
-        elif item_type in _LOOTBOX_TYPES:
-            errors.append("Loot boxes cannot use durability.")
-        else:
-            errors.append("This item type does not support durability.")
+        errors.append("Only equipment items can use durability.")
     if item_type not in _EQUIPMENT_TYPES and break_policy != "indestructible":
         errors.append("Only equipment items can have a break behavior.")
+    if item_type != "consumable" and max_charges:
+        errors.append("Only consumables can carry a maximum charge count.")
+    if max_charges and int(stack_size or 1) != 1:
+        errors.append("Charge-based consumables must use stack size 1.")
 
     # Equipment invariants (spec §8/§36).
     if item_type in _EQUIPMENT_TYPES:
@@ -95,14 +93,19 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
         elif not any(effect_type in LOOT_PRODUCING_EFFECTS for effect_type in effect_type_list):
             errors.append("A loot box must contain at least one loot table roll or grant effect.")
 
-    # Effect compatibility (spec §36).
+    # Effect compatibility (spec §36/§11.4).
     for effect in effects:
         effect_type = str(effect.get("type") or "")
-        if effect_type == "consume_charge":
-            if item_type not in _EQUIPMENT_TYPES | _CONSUMABLE_TYPES:
-                errors.append("This effect is not compatible with the selected item type.")
-            elif item_type in _EQUIPMENT_TYPES and break_policy == "indestructible":
+        if effect_type == "consume_durability":
+            if item_type not in _EQUIPMENT_TYPES:
+                errors.append("Consume Durability is only compatible with equipment.")
+            elif break_policy == "indestructible":
                 warnings.append("This effect consumes durability, but the item is indestructible.")
+        if effect_type == "consume_charge":
+            if item_type not in _CONSUMABLE_TYPES:
+                errors.append("Consume Charge is only compatible with a consumable.")
+            elif not max_charges:
+                errors.append("Consume Charge requires a maximum charge count on the consumable.")
         if effect_type in _PASSIVE_STAT_EFFECTS and item_type not in _EQUIPMENT_TYPES:
             warnings.append(
                 "Passive stat bonuses only apply to equipped items. This item cannot be equipped."

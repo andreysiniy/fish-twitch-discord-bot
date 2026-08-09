@@ -38,6 +38,13 @@ def normalize_draft(draft: dict[str, Any]) -> dict[str, Any]:
     max_durability = draft.get("max_durability")
     if break_policy == "indestructible":
         max_durability = None
+    max_charges = draft.get("max_charges")
+    if item_type != "consumable":
+        max_charges = None
+    if max_charges is not None:
+        # A charge-based consumable is a single instance; its stack size is
+        # forced to 1 so the backend CHECK constraints always hold (spec 11.4).
+        stack_size = 1
     payload = {
         "item_id": str(draft.get("item_id", "")).strip().lower(),
         "title": str(draft.get("title", "")).strip(),
@@ -47,6 +54,7 @@ def normalize_draft(draft: dict[str, Any]) -> dict[str, Any]:
         "rarity": draft.get("rarity", "common"),
         "stack_size": stack_size,
         "max_durability": max_durability,
+        "max_charges": max_charges,
         "break_policy": break_policy,
         "schema_version": draft.get("schema_version", 1),
         "effects": [dict(effect) for effect in (draft.get("effects") or [])],

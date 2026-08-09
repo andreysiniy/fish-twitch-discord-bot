@@ -117,7 +117,12 @@ def review_embed(
             value=str(durability) if durability else "Not used",
             inline=True,
         )
+    elif item_type == "consumable" and draft.get("max_charges"):
+        embed.add_field(name="Use Behavior", value="Consume Charge", inline=True)
+        embed.add_field(name="Maximum Charges", value=str(draft["max_charges"]), inline=True)
+        embed.add_field(name="Stack Size", value="1 (single instance)", inline=True)
     else:
+        embed.add_field(name="Use Behavior", value="Consume One Item", inline=True)
         embed.add_field(name="Stack Size", value=str(draft.get("stack_size", 1)), inline=True)
     description = draft.get("description")
     if description:

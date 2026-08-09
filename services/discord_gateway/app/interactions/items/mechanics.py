@@ -55,7 +55,28 @@ def mechanics_embed(draft: dict) -> discord.Embed:
                 value="Set a maximum durability for the selected break behavior.",
                 inline=False,
             )
+    elif item_type == "consumable" and draft.get("max_charges"):
+        embed.add_field(
+            name="Use Behavior",
+            value="Consume Charge",
+            inline=True,
+        )
+        embed.add_field(
+            name="Maximum Charges",
+            value=str(draft["max_charges"]),
+            inline=True,
+        )
+        embed.add_field(
+            name="Maximum Stack Size",
+            value="1 (each instance tracks its own charges)",
+            inline=True,
+        )
     else:
+        embed.add_field(
+            name="Use Behavior",
+            value="Consume One Item",
+            inline=True,
+        )
         embed.add_field(
             name="Maximum Stack Size",
             value=str(draft.get("stack_size", 1)),
@@ -139,6 +160,43 @@ class StackSettingsModal(discord.ui.Modal):
         await self.on_saved(interaction, value)
 
 
+class ChargesModal(discord.ui.Modal):
+    """Maximum charges for a charge-based consumable (spec §11.4)."""
+
+    def __init__(
+        self,
+        on_saved: Callable[[discord.Interaction, int], Awaitable[None]],
+        *,
+        current: int | None = None,
+    ):
+        super().__init__(title="Maximum Charges")
+        self.on_saved = on_saved
+        self.max_charges = discord.ui.TextInput(
+            label="Maximum Charges",
+            max_length=7,
+            required=True,
+            default=str(current) if current else "",
+            placeholder="5",
+        )
+        self.add_item(self.max_charges)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.max_charges.value.strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            await interaction.response.send_message(
+                "Maximum charges must be a whole number.", ephemeral=True
+            )
+            return
+        if not 1 <= value <= 1_000_000:
+            await interaction.response.send_message(
+                "Maximum charges must be 1..1000000.", ephemeral=True
+            )
+            return
+        await self.on_saved(interaction, value)
+
+
 class MechanicsView(discord.ui.View):
     """Step 4: type-aware item mechanics (spec §11).
 
@@ -179,6 +237,8 @@ class MechanicsView(discord.ui.View):
         if item_type == "equipment":
             # Equipment never shows stack controls: stack_size is forced to 1.
             self.remove_item(self.stack_button)
+            self.remove_item(self.use_behavior_button)
+            self.remove_item(self.charges_button)
             if self.template == "charm":
                 self.slot_select.options = [
                     discord.SelectOption(label=name, value=value)
@@ -194,6 +254,9 @@ class MechanicsView(discord.ui.View):
             self.remove_item(self.slot_select)
             self.remove_item(self.break_select)
             self.remove_item(self.durability_button)
+            if item_type != "consumable":
+                self.remove_item(self.use_behavior_button)
+                self.remove_item(self.charges_button)
 
     def _update_state(self) -> None:
         item_type = self.draft.get("item_type", "material")
@@ -212,6 +275,22 @@ class MechanicsView(discord.ui.View):
             self.continue_button.disabled = not (break_policy == "indestructible" or durability_set)
             if self.template == "charm" and not self.draft.get("equipment_slot"):
                 self.continue_button.disabled = True
+        elif item_type == "consumable":
+            charge_based = bool(self.draft.get("max_charges"))
+            self.use_behavior_button.label = (
+                "Use behavior: Consume Charge" if charge_based else "Use behavior: Consume One Item"
+            )
+            self.charges_button.disabled = not charge_based
+            self.charges_button.label = (
+                "Set max charges"
+                if not self.draft.get("max_charges")
+                else f"Edit max charges ({self.draft['max_charges']})"
+            )
+            # A charge-based consumable is a single instance (stack_size 1);
+            # the stack control would contradict that invariant (spec 11.4).
+            self.stack_button.disabled = charge_based
+            self.stack_button.label = "Set stack size" if not charge_based else "Stack forced to 1"
+            self.continue_button.disabled = False
         else:
             self.continue_button.disabled = False
 
@@ -258,6 +337,37 @@ class MechanicsView(discord.ui.View):
         await self.on_persist(interaction)
 
     # --- stack controls (non-equipment) ----------------------------------------
+
+    @discord.ui.button(
+        label="Use behavior: Consume One Item", style=discord.ButtonStyle.secondary, row=2
+    )
+    async def use_behavior_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if self.draft.get("max_charges"):
+            # Switch to Consume One Item: charges are cleared, stack applies.
+            self.draft["max_charges"] = None
+            self._update_state()
+            await self.on_persist(interaction)
+            return
+        # Switch to Consume Charge; the charge count is requested via the modal.
+        await interaction.response.send_modal(ChargesModal(self._charges_saved, current=None))
+
+    @discord.ui.button(label="Set max charges", style=discord.ButtonStyle.secondary, row=2)
+    async def charges_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(
+            ChargesModal(self._charges_saved, current=self.draft.get("max_charges"))
+        )
+
+    async def _charges_saved(self, interaction: discord.Interaction, value: int) -> None:
+        # A charge-based consumable is a single instance (stack_size 1,
+        # spec 11.4): each instance tracks its own charge count.
+        self.draft["max_charges"] = value
+        self.draft["stack_size"] = 1
+        self._update_state()
+        await self.on_persist(interaction)
 
     @discord.ui.button(label="Set stack size", style=discord.ButtonStyle.secondary, row=2)
     async def stack_button(
@@ -328,6 +438,7 @@ def advanced_item_type_embed() -> discord.Embed:
 __all__ = [
     "MechanicsView",
     "DurabilityModal",
+    "ChargesModal",
     "StackSettingsModal",
     "advanced_item_type_embed",
     "mechanics_embed",

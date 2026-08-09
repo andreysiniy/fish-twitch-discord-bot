@@ -62,6 +62,7 @@ _IMPORT_PAYLOAD_FIELDS = (
     "rarity",
     "stack_size",
     "max_durability",
+    "max_charges",
     "break_policy",
     "schema_version",
     "effects",
