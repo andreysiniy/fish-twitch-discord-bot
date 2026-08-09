@@ -143,6 +143,27 @@ class ItemDefinition(Base):
             "max_durability IS NULL OR max_durability > 0",
             name="ck_item_definitions_max_durability_positive",
         ),
+        # Charges belong to consumables only (spec 11.4): a non-consumable must
+        # never carry max_charges, and a charge-based consumable is a single
+        # instance (stack_size 1) because each instance tracks its own charges.
+        CheckConstraint(
+            "type = 'consumable' OR max_charges IS NULL",
+            name="ck_item_definitions_charges_consumable_only",
+        ),
+        CheckConstraint(
+            "max_charges IS NULL OR max_charges > 0",
+            name="ck_item_definitions_max_charges_positive",
+        ),
+        CheckConstraint(
+            "max_charges IS NULL OR stack_size = 1",
+            name="ck_item_definitions_charges_single_stack",
+        ),
+        # Durability belongs to equipment only (spec 11.4). Non-equipment items
+        # never carry durability, so the durability policy is meaningless there.
+        CheckConstraint(
+            "type = 'equipment' OR max_durability IS NULL",
+            name="ck_item_definitions_durability_equipment_only",
+        ),
         CheckConstraint(
             "type IN ('equipment','consumable','lootbox','material','quest',"
             "'currency','collectible')",
@@ -178,6 +199,7 @@ class ItemDefinition(Base):
     slot = Column(String, nullable=True)
     rarity = Column(String, default="common", nullable=False)
     max_durability = Column(Integer, nullable=True)
+    max_charges = Column(Integer, nullable=True)
     break_policy = Column(String, default="indestructible", nullable=False)
     stack_size = Column(Integer, default=1, nullable=False)
     image_url = Column(String)
@@ -210,6 +232,12 @@ class InventoryItem(Base):
             "current_durability IS NULL OR current_durability >= 0",
             name="ck_inventory_items_durability_nonnegative",
         ),
+        # Charges are only meaningful for a charge-based consumable definition;
+        # the row may not exceed the definition's max_charges (spec 11.4).
+        CheckConstraint(
+            "current_charges IS NULL OR current_charges >= 0",
+            name="ck_inventory_items_charges_nonnegative",
+        ),
         CheckConstraint("version >= 1", name="ck_inventory_items_version_positive"),
         CheckConstraint(
             "definition_version >= 1", name="ck_inventory_items_definition_version_positive"
@@ -236,6 +264,7 @@ class InventoryItem(Base):
     slot_id = Column(Integer, nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     current_durability = Column(Integer, nullable=True)
+    current_charges = Column(Integer, nullable=True)
     meta = Column(JSONB, default=dict, nullable=False)
     definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)

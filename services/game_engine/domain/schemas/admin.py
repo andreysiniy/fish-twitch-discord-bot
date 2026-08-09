@@ -172,6 +172,7 @@ class GrantItemRequestDTO(BaseModel):
     quantity: int = 1
     slot_id: Optional[int] = None
     current_durability: Optional[int] = None
+    current_charges: Optional[int] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 

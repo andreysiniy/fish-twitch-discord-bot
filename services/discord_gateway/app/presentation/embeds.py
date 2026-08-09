@@ -171,6 +171,8 @@ def item_detail_embed(item: dict[str, Any], *, effects_value: str | None = None)
     if item.get("max_durability"):
         embed.add_field(name="Durability", value=str(item["max_durability"]), inline=True)
         embed.add_field(name="Break policy", value=item.get("break_policy", "?"), inline=True)
+    if item.get("max_charges"):
+        embed.add_field(name="Maximum charges", value=str(item["max_charges"]), inline=True)
     effects = item.get("effects") or []
     if effects:
         rendered = (

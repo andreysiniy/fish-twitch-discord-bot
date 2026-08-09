@@ -166,6 +166,7 @@ def template_to_defaults(template: str) -> dict[str, Any]:
         "stack_size": int(spec["default_stack"]),
         "break_policy": "indestructible",
         "max_durability": None,
+        "max_charges": None,
     }
     if spec["item_type"] == "equipment":
         defaults["equipment_slot"] = spec["default_slot"]

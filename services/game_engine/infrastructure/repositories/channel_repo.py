@@ -162,6 +162,7 @@ class ChannelRepository:
         slot: str | None = None,
         rarity: str = "common",
         max_durability: int | None = None,
+        max_charges: int | None = None,
         break_policy: str = "indestructible",
         stack_size: int = 1,
         image_url: str | None = None,
@@ -211,6 +212,9 @@ class ChannelRepository:
         definition.rarity = rarity
         definition.max_durability = (
             int(max_durability) if max_durability is not None else None
+        )
+        definition.max_charges = (
+            int(max_charges) if max_charges is not None else None
         )
         definition.break_policy = break_policy
         definition.stack_size = max(int(stack_size or 1), 1)

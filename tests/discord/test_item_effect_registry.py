@@ -107,6 +107,23 @@ def test_describe_mass_and_triggered_effects() -> None:
     )
 
 
+def test_describe_consume_effects_split_by_semantics() -> None:
+    assert (
+        describe_effect({"type": "consume_durability", "trigger": "after_cast", "amount": 2})
+        == "Consume Durability: 2 After Any Cast"
+    )
+    assert (
+        describe_effect({"type": "consume_charge", "trigger": "after_successful_cast", "amount": 1})
+        == "Consume Charge: 1 After a Successful Cast"
+    )
+    assert "Durability" not in describe_effect(
+        {"type": "consume_charge", "trigger": "after_cast", "amount": 1}
+    )
+    assert "Charge" not in describe_effect(
+        {"type": "consume_durability", "trigger": "after_cast", "amount": 1}
+    )
+
+
 def test_describe_never_leaks_raw_stat_keys() -> None:
     line = describe_effect({"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"})
     assert "fish_luck_change_ratio" not in line

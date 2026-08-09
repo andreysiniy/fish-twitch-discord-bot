@@ -272,6 +272,7 @@ async def test_edit_confirm_uses_edit_idempotency_key_and_success_message() -> N
                 "rarity": "epic",
                 "stack_size": 1,
                 "max_durability": 150,
+                "max_charges": None,
                 "break_policy": "unequip_broken",
                 "description": "A powerful rod",
                 "schema_version": 1,

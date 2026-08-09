@@ -128,21 +128,43 @@ def test_equipment_without_slot_blocks() -> None:
     assert any("equipment slot" in error.lower() for error in errors)
 
 
-def test_consume_charge_on_material_blocks() -> None:
+def test_consume_durability_on_material_blocks() -> None:
     errors, _ = compatibility_issues(
-        _material_draft(effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}])
+        _material_draft(
+            effects=[{"type": "consume_durability", "trigger": "after_cast", "amount": 1}]
+        )
     )
-    assert any("not compatible with the selected item type" in error for error in errors)
+    assert any("only compatible with equipment" in error for error in errors)
 
 
-def test_consume_charge_on_indestructible_equipment_warns() -> None:
+def test_consume_durability_on_indestructible_equipment_warns() -> None:
     _, warnings = compatibility_issues(
-        _equipment_draft(effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}])
+        _equipment_draft(
+            effects=[{"type": "consume_durability", "trigger": "after_cast", "amount": 1}]
+        )
     )
     assert any("indestructible" in warning for warning in warnings)
 
 
-def test_consume_charge_on_breakable_equipment_is_valid() -> None:
+def test_consume_durability_on_breakable_equipment_is_valid() -> None:
+    errors, _ = compatibility_issues(
+        _equipment_draft(
+            break_policy="unequip_broken",
+            max_durability=150,
+            effects=[{"type": "consume_durability", "trigger": "after_cast", "amount": 1}],
+        )
+    )
+    assert errors == []
+
+
+def test_consume_charge_on_material_blocks() -> None:
+    errors, _ = compatibility_issues(
+        _material_draft(effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}])
+    )
+    assert any("only compatible with a consumable" in error for error in errors)
+
+
+def test_consume_charge_on_equipment_blocks() -> None:
     errors, _ = compatibility_issues(
         _equipment_draft(
             break_policy="unequip_broken",
@@ -150,7 +172,40 @@ def test_consume_charge_on_breakable_equipment_is_valid() -> None:
             effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
         )
     )
+    assert any("only compatible with a consumable" in error for error in errors)
+
+
+def test_consume_charge_on_consumable_without_max_charges_blocks() -> None:
+    errors, _ = compatibility_issues(
+        _consumable_draft(
+            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}]
+        )
+    )
+    assert any("maximum charge count" in error for error in errors)
+
+
+def test_consume_charge_on_consumable_with_max_charges_is_valid() -> None:
+    errors, _ = compatibility_issues(
+        _consumable_draft(
+            stack_size=1,
+            max_charges=5,
+            effects=[
+                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+                {"type": "grant_mass", "mass": "5"},
+            ],
+        )
+    )
     assert errors == []
+
+
+def test_non_consumable_with_max_charges_blocks() -> None:
+    errors, _ = compatibility_issues(_material_draft(max_charges=5))
+    assert any("Only consumables can carry a maximum charge count" in error for error in errors)
+
+
+def test_consumable_max_charges_with_wrong_stack_blocks() -> None:
+    errors, _ = compatibility_issues(_consumable_draft(stack_size=20, max_charges=5))
+    assert any("stack size 1" in error.lower() for error in errors)
 
 
 def test_passive_stat_on_non_equipment_warns() -> None:
@@ -241,6 +296,40 @@ def test_review_embed_material_shows_stack_and_hides_equipment_mechanics() -> No
     assert fields["Stack Size"] == "100"
     assert "Equipment Slot" not in fields
     assert "Break Behavior" not in fields
+    assert "Durability" not in fields
+
+
+def test_review_embed_consumable_charge_shows_charge_mechanics() -> None:
+    embed = review_embed(
+        _consumable_draft(
+            stack_size=1,
+            max_charges=5,
+            effects=[
+                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+                {"type": "grant_mass", "mass": "5"},
+            ],
+        ),
+        schema_version=1,
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Use Behavior"] == "Consume Charge"
+    assert fields["Maximum Charges"] == "5"
+    assert "Durability" not in fields
+    assert "Consume Charge: 1 After Any Cast" in fields["Effects (2)"]
+
+
+def test_review_embed_consumable_single_use_shows_stack_mechanics() -> None:
+    embed = review_embed(
+        _consumable_draft(
+            stack_size=20,
+            effects=[{"type": "grant_mass", "mass": "5"}],
+        ),
+        schema_version=1,
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Use Behavior"] == "Consume One Item"
+    assert fields["Stack Size"] == "20"
+    assert "Maximum Charges" not in fields
     assert "Durability" not in fields
 
 

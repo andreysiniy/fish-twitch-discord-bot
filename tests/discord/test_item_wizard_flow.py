@@ -381,6 +381,46 @@ def test_mechanics_non_equipment_hides_durability_and_slot() -> None:
     assert view.continue_button.disabled is False
 
 
+def test_mechanics_consumable_charge_based_forces_single_stack() -> None:
+    view = _mechanics_view(
+        "consumable",
+        {
+            "item_type": "consumable",
+            "equipment_slot": None,
+            "stack_size": 1,
+            "break_policy": "indestructible",
+            "max_durability": None,
+            "max_charges": 5,
+        },
+    )
+    labels = _component_labels(view)
+    assert "Use behavior: Consume Charge" in labels
+    assert "Edit max charges (5)" in labels
+    assert "Stack forced to 1" in labels
+    assert view.charges_button.disabled is False
+    assert view.stack_button.disabled is True
+    assert view.continue_button.disabled is False
+
+
+def test_mechanics_consumable_single_use_shows_stack_controls() -> None:
+    view = _mechanics_view(
+        "consumable",
+        {
+            "item_type": "consumable",
+            "equipment_slot": None,
+            "stack_size": 20,
+            "break_policy": "indestructible",
+            "max_durability": None,
+            "max_charges": None,
+        },
+    )
+    labels = _component_labels(view)
+    assert "Use behavior: Consume One Item" in labels
+    assert "Set stack size" in labels
+    assert view.charges_button.disabled is True
+    assert view.stack_button.disabled is False
+
+
 # --- wizard entry point ------------------------------------------------------------
 
 

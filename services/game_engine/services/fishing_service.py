@@ -38,6 +38,8 @@ from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
 from services.player_modifier_service import PlayerModifierService
 
+logger = logging.getLogger(__name__)
+
 def _bonus_segment(emoji: str, label: str, percent_value) -> str:
     """One '🍀 Label: +N% | ' segment, or empty when the stat is zero.
 
@@ -329,7 +331,8 @@ class FishingService:
         inventory_repo = InventoryRepository(self.user_repo.db)
         for effect in behavioral_effects:
             trigger_count = int(effect.pop("_trigger_count", 0))
-            if effect.get("type") == "consume_charge":
+            effect_type = effect.get("type")
+            if effect_type == "consume_durability":
                 trigger = effect.get("trigger")
                 should_consume = (
                     trigger == "after_cast"
@@ -340,6 +343,12 @@ class FishingService:
                     or (trigger == "after_item_drop" and result.item_drop is not None)
                 )
                 durability_cost = int(effect.get("amount", 1)) if should_consume else 0
+            elif effect_type == "consume_charge":
+                logger.warning(
+                    "consume_charge effect resolved in fishing behavior",
+                    extra={"effect": effect},
+                )
+                continue
             else:
                 durability_cost = int(effect.get("durability_cost", 0)) * trigger_count
             if durability_cost:

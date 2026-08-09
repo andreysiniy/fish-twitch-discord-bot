@@ -70,6 +70,7 @@ def _seed_draft_from_item(item_id: str, current: dict[str, Any]) -> dict[str, An
         "equipment_slot": current.get("equipment_slot"),
         "stack_size": current.get("stack_size", 1),
         "max_durability": current.get("max_durability"),
+        "max_charges": current.get("max_charges"),
         "break_policy": current.get("break_policy", "indestructible"),
         "effects": list(current.get("effects") or []),
         "description": current.get("description"),

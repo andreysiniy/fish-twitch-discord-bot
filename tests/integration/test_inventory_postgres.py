@@ -182,6 +182,95 @@ def test_consumable_use_is_atomic_and_idempotent() -> None:
 
 
 @pytest.mark.integration
+def test_charge_based_consumable_decrements_charges_and_is_deleted_at_zero() -> None:
+    """A charge-based consumable consumes current_charges, never durability."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"charges-{suffix}", name="Charges test", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="charges_user",
+            channel_id=channel.id,
+            current_mass=0,
+            base_inventory_slots=2,
+        )
+        potion = ItemDefinition(
+            channel_id=channel.id,
+            item_id="spell_potion",
+            title="Spell Potion",
+            type="consumable",
+            stack_size=1,
+            max_charges=3,
+            effects=[
+                {"type": "grant_mass", "mass": "1.00"},
+                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+            ],
+        )
+        db.add_all([user, potion])
+        db.flush()
+        repository = InventoryRepository(db)
+
+        granted = repository.grant_many(user, [{"item_id": "spell_potion"}])[0]
+        assert granted.current_charges == 3
+        assert granted.current_durability is None
+
+        repository.use_item(user, granted.slot_id, "charge-use-1")
+        rows = repository._lock_items(user.id)
+        assert len(rows) == 1
+        assert rows[0].current_charges == 2
+        assert rows[0].quantity == 1
+
+        repository.use_item(user, rows[0].slot_id, "charge-use-2")
+        rows = repository._lock_items(user.id)
+        assert rows[0].current_charges == 1
+
+        repository.use_item(user, rows[0].slot_id, "charge-use-3")
+        # At zero the instance is deleted, exactly like an empty stack.
+        assert repository._lock_items(user.id) == []
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_charge_grant_rejects_durability_mismatch_and_out_of_range() -> None:
+    """A charge-based consumable never resolves durability; charges are capped."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"charges-bad-{suffix}", name="Charges bad", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="charges_bad_user",
+            channel_id=channel.id,
+            base_inventory_slots=2,
+        )
+        potion = ItemDefinition(
+            channel_id=channel.id,
+            item_id="spell_potion",
+            title="Spell Potion",
+            type="consumable",
+            stack_size=1,
+            max_charges=3,
+            effects=[],
+        )
+        db.add_all([user, potion])
+        db.flush()
+        repository = InventoryRepository(db)
+
+        with pytest.raises(ValueError, match="indestructible"):
+            repository.grant_many(user, [{"item_id": "spell_potion", "current_durability": 2}])
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
 def test_equipped_storage_expands_effective_inventory_capacity() -> None:
     db = SessionLocal()
     try:
