@@ -346,6 +346,7 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
         assert listed_entry["selection_weight_share"] == 1.0
         assert listed_entry["drop_probability"] == pytest.approx(0.1, abs=1e-6)
         assert listed_entry["expected_casts_to_drop"] is not None
+        assert "id" not in listed_entry
 
         preview = service.preview_item_drop(
             _context("item-drop-preview"), channel.twitch_id, "default", 25

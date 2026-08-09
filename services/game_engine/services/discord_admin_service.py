@@ -1952,7 +1952,6 @@ class DiscordAdminService:
                 .first()
             )
         return {
-            "id": row.id,
             "item_id": row.definition.item_id,
             "title": row.definition.title,
             "weight": row.weight,
