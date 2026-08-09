@@ -61,6 +61,7 @@ class InventoryRepository:
                         f"Inventory slot must be between 1 and {max_slots}"
                     )
             durability = self._resolve_durability(definition, grant.get("current_durability"))
+            charges = self._resolve_charges(definition, grant.get("current_charges"))
             meta = dict(grant.get("meta") or {})
             touched.extend(
                 self._place_grant(
@@ -71,6 +72,7 @@ class InventoryRepository:
                     max_slots,
                     explicit_slot,
                     durability,
+                    charges,
                     meta,
                 )
             )
@@ -235,11 +237,21 @@ class InventoryRepository:
         self.db.add(use_record)
         self.db.flush()
 
-        item.quantity -= 1
-        if item.quantity == 0:
-            self.db.delete(item)
+        if definition.max_charges is not None:
+            # Charge-based consumable (spec 11.4): one use consumes a charge
+            # instead of a stack quantity; the instance is deleted at zero.
+            item.current_charges = int(item.current_charges or 0) - 1
+            if item.current_charges <= 0:
+                self.db.delete(item)
+            else:
+                item.version += 1
         else:
-            item.version += 1
+            # Single-use consumable: use consumes one item from the stack.
+            item.quantity -= 1
+            if item.quantity == 0:
+                self.db.delete(item)
+            else:
+                item.version += 1
         self.db.flush()
 
         grants: list[dict[str, Any]] = []
@@ -314,6 +326,7 @@ class InventoryRepository:
         max_slots: int,
         explicit_slot: int | None,
         durability: int | None,
+        charges: int | None,
         meta: dict[str, Any],
     ) -> list[InventoryItem]:
         touched: list[InventoryItem] = []
@@ -328,6 +341,7 @@ class InventoryRepository:
                 and occupied.item_id == definition.id
                 and occupied.meta == meta
                 and occupied.current_durability == durability
+                and occupied.current_charges == charges
             ):
                 raise InventoryCapacityError(f"Inventory slot {explicit_slot} is occupied")
             candidates = [occupied] if occupied else []
@@ -339,6 +353,7 @@ class InventoryRepository:
                 and candidate.item_id == definition.id
                 and candidate.meta == meta
                 and candidate.current_durability == durability
+                and candidate.current_charges == charges
                 and candidate.quantity < stack_size
             ]
 
@@ -373,6 +388,7 @@ class InventoryRepository:
                 slot_id=slot_id,
                 quantity=stack_quantity,
                 current_durability=durability,
+                current_charges=charges,
                 meta=meta,
                 definition_version=definition.version,
             )
@@ -450,6 +466,16 @@ class InventoryRepository:
                 f"Durability must be between 0 and {definition.max_durability}"
             )
         return durability
+
+    def _resolve_charges(self, definition: ItemDefinition, requested: int | None) -> int | None:
+        if definition.max_charges is None:
+            if requested is not None:
+                raise ValueError(f"{definition.title} has no charges")
+            return None
+        charges = definition.max_charges if requested is None else int(requested)
+        if charges < 0 or charges > definition.max_charges:
+            raise ValueError(f"Charges must be between 0 and {definition.max_charges}")
+        return charges
 
     def _lock_user(self, user_id: int) -> UserProgress:
         user = (

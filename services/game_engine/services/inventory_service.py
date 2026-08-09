@@ -120,9 +120,14 @@ class InventoryService:
                 if item["max_durability"] is not None
                 else ""
             )
+            charges = (
+                f" charges {item['current_charges']}/{item['max_charges']}"
+                if item["max_charges"] is not None
+                else ""
+            )
             message += (
                 f"\n[{item['slot_id']}] {item['title']} x{item['quantity']}"
-                f" ({item['item_type']}, {item['rarity']}){durability}"
+                f" ({item['item_type']}, {item['rarity']}){durability}{charges}"
             )
 
         return InventoryResponseDTO(
@@ -166,6 +171,7 @@ class InventoryService:
             "item_type": definition.type,
             "equipment_slot": definition.slot,
             "max_durability": definition.max_durability,
+            "max_charges": definition.max_charges,
             "break_policy": definition.break_policy,
             "stack_size": definition.stack_size,
             "image_url": definition.image_url,
@@ -174,6 +180,7 @@ class InventoryService:
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,
+            "current_charges": item.current_charges,
             "obtained_at": meta.get("obtained_at"),
             "version": item.version,
             "meta": meta,
