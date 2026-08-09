@@ -1958,6 +1958,7 @@ class DiscordAdminService:
             "xp_gain": row.xp_gain,
             "quantity": stock.remaining_quantity if stock else None,
             "message": row.message,
+            "effects": row.definition.effects or [],
             "version": row.version,
             "updated_at": row.updated_at.isoformat(),
         }
