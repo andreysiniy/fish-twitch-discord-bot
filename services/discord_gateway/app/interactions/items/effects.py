@@ -175,6 +175,7 @@ class ItemEffectsView(discord.ui.View):
                     label=describe_effect(effect)[:100] or "effect",
                     value=str(index),
                     description=f"Effect #{index + 1}",
+                    default=(index == self._selected_index),
                 )
             )
         self.pick_effect.options = options
@@ -389,6 +390,12 @@ class EffectCategoryPickerView(discord.ui.View):
         ]
         self.effect_select.disabled = True
 
+    def _refresh_category_default(self) -> None:
+        self.category_select.options = [
+            discord.SelectOption(label=label, value=value, default=(value == self._category))
+            for label, value in EFFECT_CATEGORIES
+        ]
+
     def _embed(self) -> discord.Embed:
         return _embed_for(
             "Add an Effect",
@@ -425,10 +432,12 @@ class EffectCategoryPickerView(discord.ui.View):
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
         self._category = select.values[0]
+        self._refresh_category_default()
         if self._category == CATEGORY_ADVANCED and not self.editor._advanced:
             # Spec §32: entering the advanced flow shows the warning first;
             # Continue arms advanced mode and exposes the low-level stats.
             async def open_advanced(interaction: discord.Interaction) -> None:
+                self._refresh_category_default()
                 self.effect_select.options = self._effect_options()
                 self.effect_select.disabled = False
                 await interaction.response.edit_message(embed=self._embed(), view=self)
@@ -568,6 +577,20 @@ class AdvancedEffectPickerView(discord.ui.View):
     ) -> None:
         self._operation = select.values[0]
         self.continue_button.disabled = False
+        self.operation_select.options = [
+            discord.SelectOption(
+                label="Add",
+                value="add",
+                description=f"Change {self._label}",
+                default=(self._operation == "add"),
+            ),
+            discord.SelectOption(
+                label="Multiply",
+                value="multiply",
+                description=f"Multiply {self._label}",
+                default=(self._operation == "multiply"),
+            ),
+        ]
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     @discord.ui.button(label="Continue", style=discord.ButtonStyle.success, row=1)
@@ -678,6 +701,12 @@ class EffectFormView(discord.ui.View):
         return str(value)
 
     def _options_for(self, field) -> list[discord.SelectOption]:
+        selected = self.select_values.get(field.key)
+        selected_values = (
+            {str(item) for item in selected} if isinstance(selected, list) else {str(selected)}
+            if selected is not None
+            else set()
+        )
         if field.kind == "entity":
             options = [(label, value) for label, value in self.entity_options.get(field.key) or []]
             existing = {str(value) for _, value in options}
@@ -690,10 +719,17 @@ class EffectFormView(discord.ui.View):
             if not options:
                 return [discord.SelectOption(label="No choices available", value="-1")]
             return [
-                discord.SelectOption(label=label[:100] or "…", value=value)
+                discord.SelectOption(
+                    label=label[:100] or "…", value=value, default=(str(value) in selected_values)
+                )
                 for label, value in options
             ]
-        return [discord.SelectOption(label=label, value=value) for label, value in field.options]
+        return [
+            discord.SelectOption(
+                label=label, value=value, default=(str(value) in selected_values)
+            )
+            for label, value in field.options
+        ]
 
     def _make_callback(self, field) -> Callable[[discord.Interaction], Awaitable[None]]:
         async def callback(interaction: discord.Interaction) -> None:

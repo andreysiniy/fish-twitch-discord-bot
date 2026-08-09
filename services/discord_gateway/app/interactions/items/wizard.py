@@ -482,7 +482,7 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
         version=session.expected_version,
         restart_text=_restart_text(session),
     )
-    await interaction.edit_original_response(content=None, embed=view.embed(), view=view)
+    await _render_step(interaction, embed=view.embed(), view=view)
 
 
 async def _render_conflict(

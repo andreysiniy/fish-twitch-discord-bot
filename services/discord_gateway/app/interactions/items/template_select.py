@@ -53,7 +53,9 @@ class TemplateSelectView(discord.ui.View):
         self._selected: str | None = None
         self.template_select.placeholder = "Select a template…"
         self.template_select.options = [
-            discord.SelectOption(label=item["label"], value=item["value"])
+            discord.SelectOption(
+                label=item["label"], value=item["value"], default=(item["value"] == self._selected)
+            )
             for item in ITEM_TEMPLATES
         ]
         self.continue_button.disabled = True

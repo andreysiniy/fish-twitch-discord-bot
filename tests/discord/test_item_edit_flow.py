@@ -95,9 +95,7 @@ class Response:
 
     async def edit_message(self, *args, **kwargs):
         self.owner.edited = kwargs
-
-    async def defer(self, *args, **kwargs):
-        self.done = True
+        self.owner.original_edit = kwargs
 
 
 class FakeInteraction:
@@ -106,6 +104,7 @@ class FakeInteraction:
         self.user = type("U", (), {"id": 1})()
         self.guild_id = 2
         self.channel_id = 3
+        self.message = object()
         self.modal = None
         self.sent_message = None
         self.edited = None

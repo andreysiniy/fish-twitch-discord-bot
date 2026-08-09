@@ -2,6 +2,8 @@
 
 import asyncio
 
+import discord
+
 from app.domain.item_effect_registry import (
     ADVANCED_MAX_EFFECTS,
     CATEGORY_ADVANCED,
@@ -131,6 +133,75 @@ def test_effect_category_picker_category_select_always_has_options() -> None:
     view = EffectCategoryPickerView(_editor([]))
     assert view.category_select.options
     assert all(option.value for option in view.category_select.options)
+
+
+def test_effect_category_picker_preserves_selected_category_as_default() -> None:
+    """Selecting a category re-renders the picker; the chosen category must be
+    marked ``default`` so Discord keeps it visible instead of resetting to the
+    placeholder."""
+    view = EffectCategoryPickerView(_editor([]))
+    assert not any(option.default for option in view.category_select.options)
+
+    view._category = "fishing"
+    view._refresh_category_default()
+    defaults = [option.value for option in view.category_select.options if option.default]
+    assert defaults == ["fishing"]
+
+
+def test_advanced_effect_picker_preserves_operation_as_default() -> None:
+    view = AdvancedEffectPickerView(_editor([]), "points_flat_bonus")
+    assert not any(option.default for option in view.operation_select.options)
+
+    view._operation = "multiply"
+    view.continue_button.disabled = False
+    view.operation_select.options = [
+        discord.SelectOption(
+            label="Add",
+            value="add",
+            description=f"Change {view._label}",
+            default=(view._operation == "add"),
+        ),
+        discord.SelectOption(
+            label="Multiply",
+            value="multiply",
+            description=f"Multiply {view._label}",
+            default=(view._operation == "multiply"),
+        ),
+    ]
+    defaults = [option.value for option in view.operation_select.options if option.default]
+    assert defaults == ["multiply"]
+
+
+def test_effect_form_selects_mark_stored_values_as_default() -> None:
+    """Effect form selects re-render after each pick; the stored/just-picked
+    values must be marked ``default`` so the selection stays visible."""
+    form = TRIGGERED_EFFECT_FORMS["block_action"]
+    current = {
+        "type": "block_action",
+        "trigger": "after_reward_roll",
+        "target_action_types": ["nothing"],
+        "chance": "0.5",
+        "durability_cost": 2,
+    }
+    view = EffectFormView(_editor([]), form, current=current)
+
+    trigger = view.select_widgets["trigger"]
+    trigger_defaults = [option.value for option in trigger.options if option.default]
+    assert trigger_defaults == ["after_reward_roll"]
+
+    target = view.select_widgets["target_action_types"]
+    target_defaults = [option.value for option in target.options if option.default]
+    assert target_defaults == ["nothing"]
+
+
+def test_effects_list_marks_selected_effect_as_default() -> None:
+    view = _editor([{"type": "grant_mass", "mass": "5"}, {"type": "grant_mass", "mass": "3"}])
+    assert not any(option.default for option in view.pick_effect.options)
+
+    view._selected_index = 1
+    view._rebuild_pick_options()
+    defaults = [option.value for option in view.pick_effect.options if option.default]
+    assert defaults == ["1"]
 
 
 def test_advanced_effect_picker_needs_operation_first() -> None:

@@ -5,9 +5,11 @@ session persistence, the type-aware mechanics view, and the final confirm flow
 with the flow-based idempotency key (spec §48).
 """
 
+import discord
 import pytest
 
 from app.domain.item_ui_registry import (
+    ITEM_TEMPLATES,
     TEMPLATES_BY_VALUE,
     slugify_item_id,
     template_to_defaults,
@@ -503,19 +505,23 @@ async def test_review_confirm_uses_flow_based_idempotency_key() -> None:
         def __init__(self):
             self.view = None
             self.embed = None
+            self.message = object()
 
             class Response:
+                def __init__(self, owner):
+                    self.owner = owner
+
                 def is_done(self):
                     return False
 
-            self.response = Response()
+                async def edit_message(self, *args, **kwargs):
+                    self.owner.view = kwargs.get("view")
+                    self.owner.embed = kwargs.get("embed")
+
+            self.response = Response(self)
             self.user = type("U", (), {"id": 1})()
             self.guild_id = 2
             self.channel_id = 3
-
-        async def edit_original_response(self, *, content=None, embed=None, view=None):
-            self.view = view
-            self.embed = embed
 
     interaction = EditInteraction()
     await _render_review(interaction, session, FakeApi())
@@ -590,15 +596,20 @@ async def test_review_edit_basic_returns_to_review_with_updated_draft() -> None:
             self.view = None
             self.embed = None
             self.modal = None
+            self.message = object()
 
             class Response:
+                def __init__(self, owner):
+                    self.owner = owner
+
                 def is_done(self):
                     return False
 
                 async def edit_message(self, *args, **kwargs):
-                    return None
+                    self.owner.view = kwargs.get("view")
+                    self.owner.embed = kwargs.get("embed")
 
-            self.response = Response()
+            self.response = Response(self)
             self.user = type("U", (), {"id": 1})()
             self.guild_id = 2
             self.channel_id = 3
@@ -636,6 +647,7 @@ async def test_review_edit_basic_returns_to_review_with_updated_draft() -> None:
     assert session.draft["item_id"] == "refined_ore"
     # Draft stays at REVIEW: no backend mutation happened and nothing was deleted.
     assert await store.get(1, session.flow_id) is not None
+
 
 # --- modal submit render path (spec §6) -----------------------------------------
 
@@ -692,3 +704,136 @@ async def test_modal_submit_with_parent_message_edits_in_place() -> None:
     embed, view = submit.edits[0]
     assert isinstance(view, RarityView)
     assert submit.response.sent == []
+
+
+@pytest.mark.asyncio
+async def test_review_render_routes_through_step_helper() -> None:
+    """Regression (Discord 404 Unknown Webhook 10015): the review screen is
+    reached from a component click (Continue on the effects step), which has a
+    parent message. It must render through ``_render_step`` so the component
+    interaction edits its own message instead of calling ``edit_original_response``
+    on an unacknowledged interaction."""
+    from app.interactions.items.review import ItemReviewView
+    from app.interactions.items.wizard import _render_review
+
+    store = FakeSessionStore()
+    session = await ItemWizardSession.create(
+        store,
+        flow_type="item_create",
+        discord_user_id=1,
+        discord_guild_id=2,
+        channel_id=3,
+        template="material",
+    )
+    session.step = WizardStep.REVIEW
+    session.draft.update(
+        {
+            "title": "Iron Ore",
+            "item_id": "iron_ore",
+            "item_type": "material",
+            "rarity": "common",
+            "stack_size": 100,
+            "break_policy": "indestructible",
+            "max_durability": None,
+            "effects": [],
+        }
+    )
+
+    # Component click (Continue button) → parent message present → edit in place.
+    interaction = FakeInteraction()
+    interaction.message = object()
+    await _render_review(interaction, session, api=None)
+
+    assert interaction.edits, "review must edit the parent message in place"
+    embed, view = interaction.edits[0]
+    assert isinstance(view, ItemReviewView)
+    assert interaction.response.sent == []
+
+
+@pytest.mark.asyncio
+async def test_review_render_without_parent_message_sends_fresh_message() -> None:
+    """The step-helper fallback: a review render with no parent message replies
+    with a fresh ephemeral message instead of failing on edit_message."""
+    from app.interactions.items.review import ItemReviewView
+    from app.interactions.items.wizard import _render_review
+
+    store = FakeSessionStore()
+    session = await ItemWizardSession.create(
+        store,
+        flow_type="item_create",
+        discord_user_id=1,
+        discord_guild_id=2,
+        channel_id=3,
+        template="material",
+    )
+    session.step = WizardStep.REVIEW
+    session.draft.update(
+        {
+            "title": "Iron Ore",
+            "item_id": "iron_ore",
+            "item_type": "material",
+            "rarity": "common",
+            "stack_size": 100,
+            "break_policy": "indestructible",
+            "max_durability": None,
+            "effects": [],
+        }
+    )
+
+    interaction = FakeInteraction()  # message stays None
+    await _render_review(interaction, session, api=None)
+
+    assert interaction.response.sent, "review must reply with a fresh ephemeral message"
+    embed, view = interaction.response.sent[0]
+    assert isinstance(view, ItemReviewView)
+    assert interaction.edits == []
+
+
+def _defaulted_values(select) -> list[str]:
+    return [option.value for option in select.options if option.default]
+
+
+def test_mechanics_selects_preserve_draft_values_as_defaults() -> None:
+    """Selected slot/break values must be marked ``default`` so Discord keeps
+    the selection visible after the wizard re-renders the message."""
+    view = _mechanics_view(
+        "charm",
+        {
+            "item_type": "equipment",
+            "equipment_slot": "charm_1",
+            "stack_size": 1,
+            "break_policy": "unequip_broken",
+            "max_durability": 150,
+        },
+    )
+    assert _defaulted_values(view.slot_select) == ["charm_1"]
+    assert _defaulted_values(view.break_select) == ["unequip_broken"]
+
+
+def test_mechanics_break_defaults_to_indestructible() -> None:
+    view = _mechanics_view(
+        "fishing_rod",
+        {
+            "item_type": "equipment",
+            "equipment_slot": "rod",
+            "stack_size": 1,
+            "break_policy": "indestructible",
+            "max_durability": None,
+        },
+    )
+    assert _defaulted_values(view.break_select) == ["indestructible"]
+
+
+def test_template_select_preserves_selected_value_as_default() -> None:
+    async def noop(*args, **kwargs):
+        return None
+
+    view = TemplateSelectView(1, noop, noop)
+    view._selected = "consumable"
+    view.template_select.options = [
+        discord.SelectOption(
+            label=item["label"], value=item["value"], default=(item["value"] == view._selected)
+        )
+        for item in ITEM_TEMPLATES
+    ]
+    assert _defaulted_values(view.template_select) == ["consumable"]

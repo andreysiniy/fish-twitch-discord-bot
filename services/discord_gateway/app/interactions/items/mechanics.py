@@ -241,13 +241,21 @@ class MechanicsView(discord.ui.View):
             self.remove_item(self.charges_button)
             if self.template == "charm":
                 self.slot_select.options = [
-                    discord.SelectOption(label=name, value=value)
+                    discord.SelectOption(
+                        label=name,
+                        value=value,
+                        default=(value == self.draft.get("equipment_slot")),
+                    )
                     for name, value in CHARM_SLOT_OPTIONS
                 ]
             else:
                 self.remove_item(self.slot_select)
             self.break_select.options = [
-                discord.SelectOption(label=name, value=value)
+                discord.SelectOption(
+                    label=name,
+                    value=value,
+                    default=(value == self.draft.get("break_policy", "indestructible")),
+                )
                 for name, value in BREAK_BEHAVIOR_OPTIONS
             ]
         else:
