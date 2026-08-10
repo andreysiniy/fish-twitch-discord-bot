@@ -148,3 +148,29 @@ def test_delivery_policy_is_shared_by_fishing_and_lootbox() -> None:
     assert resolved.delivery_target == "inventory"
     assert resolved.inventory_grants == [{"slot_id": 4, "quantity": 2}]
     overflow.park.assert_not_called()
+
+
+def test_multi_roll_reservation_refreshes_finite_stock() -> None:
+    service = LootTableRollService.__new__(LootTableRollService)
+    service.resolve_candidates = Mock(
+        return_value=[
+            {
+                **_candidate(item_id="finite", weight=1, remaining_stock=1),
+                "loot_table_entry_id": 7,
+                "item_definition_id": 9,
+            }
+        ]
+    )
+    service.reserve = Mock(side_effect=lambda resolution: resolution.model_copy(
+        update={
+            "stock_before": 1,
+            "stock_after": 0,
+            "quantity_granted": 1,
+        }
+    ))
+
+    # The second roll sees stock=0 and therefore produces no resolution.
+    resolutions = service.roll(1, "table", rolls=2, random_source=lambda: 0.0)
+
+    assert len(resolutions) == 1
+    assert resolutions[0].quantity_granted == 1

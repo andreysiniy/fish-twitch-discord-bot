@@ -94,7 +94,19 @@ class LootTableRollService:
             )
             if resolution is None:
                 continue
-            resolutions.append(self.reserve(resolution))
+            reserved = self.reserve(resolution)
+            resolutions.append(reserved)
+            # A multi-roll lootbox must use the stock state produced by the
+            # previous reservation; otherwise one stale snapshot could select
+            # the same finite entry repeatedly in a single use.
+            if reserved.loot_entry_id is not None and reserved.stock_after is not None:
+                for candidate in candidates:
+                    candidate_entry_id = candidate.get("loot_table_entry_id") or candidate.get(
+                        "db_id"
+                    )
+                    if candidate_entry_id == reserved.loot_entry_id:
+                        candidate["remaining_stock"] = reserved.stock_after
+                        break
         return resolutions
 
     def reserve(self, resolution: ItemDropResolution) -> ItemDropResolution:
