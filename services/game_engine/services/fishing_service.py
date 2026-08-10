@@ -24,6 +24,7 @@ from domain.schemas.fishing import (
     FishTopResponse,
     RobberyResultDTO,
 )
+from infrastructure.after_commit import schedule_after_commit
 from infrastructure.database import SessionLocal
 from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
@@ -398,7 +399,20 @@ class FishingService:
 
         self.user_repo.save_progress(user)
         if cooldown_duration > 0:
-            self.cooldown_repo.set_cooldown(channel_id, twitch_id, cooldown_duration)
+            # The cooldown cache must not be written before the PostgreSQL
+            # transaction commits: a rolled-back cast would otherwise leave a
+            # Redis-only cooldown for a cast that never became durable (plan
+            # section 16). Defer the cache write until the commit succeeds.
+            if not schedule_after_commit(
+                self.user_repo.db,
+                lambda: self.cooldown_repo.set_cooldown(
+                    channel_id, twitch_id, cooldown_duration
+                ),
+            ):
+                logger.warning(
+                    "No after-commit hook on session; fishing cooldown not cached",
+                    extra={"channel_id": channel_id, "user_id": twitch_id},
+                )
 
         response = self.presenter.build_response(user, result)
         cast = self._record_resolved_cast(

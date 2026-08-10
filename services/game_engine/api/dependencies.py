@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from sqlalchemy.orm import Session
 
+from infrastructure.after_commit import run_after_commit_callbacks
 from infrastructure.database import SessionLocal
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.repositories.config_repo import ConfigRepository
@@ -24,9 +25,11 @@ from core.config import settings
 
 def get_db():
     db = SessionLocal()
+    db.info.setdefault("after_commit_callbacks", [])
     try:
         yield db
         db.commit()
+        run_after_commit_callbacks(db)
     except Exception:
         db.rollback()
         raise
