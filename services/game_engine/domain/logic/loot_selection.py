@@ -62,6 +62,10 @@ def _is_out_of_stock(candidate: dict[str, Any]) -> bool:
     remaining = candidate.get("remaining_stock")
     if remaining is None:
         return False
+    try:
+        return int(remaining) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _matches_rarity_filter(candidate: dict[str, Any]) -> bool:
@@ -77,10 +81,6 @@ def _matches_rarity_filter(candidate: dict[str, Any]) -> bool:
     if not allowed:
         return True
     return str(candidate.get("rarity", "")).lower() in allowed
-    try:
-        return int(remaining) == 0
-    except (TypeError, ValueError):
-        return False
 
 
 def _rarity_luck_weight(entry: dict[str, Any], luck: Decimal) -> Decimal:
