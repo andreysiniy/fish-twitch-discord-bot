@@ -12,6 +12,7 @@ from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, resolve_message
 from core.version import ENGINE_VERSION
 from domain.item_schema import ModifierScope, StatKey
+from domain.logic.loot_selection import ItemDropResolution
 from domain.logic.formulas import calculate_xp_required
 
 
@@ -30,10 +31,7 @@ from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgre
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
-from infrastructure.repositories.inventory_repo import (
-    InventoryCapacityError,
-    InventoryRepository,
-)
+from infrastructure.repositories.inventory_repo import InventoryRepository
 from services.fishing.engine import FishingEngine
 from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
@@ -293,8 +291,9 @@ class FishingService:
             )
             resolution = result.item_drop_resolution
             if resolution is not None:
+                loot_service = LootTableRollService(self.user_repo.db)
                 resolution.quantity_requested = quantity_requested
-                resolution = LootTableRollService(self.user_repo.db).reserve(resolution)
+                resolution = loot_service.reserve(resolution)
                 ok = resolution.status != "stock_empty"
                 before = resolution.stock_before
                 after = resolution.stock_after
@@ -305,6 +304,29 @@ class FishingService:
                     or result.item_drop.get("db_id"),
                     quantity_requested,
                 )
+                # Compatibility adapter for a manually constructed legacy
+                # result. Runtime loot-table paths always create this typed
+                # resolution in FishingEngine before reaching delivery.
+                resolution = ItemDropResolution(
+                    loot_table_id=result.item_drop.get("loot_table_id"),
+                    loot_entry_id=(
+                        result.item_drop.get("loot_table_entry_id")
+                        or result.item_drop.get("db_id")
+                    ),
+                    item_definition_id=result.item_drop.get("item_definition_id"),
+                    item_id=str(result.item_drop.get("item_id") or ""),
+                    title=str(result.item_drop.get("title") or "Unknown Item"),
+                    quantity_rolled=quantity_requested,
+                    quantity_requested=quantity_requested,
+                    quantity_granted=reserved if ok else 0,
+                    stock_before=before,
+                    stock_after=after,
+                    status="selected" if ok else "stock_empty",
+                    failure_reason=None if ok else "entry stock exhausted",
+                    metadata=dict(result.item_drop),
+                )
+                result.item_drop_resolution = resolution
+                loot_service = LootTableRollService(self.user_repo.db)
             result.item_drop["stock_reserved"] = ok
             result.item_drop["stock_before"] = before
             result.item_drop["stock_after"] = after
@@ -316,63 +338,29 @@ class FishingService:
                 # stack meta would prevent identical stackable items dropped at
                 # different times from merging.
                 item_meta = dict(result.item_drop.get("meta") or {})
-                try:
-                    granted_rows = InventoryRepository(
+                resolution, _ = loot_service.deliver(
+                    user,
+                    resolution,
+                    inventory_repo=InventoryRepository(
                         self.user_repo.db,
                         max_slots_add=self.modifier_service.inventory_slot_bonus(user),
-                    ).grant_many(
-                        user,
-                        [
-                            {
-                                "item_id": result.item_drop["item_id"],
-                                "quantity": reserved,
-                                "current_durability": result.item_drop.get(
-                                    "current_durability"
-                                ),
-                                "meta": item_meta,
-                            }
-                        ],
-                    )
-                    result.item_drop["inventory_grants"] = [
-                        {"slot_id": row.slot_id, "quantity": row.quantity}
-                        for row in granted_rows
-                    ]
-                    result.item_drop["grant_success"] = True
-                    result.item_drop["quantity"] = reserved
-                    if resolution is not None:
-                        resolution.status = "granted"
-                        resolution.delivery_target = "inventory"
-                        resolution.quantity_granted = reserved
-                        resolution.inventory_grants = result.item_drop["inventory_grants"]
-                except InventoryCapacityError:
-                    # A full inventory must not cancel the cast or lose a
-                    # finite-stock drop: park the item in durable overflow
-                    # storage and count the drop as delivered (plan section 10).
-                    # The stock reservation stays committed and the moderator
-                    # reclaims the item through the Discord claim command.
-                    definition_id = result.item_drop.get("item_definition_id")
-                    if definition_id is None:
-                        # Without a definition id the drop cannot be parked;
-                        # treat it as a failed grant (no item, no item XP).
-                        result.item_drop["grant_success"] = False
-                        if resolution is not None:
-                            resolution.status = "failed"
-                            resolution.failure_reason = "item definition is unavailable"
-                    else:
-                        self.overflow_repo.park(
-                            user=user,
-                            item_definition_id=definition_id,
-                            quantity=reserved,
-                            source_type="fishing_cast",
-                            source_id=source_request_id,
-                        )
-                        result.item_drop["grant_success"] = True
-                        result.item_drop["quantity"] = reserved
-                        result.item_drop["overflowed"] = True
-                        if resolution is not None:
-                            resolution.status = "overflowed"
-                            resolution.delivery_target = "overflow"
-                            resolution.quantity_granted = reserved
+                    ),
+                    overflow_repo=self.overflow_repo,
+                    source_type="fishing_cast",
+                    source_id=source_request_id,
+                    grant_overrides={
+                        "current_durability": result.item_drop.get("current_durability"),
+                        "meta": item_meta,
+                    },
+                )
+                result.item_drop["inventory_grants"] = resolution.inventory_grants
+                result.item_drop["grant_success"] = resolution.status in {
+                    "granted",
+                    "overflowed",
+                }
+                result.item_drop["quantity"] = resolution.quantity_granted
+                if resolution.status == "overflowed":
+                    result.item_drop["overflowed"] = True
             else:
                 if resolution is not None:
                     resolution.status = "stock_empty"

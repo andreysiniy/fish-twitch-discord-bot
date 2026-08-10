@@ -356,7 +356,9 @@ def grant_item_to_player(
             "stack_size": definition.stack_size if definition else 1,
             "image_url": definition.image_url if definition else None,
             "effects": definition.effects if definition else [],
-            "definition_version": item.definition_version,
+            # ``definition_version`` is the current live definition version;
+            # the grant-time audit value is exposed separately below.
+            "definition_version": definition.version if definition else 1,
             "obtained_definition_version": getattr(
                 item, "obtained_definition_version", item.definition_version
             ),

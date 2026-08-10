@@ -7,13 +7,13 @@ ledger) can reuse without re-deriving weights or rolls.
 """
 
 import random
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, Callable
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from domain.logic.loot_selection import ItemDropResolution, select_item_drop
 from infrastructure.models import LootTable, LootTableEntry
+from sqlalchemy.orm import Session
 
 
 class LootTableRollService:
@@ -31,7 +31,7 @@ class LootTableRollService:
     def select(
         candidates: list[dict[str, Any]],
         *,
-        rarity_luck: Decimal = Decimal("1"),
+        rarity_luck: Decimal = Decimal(1),
         random_source: Callable[[], float] = random.random,
     ) -> ItemDropResolution | None:
         """Run the canonical pure selector for an already loaded table.
@@ -82,7 +82,7 @@ class LootTableRollService:
         channel_id: int,
         loot_table_id: str,
         rolls: int = 1,
-        rarity_luck: Decimal = Decimal("1"),
+        rarity_luck: Decimal = Decimal(1),
         random_source: Callable[[], float] = random.random,
     ) -> list[ItemDropResolution]:
         """Select and reserve one entry per roll with the shared policy."""
@@ -94,7 +94,19 @@ class LootTableRollService:
             )
             if resolution is None:
                 continue
-            resolutions.append(self.reserve(resolution))
+            reserved = self.reserve(resolution)
+            resolutions.append(reserved)
+            # A multi-roll lootbox must use the stock state produced by the
+            # previous reservation; otherwise one stale snapshot could select
+            # the same finite entry repeatedly in a single use.
+            if reserved.loot_entry_id is not None and reserved.stock_after is not None:
+                for candidate in candidates:
+                    candidate_entry_id = candidate.get("loot_table_entry_id") or candidate.get(
+                        "db_id"
+                    )
+                    if candidate_entry_id == reserved.loot_entry_id:
+                        candidate["remaining_stock"] = reserved.stock_after
+                        break
         return resolutions
 
     def reserve(self, resolution: ItemDropResolution) -> ItemDropResolution:
@@ -110,3 +122,58 @@ class LootTableRollService:
         resolution.quantity_requested = resolution.quantity_rolled
         resolution.quantity_granted = reserved if ok else 0
         return resolution
+
+    def deliver(
+        self,
+        user: Any,
+        resolution: ItemDropResolution,
+        *,
+        inventory_repo: Any,
+        overflow_repo: Any,
+        source_type: str,
+        source_id: str | None,
+        grant_overrides: dict[str, Any] | None = None,
+    ) -> tuple[ItemDropResolution, list[Any]]:
+        """Deliver a reserved drop to inventory or durable overflow storage.
+
+        Fishing and lootbox use the same delivery policy: a stock reservation
+        is never lost when inventory is full, and a failed durable delivery is
+        explicit in the typed resolution.  ``InventoryCapacityError`` is
+        imported lazily to keep the service independent from the repository
+        that delegates to it.
+        """
+        quantity = int(resolution.quantity_granted or 0)
+        if resolution.status == "stock_empty" or quantity <= 0:
+            return resolution, []
+
+        from infrastructure.repositories.inventory_repo import InventoryCapacityError
+
+        grant = {"item_id": resolution.item_id, "quantity": quantity}
+        if grant_overrides:
+            grant.update(grant_overrides)
+        try:
+            rows = inventory_repo.grant_many(user, [grant])
+        except InventoryCapacityError:
+            if resolution.item_definition_id is None:
+                resolution.status = "failed"
+                resolution.failure_reason = "item definition is unavailable"
+                resolution.quantity_granted = 0
+                return resolution, []
+            overflow_repo.park(
+                user=user,
+                item_definition_id=resolution.item_definition_id,
+                quantity=quantity,
+                source_type=source_type,
+                source_id=source_id,
+            )
+            resolution.status = "overflowed"
+            resolution.delivery_target = "overflow"
+            resolution.inventory_grants = []
+            return resolution, []
+
+        resolution.status = "granted"
+        resolution.delivery_target = "inventory"
+        resolution.inventory_grants = [
+            {"slot_id": row.slot_id, "quantity": row.quantity} for row in rows
+        ]
+        return resolution, rows

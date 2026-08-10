@@ -270,6 +270,9 @@ class InventoryItem(Base):
     current_durability = Column(Integer, nullable=True)
     current_charges = Column(Integer, nullable=True)
     meta = Column(JSONB, default=dict, nullable=False)
+    # Deprecated compatibility mirror from the pre-audit schema.  Gameplay
+    # and API serializers use ``obtained_definition_version`` as the immutable
+    # audit value and resolve the current live version from ItemDefinition.
     definition_version = Column(Integer, default=1, nullable=False)
     obtained_definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)

@@ -21,8 +21,14 @@ class BaseItemDTO(BaseModel):
     stack_size: int = 1
     image_url: str | None = None
     effects: List[ItemEffect] = Field(default_factory=list)
-    definition_version: int = 1
-    obtained_definition_version: int | None = None
+    definition_version: int = Field(
+        1,
+        description="Current live item-definition version used by gameplay.",
+    )
+    obtained_definition_version: int | None = Field(
+        None,
+        description="Item-definition version captured when this inventory row was granted.",
+    )
 
 
 class DropItemDTO(BaseItemDTO):

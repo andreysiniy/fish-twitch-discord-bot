@@ -7,8 +7,10 @@ and rarity luck only shifts weight (it never changes eligibility).
 """
 
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import Mock
 
-from domain.logic.loot_selection import select_item_drop
+from domain.logic.loot_selection import ItemDropResolution, select_item_drop
 from services.loot_table_service import LootTableRollService
 
 
@@ -117,3 +119,58 @@ def test_rarity_filter_is_applied_by_the_shared_selector() -> None:
 
     assert resolution is not None
     assert resolution.item_id == "rare"
+
+
+def test_delivery_policy_is_shared_by_fishing_and_lootbox() -> None:
+    service = LootTableRollService.__new__(LootTableRollService)
+    user = SimpleNamespace(id=1, channel_id=2)
+    inventory = Mock()
+    inventory.grant_many.return_value = [SimpleNamespace(slot_id=4, quantity=2)]
+    overflow = Mock()
+    resolution = ItemDropResolution(
+        item_id="bait",
+        item_definition_id=9,
+        quantity_granted=2,
+        status="selected",
+    )
+
+    resolved, rows = service.deliver(
+        user,
+        resolution,
+        inventory_repo=inventory,
+        overflow_repo=overflow,
+        source_type="lootbox",
+        source_id="use-1",
+    )
+
+    assert rows[0].slot_id == 4
+    assert resolved.status == "granted"
+    assert resolved.delivery_target == "inventory"
+    assert resolved.inventory_grants == [{"slot_id": 4, "quantity": 2}]
+    overflow.park.assert_not_called()
+
+
+def test_multi_roll_reservation_refreshes_finite_stock() -> None:
+    service = LootTableRollService.__new__(LootTableRollService)
+    service.resolve_candidates = Mock(
+        return_value=[
+            {
+                **_candidate(item_id="finite", weight=1, remaining_stock=1),
+                "loot_table_entry_id": 7,
+                "item_definition_id": 9,
+            }
+        ]
+    )
+    service.reserve = Mock(side_effect=lambda resolution: resolution.model_copy(
+        update={
+            "stock_before": 1,
+            "stock_after": 0,
+            "quantity_granted": 1,
+        }
+    ))
+
+    # The second roll sees stock=0 and therefore produces no resolution.
+    resolutions = service.roll(1, "table", rolls=2, random_source=lambda: 0.0)
+
+    assert len(resolutions) == 1
+    assert resolutions[0].quantity_granted == 1
