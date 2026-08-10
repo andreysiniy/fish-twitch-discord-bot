@@ -354,6 +354,18 @@ def test_database_enforces_current_charges_against_definition() -> None:
                 item_id=potion.id,
                 slot_id=1,
                 quantity=1,
+                current_charges=3,
+            )
+        )
+        db.commit()
+
+        db.add(
+            InventoryItem(
+                channel_id=channel.id,
+                user_id=user.id,
+                item_id=potion.id,
+                slot_id=2,
+                quantity=1,
                 current_charges=4,
             )
         )
