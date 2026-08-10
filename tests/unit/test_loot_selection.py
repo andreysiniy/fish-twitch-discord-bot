@@ -99,3 +99,21 @@ def test_service_entrypoint_uses_the_same_stock_aware_selector() -> None:
 
     assert resolution is not None
     assert resolution.item_id == "available"
+
+
+def test_rarity_filter_is_applied_by_the_shared_selector() -> None:
+    pool = [
+        {
+            **_candidate(item_id="common", weight=100, rarity="common"),
+            "rarity_filter": "rare",
+        },
+        {
+            **_candidate(item_id="rare", weight=1, rarity="rare"),
+            "rarity_filter": "rare,legendary",
+        },
+    ]
+
+    resolution = LootTableRollService.select(pool, random_source=lambda: 0.0)
+
+    assert resolution is not None
+    assert resolution.item_id == "rare"
