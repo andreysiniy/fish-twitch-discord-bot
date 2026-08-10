@@ -110,3 +110,58 @@ class LootTableRollService:
         resolution.quantity_requested = resolution.quantity_rolled
         resolution.quantity_granted = reserved if ok else 0
         return resolution
+
+    def deliver(
+        self,
+        user: Any,
+        resolution: ItemDropResolution,
+        *,
+        inventory_repo: Any,
+        overflow_repo: Any,
+        source_type: str,
+        source_id: str | None,
+        grant_overrides: dict[str, Any] | None = None,
+    ) -> tuple[ItemDropResolution, list[Any]]:
+        """Deliver a reserved drop to inventory or durable overflow storage.
+
+        Fishing and lootbox use the same delivery policy: a stock reservation
+        is never lost when inventory is full, and a failed durable delivery is
+        explicit in the typed resolution.  ``InventoryCapacityError`` is
+        imported lazily to keep the service independent from the repository
+        that delegates to it.
+        """
+        quantity = int(resolution.quantity_granted or 0)
+        if resolution.status == "stock_empty" or quantity <= 0:
+            return resolution, []
+
+        from infrastructure.repositories.inventory_repo import InventoryCapacityError
+
+        grant = {"item_id": resolution.item_id, "quantity": quantity}
+        if grant_overrides:
+            grant.update(grant_overrides)
+        try:
+            rows = inventory_repo.grant_many(user, [grant])
+        except InventoryCapacityError:
+            if resolution.item_definition_id is None:
+                resolution.status = "failed"
+                resolution.failure_reason = "item definition is unavailable"
+                resolution.quantity_granted = 0
+                return resolution, []
+            overflow_repo.park(
+                user=user,
+                item_definition_id=resolution.item_definition_id,
+                quantity=quantity,
+                source_type=source_type,
+                source_id=source_id,
+            )
+            resolution.status = "overflowed"
+            resolution.delivery_target = "overflow"
+            resolution.inventory_grants = []
+            return resolution, []
+
+        resolution.status = "granted"
+        resolution.delivery_target = "inventory"
+        resolution.inventory_grants = [
+            {"slot_id": row.slot_id, "quantity": row.quantity} for row in rows
+        ]
+        return resolution, rows

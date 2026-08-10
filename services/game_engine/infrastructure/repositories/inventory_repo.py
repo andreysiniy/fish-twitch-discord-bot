@@ -454,33 +454,14 @@ class InventoryRepository:
             quantity = int(resolution.quantity_granted or 0)
             if quantity <= 0:
                 continue
-            try:
-                rows = self.grant_many(
-                    user,
-                    [{"item_id": resolution.item_id, "quantity": quantity}],
-                )
-            except InventoryCapacityError:
-                if resolution.item_definition_id is None:
-                    resolution.status = "failed"
-                    resolution.failure_reason = "item definition is unavailable"
-                    continue
-                overflow_repo.park(
-                    user=user,
-                    item_definition_id=resolution.item_definition_id,
-                    quantity=quantity,
-                    source_type="lootbox",
-                    source_id=source_id,
-                )
-                resolution.status = "overflowed"
-                resolution.delivery_target = "overflow"
-                resolution.quantity_granted = quantity
-                continue
-            resolution.status = "granted"
-            resolution.delivery_target = "inventory"
-            resolution.quantity_granted = quantity
-            resolution.inventory_grants = [
-                {"slot_id": row.slot_id, "quantity": row.quantity} for row in rows
-            ]
+            _, rows = service.deliver(
+                user,
+                resolution,
+                inventory_repo=self,
+                overflow_repo=overflow_repo,
+                source_type="lootbox",
+                source_id=source_id,
+            )
             delivered.extend(rows)
         return delivered, resolutions
 
