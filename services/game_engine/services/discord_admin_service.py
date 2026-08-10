@@ -32,6 +32,7 @@ from domain.schemas.discord_admin import (
     PlayerItemGrantRequest,
     PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
+    PlayerOverflowClaimRequest,
     RewardCreateRequest,
     RewardPatchRequest,
     VersionedStateRequest,
@@ -46,6 +47,7 @@ from infrastructure.models import (
     DiscordGuildBinding,
     FishingEvent,
     InventoryItem,
+    InventoryOverflowItem,
     ItemDefinition,
     PlayerModifier,
     RewardPool,
@@ -54,7 +56,11 @@ from infrastructure.models import (
 from infrastructure.redis_client import RedisClient
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.fishing_cast_query_repo import FishingCastQueryRepository
-from infrastructure.repositories.inventory_repo import InventoryRepository
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
+from infrastructure.repositories.inventory_repo import (
+    InventoryCapacityError,
+    InventoryRepository,
+)
 from infrastructure.repositories.user_repo import UserRepository
 from pydantic import TypeAdapter, ValidationError
 from services.auth_service import AuthService
@@ -1123,6 +1129,106 @@ class DiscordAdminService:
             mutation,
         )
 
+    def list_player_overflow(self, context, channel_twitch_id: str, viewer: str) -> dict:
+        channel, _ = self._authorize(
+            context, ChannelPermission.PLAYER_INVENTORY_READ, channel_twitch_id
+        )
+        user = self._find_player_viewer(channel.id, viewer)
+        rows = InventoryOverflowRepository(self.db).list_parked(user.id)
+        return {
+            "user_twitch_id": user.user_twitch_id,
+            "items": [self._serialize_overflow_item(row) for row in rows],
+        }
+
+    def claim_player_overflow(
+        self,
+        context,
+        channel_twitch_id: str,
+        viewer: str,
+        data: PlayerOverflowClaimRequest,
+    ) -> dict:
+        def mutation() -> dict:
+            channel, link = self._authorize(
+                context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
+            )
+            user = self._find_player_viewer(channel.id, viewer)
+            overflow = InventoryOverflowRepository(self.db)
+            slot_bonus = PlayerModifierService(self.db).inventory_slot_bonus(user)
+            inventory = InventoryRepository(self.db, max_slots_add=slot_bonus)
+            claimed: list[dict] = []
+            failed: list[dict] = []
+            for requested in data.items:
+                row = overflow.get_parked_for_update(user.id, requested.id)
+                if row is None:
+                    failed.append(
+                        {
+                            "id": requested.id,
+                            "code": "OVERFLOW_ITEM_NOT_FOUND",
+                            "message": "Overflow item not found or already claimed",
+                        }
+                    )
+                    continue
+                if row.version != requested.version:
+                    failed.append(
+                        {
+                            "id": requested.id,
+                            "code": "OVERFLOW_VERSION_CONFLICT",
+                            "message": "Overflow item was changed by another administrator",
+                            "expected_version": requested.version,
+                            "current_version": row.version,
+                        }
+                    )
+                    continue
+                try:
+                    inventory.grant_many(
+                        user,
+                        [
+                            {
+                                "item_id": row.definition.item_id,
+                                "quantity": row.quantity,
+                                "meta": {},
+                            }
+                        ],
+                    )
+                    row.status = "claimed"
+                    row.version += 1
+                    row.claimed_at = datetime.now(timezone.utc)
+                    self.db.flush()
+                    claimed.append(self._serialize_overflow_item(row))
+                except InventoryCapacityError:
+                    failed.append(
+                        {
+                            "id": requested.id,
+                            "code": "INVENTORY_CAPACITY_CONFLICT",
+                            "message": "Player inventory is full; free slots first",
+                        }
+                    )
+            result = {"claimed": claimed, "failed": failed}
+            if claimed:
+                self._audit(
+                    context,
+                    link.twitch_user_id,
+                    "player.overflow_claim",
+                    "inventory_overflow_item",
+                    ",".join(str(item["id"]) for item in claimed),
+                    {},
+                    {
+                        "channel_twitch_id": channel.twitch_id,
+                        "claimed": [item["id"] for item in claimed],
+                        "failed": failed,
+                    },
+                )
+            return result
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            "player.overflow_claim",
+            data.model_dump(mode="json"),
+            context.request_id,
+            mutation,
+        )
+
     def get_config(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
         overrides = dict((channel.config or {}).get("custom_params", {}))
@@ -1978,6 +2084,22 @@ class DiscordAdminService:
             "definition_version": row.definition_version,
             "version": row.version,
             "meta": row.meta or {},
+        }
+
+    @staticmethod
+    def _serialize_overflow_item(row: InventoryOverflowItem) -> dict:
+        definition = row.definition
+        return {
+            "id": row.id,
+            "item_id": definition.item_id if definition else None,
+            "title": definition.title if definition else "Unknown Item",
+            "quantity": row.quantity,
+            "source_type": row.source_type,
+            "source_id": row.source_id,
+            "status": row.status,
+            "version": row.version,
+            "created_at": _iso(row.created_at),
+            "claimed_at": _iso(row.claimed_at),
         }
 
     def _find_player(

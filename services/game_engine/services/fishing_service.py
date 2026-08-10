@@ -28,6 +28,7 @@ from infrastructure.database import SessionLocal
 from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgress
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
 from infrastructure.repositories.inventory_repo import (
     InventoryCapacityError,
     InventoryRepository,
@@ -88,6 +89,7 @@ class FishingService:
         self.strategy_resolver = FishingStrategyResolver(channel_repo=channel_repo)
         self.modifier_service = PlayerModifierService(user_repo.db)
         self.ledger = FishingLedgerService(user_repo.db)
+        self.overflow_repo = InventoryOverflowRepository(user_repo.db)
 
     def process_cast(
         self,
@@ -332,12 +334,32 @@ class FishingService:
                     result.item_drop["grant_success"] = True
                     result.item_drop["quantity"] = reserved
                 except InventoryCapacityError:
-                    # A full inventory must not cancel the cast or its cooldown:
-                    # the drop is recorded as failed and the player keeps the
-                    # cast outcome (no free reroll).
-                    result.item_drop["grant_success"] = False
+                    # A full inventory must not cancel the cast or lose a
+                    # finite-stock drop: park the item in durable overflow
+                    # storage and count the drop as delivered (plan section 10).
+                    # The stock reservation stays committed and the moderator
+                    # reclaims the item through the Discord claim command.
+                    definition_id = result.item_drop.get("item_definition_id")
+                    if definition_id is None:
+                        # Without a definition id the drop cannot be parked;
+                        # treat it as a failed grant (no item, no item XP).
+                        result.item_drop["grant_success"] = False
+                    else:
+                        self.overflow_repo.park(
+                            user=user,
+                            item_definition_id=definition_id,
+                            quantity=reserved,
+                            source_type="fishing_cast",
+                            source_id=source_request_id,
+                        )
+                        result.item_drop["grant_success"] = True
+                        result.item_drop["quantity"] = reserved
+                        result.item_drop["overflowed"] = True
             else:
                 result.item_drop = None
+
+        if result.item_drop is None or not result.item_drop.get("grant_success"):
+            self._strip_undelivered_item_xp(result, user, custom_params)
 
         inventory_repo = InventoryRepository(self.user_repo.db)
         for effect in behavioral_effects:
@@ -420,6 +442,26 @@ class FishingService:
                 },
             )
         return response
+
+    def _strip_undelivered_item_xp(self, result, user: UserProgress, custom_params: dict) -> None:
+        """Zero the item XP when a selected drop was not actually delivered.
+
+        The engine adds item XP to ``result.xp_gained`` before delivery is
+        confirmed (plan section 9). Once a grant fails, the item XP is removed
+        from the cast and the level is recalculated so a level-up caused only by
+        the undelivered item is never granted.
+        """
+        item_xp = int(getattr(result, "item_xp_gained", 0) or 0)
+        if item_xp <= 0:
+            return
+        result.xp_gained = max(result.xp_gained - item_xp, 0)
+        user.xp = max(user.xp - item_xp, 0)
+        recomputed_level = self.engine.calculate_level(
+            user.xp, result.old_level, custom_params or {}
+        )
+        result.new_level = recomputed_level
+        result.is_level_up = recomputed_level > result.old_level
+        user.level = recomputed_level
 
     def _record_failed_cast(
         self,

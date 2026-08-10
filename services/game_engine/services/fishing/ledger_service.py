@@ -374,7 +374,7 @@ class FishingLedgerService:
             inventory_grants=item.get("inventory_grants") or [],
             metadata_snapshot={
                 key: item[key]
-                for key in ("obtained_at", "message", "weight")
+                for key in ("obtained_at", "message", "weight", "overflowed")
                 if key in item
             },
         )

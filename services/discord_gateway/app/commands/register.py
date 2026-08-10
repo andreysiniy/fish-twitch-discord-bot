@@ -58,7 +58,7 @@ def register_commands(tree, api, sessions) -> None:
             "`event` — channel events\n"
             "`item` — typed items via the wizard; JSON import/export for owners\n"
             "`item-drop` — location item drops\n"
-            "`player` — viewer inventory and stats\n"
+            "`player` — viewer inventory, overflow, and stats\n"
             "`player-modifier` — per-player stat modifiers\n"
             "`player-stats` — resolved player stat explanation\n"
             "`placeholders` — message placeholder reference\n"

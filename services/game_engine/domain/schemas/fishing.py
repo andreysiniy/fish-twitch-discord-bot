@@ -117,6 +117,10 @@ class FishingResult(BaseModel):
     item_drop: Optional[Dict]
     username: str
     xp_gained: int
+    # Portion of ``xp_gained`` that comes from the selected item's XP. The
+    # engine computes it before delivery is confirmed; the fishing service
+    # zeroes it when the item grant actually fails (plan section 9).
+    item_xp_gained: int = 0
     mass_gained: Decimal
     is_level_up: bool
     old_level: int

@@ -595,6 +595,35 @@ def player_inventory_embed(result: dict[str, Any], *, viewer: str) -> discord.Em
     return embed
 
 
+def player_overflow_embed(result: dict[str, Any], *, viewer: str) -> discord.Embed:
+    """Human-readable card for items parked in durable overflow storage.
+
+    Overflow rows are pending delivery: an administrator reviews them here and
+    uses the claim command once the player has free inventory slots.
+    """
+    items = result.get("items") or []
+
+    embed = warning_embed("Overflow storage")
+    embed.description = f"Viewer: `{viewer}`\nParked items: `{len(items)}`"
+    if not items:
+        embed.add_field(name="Items", value="No items parked.", inline=False)
+        return embed
+
+    lines = []
+    for entry in items:
+        lines.append(
+            f"`{entry.get('id')}` **{entry.get('title') or entry.get('item_id')}** "
+            f"×{entry.get('quantity')} · parked <t:{_epoch(entry.get('created_at'))}:f>"
+        )
+    for index, chunk in enumerate(_line_chunks(lines)[:20]):
+        label = "Items" if index == 0 else f"Items ({index + 1})"
+        embed.add_field(name=label, value=chunk, inline=False)
+    embed.set_footer(
+        text="These items are held because the inventory was full. "
+        "Claim them once the player has free slots."
+    )
+    return embed
+
 def player_stats_explain_embed(result: dict[str, Any]) -> discord.Embed:
     """Human-readable resolved stat breakdown (no raw JSON in the primary UI).
 

@@ -30,6 +30,7 @@ class MsgKey(str, Enum):
     # --- Fishing ---
     FISH_BASE_MSG = "fish_base_msg"
     ITEM_CAUGHT = "item_caught"
+    ITEM_OVERFLOWED = "item_overflowed"
     ROD_BROKEN = "rod_broken"
     NO_ROD_EQUIPPED = "no_rod_equipped"
 
@@ -149,6 +150,9 @@ DEFAULT_MESSAGES = {
     MsgKey.LEVEL_UP: "Congratulations {username}! You've reached level {new_level}!",
     MsgKey.FISH_BASE_MSG: "{username} is fishing... !fish",
     MsgKey.ITEM_CAUGHT: "Caught: {item_name} x{quantity}!",
+    MsgKey.ITEM_OVERFLOWED: (
+        "Caught: {item_name} x{quantity}! Sent to overflow storage because your inventory is full."
+    ),
     MsgKey.ROD_BROKEN: "CRACK! Your {item_name} snapped in half! It's gone forever.",
     MsgKey.NO_ROD_EQUIPPED: "You need a fishing rod to fish here! Equip one first (!fishequip).",
     MsgKey.TIMEOUT_ISSUED: "{username} has been timed out for {duration}!",

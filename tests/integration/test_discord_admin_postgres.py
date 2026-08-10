@@ -348,7 +348,12 @@ def test_item_drop_and_player_inventory_admin_workflow() -> None:
         assert listed_entry["expected_casts_to_drop"] is not None
         assert "id" not in listed_entry
         assert listed_entry["effects"] == [
-            {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"}
+            {
+                "type": "stat_add",
+                "stat": "fish_luck_change_ratio",
+                "value": "0.10",
+                "trigger": "passive",
+            }
         ]
 
         preview = service.preview_item_drop(

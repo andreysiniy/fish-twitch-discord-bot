@@ -356,6 +356,8 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "inventory",
         "item-grant",
         "item-revoke",
+        "overflow",
+        "overflow-claim",
     }
     modifiers = fish.get_command("player-modifier")
     assert {command.name for command in modifiers.commands} == {

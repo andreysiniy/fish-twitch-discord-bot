@@ -509,7 +509,8 @@ def test_economic_range_check_constraints_reject_invalid_state() -> None:
 
 def _convert_current_schema_to_legacy_snapshot(engine) -> None:
     statements = (
-        "DROP TABLE inventory_item_use_records, loot_table_entry_stock, loot_table_entries, "
+        "DROP TABLE inventory_item_use_records, inventory_overflow_items, "
+        "loot_table_entry_stock, loot_table_entries, "
         "loot_tables, "
         "player_modifiers, equipped_items, idempotency_records, admin_audit_log, "
         "discord_guild_bindings, discord_account_links, fishing_stats_daily CASCADE",

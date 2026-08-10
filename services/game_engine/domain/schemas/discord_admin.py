@@ -233,3 +233,12 @@ class PlayerItemGrantRequest(StrictDTO):
 class PlayerItemRevokeRequest(StrictDTO):
     quantity: int = Field(1, ge=1, le=1_000_000)
     expected_version: int = Field(..., ge=1)
+
+
+class PlayerOverflowItemDTO(StrictDTO):
+    id: int = Field(..., ge=1)
+    version: int = Field(..., ge=1)
+
+
+class PlayerOverflowClaimRequest(StrictDTO):
+    items: list[PlayerOverflowItemDTO] = Field(..., min_length=1, max_length=200)

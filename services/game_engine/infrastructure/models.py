@@ -1093,3 +1093,64 @@ class FishingStatsDaily(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+class InventoryOverflowItem(Base):
+    """Durable parking for drops that did not fit the player's inventory.
+
+    A full inventory must never lose a finite-stock drop (plan section 10):
+    when the normal grant raises ``InventoryCapacityError``, the drop is parked
+    here and counted as delivered until a moderator claims it back into the
+    player's inventory. Tenancy is enforced by composite FKs identical to
+    ``InventoryItem``.
+    """
+
+    __tablename__ = "inventory_overflow_items"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_inventory_overflow_items_quantity_positive"),
+        CheckConstraint(
+            "status IN ('parked','claimed','revoked')",
+            name="ck_inventory_overflow_items_status",
+        ),
+        CheckConstraint(
+            "source_type IN ('fishing_cast','lootbox')",
+            name="ck_inventory_overflow_items_source_type",
+        ),
+        CheckConstraint("version >= 1", name="ck_inventory_overflow_items_version_positive"),
+        ForeignKeyConstraint(
+            ["user_id", "channel_id"],
+            ["users_progress.id", "users_progress.channel_id"],
+            name="fk_inventory_overflow_items_user_channel",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["item_definition_id", "channel_id"],
+            ["item_definitions.id", "item_definitions.channel_id"],
+            name="fk_inventory_overflow_items_item_channel",
+        ),
+        Index("ix_inventory_overflow_items_user", "user_id"),
+        Index("ix_inventory_overflow_items_status", "status"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False)
+    item_definition_id = Column(Integer, nullable=False, index=True)
+    quantity = Column(Integer, default=1, nullable=False)
+    source_type = Column(String, nullable=False, default="fishing_cast")
+    source_id = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="parked")
+    version = Column(Integer, default=1, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+
+    definition = relationship(
+        "ItemDefinition",
+        lazy="joined",
+        primaryjoin="and_(InventoryOverflowItem.item_definition_id == ItemDefinition.id, "
+        "InventoryOverflowItem.channel_id == ItemDefinition.channel_id)",
+        foreign_keys="[InventoryOverflowItem.item_definition_id, InventoryOverflowItem.channel_id]",
+    )
+    owner = relationship("UserProgress", overlaps="definition")

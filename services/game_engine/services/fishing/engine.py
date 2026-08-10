@@ -306,6 +306,14 @@ class FishingEngine:
             bonus_pct=xp_bonus,
         )
         xp_gain = strategy.adjust_xp_gain(base_xp_gain)
+        xp_without_item = strategy.adjust_xp_gain(
+            formulas.calculate_xp_gain(
+                base_xp=catch.get("xp", 0),
+                item_xp=0,
+                bonus_pct=xp_bonus,
+            )
+        )
+        item_xp_gained = max(int(xp_gain) - int(xp_without_item), 0)
 
         current_xp = user.xp + xp_gain
         old_level = user.level
@@ -372,6 +380,7 @@ class FishingEngine:
             item_drop=item_catch,
             username=user.username,
             xp_gained=xp_gain,
+            item_xp_gained=item_xp_gained,
             mass_gained=mass_gain,
             is_level_up=is_levelup,
             old_level=old_level,
@@ -573,6 +582,20 @@ class FishingEngine:
         ):
             level += 1
         return level
+
+    def calculate_level(
+        self,
+        current_xp: int,
+        user_level: int,
+        custom_params: Dict[str, Any],
+    ) -> int:
+        """Public level calculation for delivery-aware XP corrections.
+
+        The fishing service recalculates the level after a failed item grant
+        zeroes the item XP, so a level-up caused only by an undelivered item
+        is never granted.
+        """
+        return self._calculate_level(current_xp, user_level, custom_params or {})
 
     def _calculate_mass(
         self,

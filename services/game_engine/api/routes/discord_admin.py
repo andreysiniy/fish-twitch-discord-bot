@@ -18,6 +18,7 @@ from domain.schemas.discord_admin import (
     PlayerItemGrantRequest,
     PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
+    PlayerOverflowClaimRequest,
     RewardCreateRequest,
     RewardPatchRequest,
     VersionedStateRequest,
@@ -160,6 +161,25 @@ def revoke_player_item(
         inventory_item_id,
         data,
     )
+
+@router.get("/channels/{channel_twitch_id}/players/{viewer}/overflow")
+def list_player_overflow(
+    channel_twitch_id: str,
+    viewer: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_player_overflow(context, channel_twitch_id, viewer)
+
+@router.post("/channels/{channel_twitch_id}/players/{viewer}/overflow/claim")
+def claim_player_overflow(
+    channel_twitch_id: str,
+    viewer: str,
+    data: PlayerOverflowClaimRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.claim_player_overflow(context, channel_twitch_id, viewer, data)
 
 
 @router.get("/channels/{channel_twitch_id}/players/{viewer}/modifiers")

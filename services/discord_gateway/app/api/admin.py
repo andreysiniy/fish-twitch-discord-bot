@@ -417,6 +417,24 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "player.item_revoke"),
         )
 
+    async def player_overflow(self, interaction, viewer: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/players/{viewer}/overflow",
+        )
+
+    async def claim_player_overflow(self, interaction, viewer: str, items: list[dict[str, Any]]):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/admin/channels/{channel}/players/{viewer}/overflow/claim",
+            json={"items": items},
+            idempotency_key=interaction_key(interaction.id, "player.overflow_claim"),
+        )
+
     async def player_modifiers(self, interaction, viewer: str):
         channel = await self.channel_id(interaction)
         return await self.client.request(

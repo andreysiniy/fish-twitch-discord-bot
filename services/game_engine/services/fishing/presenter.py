@@ -437,9 +437,10 @@ class FishingPresenter:
         item_name = item.get("title", "Unknown Item")
         quantity = item.get("quantity", 1)
 
+        msg_key = MsgKey.ITEM_OVERFLOWED if item.get("overflowed") else MsgKey.ITEM_CAUGHT
         msg = resolve_message(
             config,
-            MsgKey.ITEM_CAUGHT,
+            msg_key,
             username=user.username,
             item_name=item_name,
             quantity=quantity,

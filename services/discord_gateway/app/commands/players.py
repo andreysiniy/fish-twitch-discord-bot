@@ -12,6 +12,7 @@ from app.interactions.confirms import ConfirmView
 from app.presentation.embeds import (
     player_inventory_embed,
     player_modifiers_embed,
+    player_overflow_embed,
     player_stats_explain_embed,
 )
 from app.presentation.formatting import parse_duration
@@ -136,6 +137,50 @@ def register_players_group(tree, api, sessions, fish) -> None:
                 ),
                 "Inventory item revoked.",
                 danger=True,
+            )
+
+        @player.command(name="overflow", description="List items parked in overflow storage")
+        @app_commands.describe(viewer="Viewer Twitch username; omit to use your own account")
+        async def player_overflow(
+            interaction: discord.Interaction, viewer: str | None = None
+        ) -> None:
+            async def operation() -> None:
+                resolved = await _resolve_viewer(api, interaction, viewer)
+                result = await api.player_overflow(interaction, resolved)
+                await interaction.followup.send(
+                    embed=player_overflow_embed(result, viewer=resolved), ephemeral=True
+                )
+
+            await _deferred(interaction, operation)
+
+        @player.command(name="overflow-claim", description="Claim all parked overflow items")
+        @app_commands.describe(viewer="Viewer Twitch username; omit to use your own account")
+        async def player_overflow_claim(
+            interaction: discord.Interaction, viewer: str | None = None
+        ) -> None:
+            try:
+                resolved = await _resolve_viewer(api, interaction, viewer)
+                parked = await api.player_overflow(interaction, resolved)
+                items = parked.get("items") or []
+                if not items:
+                    raise EngineError(400, "OVERFLOW_EMPTY", "No items in overflow storage")
+            except (EngineError, ValueError) as error:
+                await _send_error(interaction, error)
+                return
+
+            def claim_operation(confirmed: discord.Interaction):
+                return api.claim_player_overflow(
+                    confirmed,
+                    resolved,
+                    [{"id": item["id"], "version": item["version"]} for item in items],
+                )
+
+            await _confirmation(
+                interaction,
+                f"Claim {len(items)} item(s) parked in overflow storage for `{resolved}`?",
+                claim_operation,
+                "Overflow items claimed.",
+                danger=False,
             )
 
         player_modifier = app_commands.Group(
@@ -349,6 +394,8 @@ def register_players_group(tree, api, sessions, fish) -> None:
             "player_inventory": player_inventory,
             "player_item_grant": player_item_grant,
             "player_item_revoke": player_item_revoke,
+            "player_overflow": player_overflow,
+            "player_overflow_claim": player_overflow_claim,
             "player_modifier_list": player_modifier_list,
             "player_modifier_set": player_modifier_set,
             "player_modifier_disable": player_modifier_disable,
