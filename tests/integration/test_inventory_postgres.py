@@ -236,6 +236,56 @@ def test_charge_based_consumable_decrements_charges_and_is_deleted_at_zero() -> 
 
 
 @pytest.mark.integration
+def test_charge_consumption_honors_consume_charge_amount() -> None:
+    """use_item consumes the amount declared by the consume_charge effect."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"charges-amt-{suffix}", name="Charges amount", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="charges_amt_user",
+            channel_id=channel.id,
+            current_mass=0,
+            base_inventory_slots=2,
+        )
+        potion = ItemDefinition(
+            channel_id=channel.id,
+            item_id="spell_potion",
+            title="Spell Potion",
+            type="consumable",
+            stack_size=1,
+            max_charges=6,
+            effects=[
+                {"type": "grant_mass", "mass": "1.00"},
+                {"type": "consume_charge", "trigger": "after_cast", "amount": 2},
+            ],
+        )
+        db.add_all([user, potion])
+        db.flush()
+        repository = InventoryRepository(db)
+
+        granted = repository.grant_many(user, [{"item_id": "spell_potion"}])[0]
+        assert granted.current_charges == 6
+
+        repository.use_item(user, granted.slot_id, "charge-amt-use-1")
+        rows = repository._lock_items(user.id)
+        assert rows[0].current_charges == 4
+        assert rows[0].quantity == 1
+
+        repository.use_item(user, rows[0].slot_id, "charge-amt-use-2")
+        assert repository._lock_items(user.id)[0].current_charges == 2
+
+        repository.use_item(user, rows[0].slot_id, "charge-amt-use-3")
+        assert repository._lock_items(user.id) == []
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
 def test_charge_grant_rejects_durability_mismatch_and_out_of_range() -> None:
     """A charge-based consumable never resolves durability; charges are capped."""
     db = SessionLocal()

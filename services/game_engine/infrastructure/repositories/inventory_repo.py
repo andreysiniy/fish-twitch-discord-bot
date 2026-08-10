@@ -238,9 +238,15 @@ class InventoryRepository:
         self.db.flush()
 
         if definition.max_charges is not None:
-            # Charge-based consumable (spec 11.4): one use consumes a charge
-            # instead of a stack quantity; the instance is deleted at zero.
-            item.current_charges = int(item.current_charges or 0) - 1
+            # Charge-based consumable (spec 11.4): a use consumes the amount
+            # declared by the consume_charge effect instead of a stack quantity;
+            # the instance is deleted when charges run out.
+            charge_amount = 1
+            for effect in definition.effects or []:
+                if effect.get("type") == "consume_charge":
+                    charge_amount = max(int(effect.get("amount", 1)), 1)
+                    break
+            item.current_charges = int(item.current_charges or 0) - charge_amount
             if item.current_charges <= 0:
                 self.db.delete(item)
             else:
