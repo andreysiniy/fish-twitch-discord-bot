@@ -31,5 +31,5 @@ def test_item_expected_probability_uses_rarity_luck_in_selection_denominator() -
 
     probabilities = FishingCastQueryRepository._item_expected_probabilities(cast, entries)
 
-    assert abs(probabilities[1] - Decimal("1") / Decimal("6")) < Decimal("1e-24")
-    assert abs(probabilities[2] - Decimal("1") / Decimal("3")) < Decimal("1e-24")
+    assert abs(probabilities[1] - Decimal(1) / Decimal(6)) < Decimal("1e-24")
+    assert abs(probabilities[2] - Decimal(1) / Decimal(3)) < Decimal("1e-24")
