@@ -38,7 +38,7 @@ def test_mass_mutation_supports_explicit_floor_without_changing_total_mass() -> 
 
     applied = apply_mass_mutation(
         holder,
-        Decimal("-10"),
+        Decimal(-10),
         mass_floor=Decimal("2.50"),
         track_total=False,
     )

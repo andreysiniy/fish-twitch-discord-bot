@@ -3,9 +3,8 @@
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from infrastructure.models import ItemDefinition, LootTable, LootTableEntry
+from sqlalchemy.orm import Session
 
 
 def _effect_dict(effect: Any) -> dict[str, Any]:
