@@ -1,7 +1,7 @@
 """Build the JSON snapshots stored on a fishing cast from an engine result."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -102,10 +102,6 @@ def build_special_result(result: FishingResult) -> dict:
     if result.roulette_result is not None:
         special["roulette"] = result.roulette_result.model_dump(mode="json")
     return _jsonable(special)
-
-
-def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def compact_json(value: Any) -> str:

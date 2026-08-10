@@ -9,6 +9,7 @@ and rarity luck only shifts weight (it never changes eligibility).
 from decimal import Decimal
 
 from domain.logic.loot_selection import select_item_drop
+from services.loot_table_service import LootTableRollService
 
 
 def _candidate(
@@ -86,3 +87,33 @@ def test_rarity_luck_shifts_weight_toward_higher_rarities() -> None:
     # lucky: legendary weight 1*10^3 vs common 10 => legendary dominates.
     assert lucky.item_id == "legendary"
     assert lucky.selection_probability > Decimal("0.9")
+
+
+def test_service_entrypoint_uses_the_same_stock_aware_selector() -> None:
+    pool = [
+        _candidate(item_id="sold_out", weight=100, remaining_stock=0),
+        _candidate(item_id="available", weight=1, remaining_stock=2),
+    ]
+
+    resolution = LootTableRollService.select(pool, random_source=lambda: 0.0)
+
+    assert resolution is not None
+    assert resolution.item_id == "available"
+
+
+def test_rarity_filter_is_applied_by_the_shared_selector() -> None:
+    pool = [
+        {
+            **_candidate(item_id="common", weight=100, rarity="common"),
+            "rarity_filter": "rare",
+        },
+        {
+            **_candidate(item_id="rare", weight=1, rarity="rare"),
+            "rarity_filter": "rare,legendary",
+        },
+    ]
+
+    resolution = LootTableRollService.select(pool, random_source=lambda: 0.0)
+
+    assert resolution is not None
+    assert resolution.item_id == "rare"

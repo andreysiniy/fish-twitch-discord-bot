@@ -16,9 +16,6 @@ class ChannelRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_all(self, skip: int = 0, limit: int = 100) -> list[Channel]:
-        return self.db.query(Channel).offset(skip).limit(limit).all()
-
     def get_by_twitch_id(self, twitch_id: str) -> Channel | None:
         return self.db.query(Channel).filter(Channel.twitch_id == twitch_id).first()
 

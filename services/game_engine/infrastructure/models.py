@@ -242,6 +242,10 @@ class InventoryItem(Base):
         CheckConstraint(
             "definition_version >= 1", name="ck_inventory_items_definition_version_positive"
         ),
+        CheckConstraint(
+            "obtained_definition_version >= 1",
+            name="ck_inventory_items_obtained_definition_version_positive",
+        ),
         # Tenant-aware composite FKs: an inventory row belongs to the same
         # Twitch channel as its owner and its item definition.
         ForeignKeyConstraint(
@@ -267,6 +271,7 @@ class InventoryItem(Base):
     current_charges = Column(Integer, nullable=True)
     meta = Column(JSONB, default=dict, nullable=False)
     definition_version = Column(Integer, default=1, nullable=False)
+    obtained_definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
 
     definition = relationship(
@@ -462,6 +467,7 @@ class EconomyOperation(Base):
     state = Column(String, nullable=False, default="pending", index=True)
     external_applied = Column(Boolean, nullable=False, default=False)
     attempts = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
     last_error = Column(Text, nullable=True)
     response_payload = Column(JSONB, default=dict, nullable=False)
     created_at = Column(
@@ -494,6 +500,7 @@ class OutboxEvent(Base):
     payload = Column(JSONB, default=dict, nullable=False)
     state = Column(String, nullable=False, default="pending", index=True)
     attempts = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
     last_error = Column(Text, nullable=True)
     next_attempt_at = Column(
         DateTime(timezone=True),

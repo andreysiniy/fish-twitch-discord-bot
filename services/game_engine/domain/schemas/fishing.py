@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from domain.schemas.actions import GameAction
 from domain.schemas.rpg import DropItemDTO
+from domain.logic.loot_selection import ItemDropResolution
 from pydantic import BaseModel, Field
 
 
@@ -115,6 +116,10 @@ class RussianRouletteResultDTO(BaseModel):
 class FishingResult(BaseModel):
     loot: Dict[str, Any]
     item_drop: Optional[Dict]
+    # Keep the canonical typed selection alongside the presentation mapping.
+    # Delivery updates this object, and the cast ledger serializes it directly
+    # instead of reconstructing probabilities from chat-facing fields.
+    item_drop_resolution: ItemDropResolution | None = None
     username: str
     xp_gained: int
     # Portion of ``xp_gained`` that comes from the selected item's XP. The

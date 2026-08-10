@@ -163,18 +163,6 @@ class UserRepository:
             user.id, "rod", durability_loss
         )
 
-    def _get_next_slot_id(self, user_id: int) -> int:
-        occupied = {
-            row[0]
-            for row in self.db.query(InventoryItem.slot_id)
-            .filter(InventoryItem.user_id == user_id)
-            .all()
-        }
-        slot_id = 1
-        while slot_id in occupied:
-            slot_id += 1
-        return slot_id
-
     def save_progress(self, user: UserProgress):
         self.db.add(user)
         self.db.flush()

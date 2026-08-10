@@ -63,16 +63,6 @@ class RulesetSnapshotRepository:
         self.db.flush()
         return snapshot
 
-    def get_snapshot(self, snapshot_id: str, channel_id: int) -> FishingRulesetSnapshot | None:
-        return (
-            self.db.query(FishingRulesetSnapshot)
-            .filter(
-                FishingRulesetSnapshot.id == snapshot_id,
-                FishingRulesetSnapshot.channel_id == channel_id,
-            )
-            .first()
-        )
-
     def create_cast(self, **fields: Any) -> FishingCast:
         cast = FishingCast(**fields)
         self.db.add(cast)

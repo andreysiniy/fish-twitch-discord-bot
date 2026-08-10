@@ -19,6 +19,7 @@ from domain.schemas.discord_admin import (
     PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
     PlayerOverflowClaimRequest,
+    ReconciliationActionRequest,
     RewardCreateRequest,
     RewardPatchRequest,
     VersionedStateRequest,
@@ -586,6 +587,70 @@ def get_cast_summary_stats(
     return service.get_cast_summary_stats(
         context, channel_twitch_id, start=start, end=end
     )
+
+
+@router.get("/channels/{channel_twitch_id}/reconciliation")
+def list_reconciliation(
+    channel_twitch_id: str,
+    limit: int = Query(100, ge=1, le=100),
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.list_reconciliation(context, channel_twitch_id, limit=limit)
+
+
+@router.get("/channels/{channel_twitch_id}/reconciliation/{event_id}")
+def get_reconciliation(
+    channel_twitch_id: str,
+    event_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_reconciliation(context, channel_twitch_id, event_id)
+
+
+@router.post("/channels/{channel_twitch_id}/reconciliation/{event_id}/retry")
+def retry_reconciliation(
+    channel_twitch_id: str,
+    event_id: str,
+    data: ReconciliationActionRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.retry_reconciliation(context, channel_twitch_id, event_id, data)
+
+
+@router.post("/channels/{channel_twitch_id}/reconciliation/{event_id}/mark-completed")
+def complete_reconciliation(
+    channel_twitch_id: str,
+    event_id: str,
+    data: ReconciliationActionRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.complete_reconciliation(context, channel_twitch_id, event_id, data)
+
+
+@router.post("/channels/{channel_twitch_id}/reconciliation/{event_id}/compensate")
+def compensate_reconciliation(
+    channel_twitch_id: str,
+    event_id: str,
+    data: ReconciliationActionRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.compensate_reconciliation(context, channel_twitch_id, event_id, data)
+
+
+@router.post("/channels/{channel_twitch_id}/reconciliation/{event_id}/dead-letter")
+def dead_letter_reconciliation(
+    channel_twitch_id: str,
+    event_id: str,
+    data: ReconciliationActionRequest,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.dead_letter_reconciliation(context, channel_twitch_id, event_id, data)
 
 
 # ruff: noqa: B008

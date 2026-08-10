@@ -9,6 +9,7 @@ from core.messages import (
 )
 from core.security import decrypt_token
 from domain.item_schema import ModifierScope, StatKey
+from domain.logic.mass import apply_mass_mutation
 from domain.schemas.fishing import FishResponse
 from infrastructure.models import EconomyOperation, OutboxEvent
 from infrastructure.repositories.channel_repo import ChannelRepository
@@ -94,7 +95,7 @@ class EconomyService:
                 payload={"operation_id": operation.id},
             )
         )
-        user.current_mass = (current_mass - mass_to_sell).quantize(MASS_QUANTUM)
+        apply_mass_mutation(user, -mass_to_sell, track_total=False)
         self.db.flush()
         return response
 
@@ -164,12 +165,7 @@ class EconomyService:
             operation.state = "external_applied"
             self.db.commit()
 
-            user.current_mass = (self._decimal(user.current_mass) + mass_to_buy).quantize(
-                MASS_QUANTUM
-            )
-            user.total_mass_stat = (self._decimal(user.total_mass_stat) + mass_to_buy).quantize(
-                MASS_QUANTUM
-            )
+            apply_mass_mutation(user, mass_to_buy, track_total=True)
             response = self._response(
                 channel_config,
                 MsgKey.BUY_SUCCESS,

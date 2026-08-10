@@ -15,7 +15,7 @@ from domain.item_schema import ModifierScope, StatKey
 from domain.logic.formulas import calculate_xp_required
 
 
-from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
+from domain.logic.mass import ZERO_MASS, apply_mass_mutation, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
     FishCooldownResponse,
@@ -38,6 +38,7 @@ from services.fishing.engine import FishingEngine
 from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
+from services.loot_table_service import LootTableRollService
 from services.player_modifier_service import PlayerModifierService
 
 logger = logging.getLogger(__name__)
@@ -276,18 +277,9 @@ class FishingService:
             user.level = result.new_level
 
         if result.mass_gained != 0:
-            previous_mass = quantize_mass(user.current_mass)
-            requested_mass_delta = quantize_mass(result.mass_gained)
-            user.current_mass = max(
-                quantize_mass(previous_mass + requested_mass_delta),
-                ZERO_MASS,
+            result.mass_gained = apply_mass_mutation(
+                user, result.mass_gained, track_total=True
             )
-            applied_mass_delta = quantize_mass(user.current_mass - previous_mass)
-            previous_total_mass = quantize_mass(user.total_mass_stat)
-            user.total_mass_stat = quantize_mass(
-                previous_total_mass + max(applied_mass_delta, ZERO_MASS)
-            )
-            result.mass_gained = applied_mass_delta
 
         if result.item_drop:
             if not result.item_drop.get("title"):
@@ -299,11 +291,20 @@ class FishingService:
                 int(result.item_drop.get("quantity_requested") or 0) or 1,
                 1,
             )
-            ok, before, after, reserved = self.config_repo.reserve_loot_table_entry_stock(
-                result.item_drop.get("loot_table_entry_id")
-                or result.item_drop.get("db_id"),
-                quantity_requested,
-            )
+            resolution = result.item_drop_resolution
+            if resolution is not None:
+                resolution.quantity_requested = quantity_requested
+                resolution = LootTableRollService(self.user_repo.db).reserve(resolution)
+                ok = resolution.status != "stock_empty"
+                before = resolution.stock_before
+                after = resolution.stock_after
+                reserved = resolution.quantity_granted
+            else:
+                ok, before, after, reserved = self.config_repo.reserve_loot_table_entry_stock(
+                    result.item_drop.get("loot_table_entry_id")
+                    or result.item_drop.get("db_id"),
+                    quantity_requested,
+                )
             result.item_drop["stock_reserved"] = ok
             result.item_drop["stock_before"] = before
             result.item_drop["stock_after"] = after
@@ -316,7 +317,7 @@ class FishingService:
                 # different times from merging.
                 item_meta = dict(result.item_drop.get("meta") or {})
                 try:
-                    InventoryRepository(
+                    granted_rows = InventoryRepository(
                         self.user_repo.db,
                         max_slots_add=self.modifier_service.inventory_slot_bonus(user),
                     ).grant_many(
@@ -332,8 +333,17 @@ class FishingService:
                             }
                         ],
                     )
+                    result.item_drop["inventory_grants"] = [
+                        {"slot_id": row.slot_id, "quantity": row.quantity}
+                        for row in granted_rows
+                    ]
                     result.item_drop["grant_success"] = True
                     result.item_drop["quantity"] = reserved
+                    if resolution is not None:
+                        resolution.status = "granted"
+                        resolution.delivery_target = "inventory"
+                        resolution.quantity_granted = reserved
+                        resolution.inventory_grants = result.item_drop["inventory_grants"]
                 except InventoryCapacityError:
                     # A full inventory must not cancel the cast or lose a
                     # finite-stock drop: park the item in durable overflow
@@ -345,6 +355,9 @@ class FishingService:
                         # Without a definition id the drop cannot be parked;
                         # treat it as a failed grant (no item, no item XP).
                         result.item_drop["grant_success"] = False
+                        if resolution is not None:
+                            resolution.status = "failed"
+                            resolution.failure_reason = "item definition is unavailable"
                     else:
                         self.overflow_repo.park(
                             user=user,
@@ -356,7 +369,14 @@ class FishingService:
                         result.item_drop["grant_success"] = True
                         result.item_drop["quantity"] = reserved
                         result.item_drop["overflowed"] = True
+                        if resolution is not None:
+                            resolution.status = "overflowed"
+                            resolution.delivery_target = "overflow"
+                            resolution.quantity_granted = reserved
             else:
+                if resolution is not None:
+                    resolution.status = "stock_empty"
+                    resolution.failure_reason = "entry stock exhausted"
                 result.item_drop = None
 
         if result.item_drop is None or not result.item_drop.get("grant_success"):
@@ -718,15 +738,8 @@ class FishingService:
             victim_previous_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
             applied_stolen = quantize_mass(min(requested_stolen, victim_previous_mass))
 
-            user.current_mass = quantize_mass(quantize_mass(user.current_mass) + applied_stolen)
-            user.total_mass_stat = quantize_mass(
-                quantize_mass(user.total_mass_stat) + applied_stolen
-            )
-
-            victim.current_mass = max(
-                quantize_mass(victim_previous_mass - applied_stolen),
-                ZERO_MASS,
-            )
+            apply_mass_mutation(user, applied_stolen, track_total=True)
+            apply_mass_mutation(victim, -applied_stolen, track_total=False)
 
             robbery_result.amount_stolen = applied_stolen
             robbery_result.victim_new_mass = victim.current_mass
@@ -798,13 +811,11 @@ class FishingService:
                 # FIRST_TERMINAL_DEFENSE_WINS: later defenses must not run once
                 # a terminal defense absorbed the robbery.
                 absorbed = True
-                mass_delta = quantize_mass(effect.get("attacker_mass_delta", 0))
-                previous_mass = quantize_mass(attacker.current_mass)
-                attacker.current_mass = max(
-                    quantize_mass(previous_mass + mass_delta),
-                    ZERO_MASS,
+                applied = apply_mass_mutation(
+                    attacker,
+                    effect.get("attacker_mass_delta", 0),
+                    track_total=False,
                 )
-                applied = quantize_mass(attacker.current_mass - previous_mass)
                 if applied:
                     actions.append(
                         {
@@ -826,15 +837,13 @@ class FishingService:
                     }
                 )
             elif action.get("type") == "add_mass":
-                previous_mass = quantize_mass(attacker.current_mass)
-                attacker.current_mass = max(
-                    quantize_mass(previous_mass + quantize_mass(action.get("mass", 0))),
-                    ZERO_MASS,
+                applied = apply_mass_mutation(
+                    attacker, action.get("mass", 0), track_total=False
                 )
                 actions.append(
                     {
                         "type": "add_mass",
-                        "amount": str(quantize_mass(attacker.current_mass - previous_mass)),
+                        "amount": str(applied),
                         "message": action.get("message", ""),
                     }
                 )

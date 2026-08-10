@@ -22,6 +22,7 @@ class BaseItemDTO(BaseModel):
     image_url: str | None = None
     effects: List[ItemEffect] = Field(default_factory=list)
     definition_version: int = 1
+    obtained_definition_version: int | None = None
 
 
 class DropItemDTO(BaseItemDTO):
@@ -86,6 +87,7 @@ class UseItemResponseDTO(BaseModel):
     item_title: str
     mass_delta: Decimal
     granted_items: List[Dict[str, Any]] = Field(default_factory=list)
+    loot_resolutions: List[Dict[str, Any]] = Field(default_factory=list)
     actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 

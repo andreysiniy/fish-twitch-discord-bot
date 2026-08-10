@@ -177,6 +177,7 @@ class InventoryService:
             "image_url": definition.image_url,
             "effects": definition.effects or [],
             "definition_version": item.definition_version,
+            "obtained_definition_version": item.obtained_definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

@@ -68,6 +68,21 @@ def _is_out_of_stock(candidate: dict[str, Any]) -> bool:
         return False
 
 
+def _matches_rarity_filter(candidate: dict[str, Any]) -> bool:
+    """Apply the entry's explicit rarity filter in every runtime path."""
+    raw_filter = candidate.get("rarity_filter")
+    if not raw_filter:
+        return True
+    allowed = {
+        part.strip().lower()
+        for part in str(raw_filter).split(",")
+        if part.strip()
+    }
+    if not allowed:
+        return True
+    return str(candidate.get("rarity", "")).lower() in allowed
+
+
 def _rarity_luck_weight(entry: dict[str, Any], luck: Decimal) -> Decimal:
     """Rarity luck shifts weight toward higher rarities (fishing context)."""
     rarity_rank = rng.RARITY_RANK.get(str(entry.get("rarity", "common")).lower(), 0)
@@ -100,7 +115,11 @@ def select_item_drop(
     computed, so they neither distort probabilities nor win the roll. Returns
     ``None`` when no eligible candidate remains.
     """
-    eligible = [candidate for candidate in candidates if not _is_out_of_stock(candidate)]
+    eligible = [
+        candidate
+        for candidate in candidates
+        if not _is_out_of_stock(candidate) and _matches_rarity_filter(candidate)
+    ]
     if not eligible:
         return None
 

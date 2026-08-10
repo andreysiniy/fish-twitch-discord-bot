@@ -91,17 +91,13 @@ class LegacyRewardImportRequest(StrictDTO):
         return self
 
 
-class VersionedDeleteRequest(StrictDTO):
-    expected_version: int = Field(..., ge=1)
-
-
-class DiscordLinkStartResponse(BaseModel):
-    authorization_url: str
-    expires_in: int
-
-
 class GuildBindRequest(StrictDTO):
     replace: bool = False
+
+
+class ReconciliationActionRequest(StrictDTO):
+    expected_version: int = Field(..., ge=1)
+    reason: str = Field(..., min_length=1, max_length=500)
 
 
 def _coerce_event_modifiers(

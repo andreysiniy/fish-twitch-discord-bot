@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from core import metrics as metrics_module
 
-from infrastructure.models import FishingEvent
+from infrastructure.models import Channel, FishingEvent
 from infrastructure.redis_client import RedisClient
 from services.eventing.event_scheduler import FishingEventScheduler
 
@@ -61,7 +61,15 @@ class FishingEventLifecycleService:
         for event in due:
             self.channel_repo.set_active_fishing_event(event.channel_id, None)
             self._mark_event_ended(event)
-            self.scheduler.cancel_scheduled_disable(str(event.channel_id))
+            channel_twitch_id = getattr(getattr(event, "channel", None), "twitch_id", None)
+            if not channel_twitch_id:
+                channel_query = self.channel_repo.db.query(Channel).filter(
+                    Channel.id == event.channel_id
+                )
+                channel_row = channel_query.first() if hasattr(channel_query, "first") else None
+                channel_twitch_id = getattr(channel_row, "twitch_id", None)
+            if channel_twitch_id:
+                self.scheduler.cancel_scheduled_disable(str(channel_twitch_id))
             metrics_module.inc("fishing_events_auto_disabled_total", {"source": "postgres"})
         return len(due)
 

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from core import metrics as metrics_module
 from core.config import settings
+from domain.logic.loot_selection import ItemDropResolution
 from domain.schemas.fishing import FishingResult
 from services.fishing.ledger_service import (
     CAST_STATUS_COOLDOWN_REJECTED,
@@ -415,3 +416,47 @@ def test_record_resolved_marks_failed_grant_when_inventory_full() -> None:
     assert drop_kwargs["quantity_granted"] == 0
     cast_kwargs = ledger.repo.create_cast.call_args.kwargs
     assert cast_kwargs["item_drop_grant_success"] is False
+
+
+def test_record_resolved_serializes_typed_drop_after_delivery() -> None:
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = lambda user, location_id=None: None
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
+    resolution = ItemDropResolution(
+        loot_table_id=12,
+        loot_entry_id=34,
+        item_definition_id=5,
+        item_id="rod",
+        title="Rod",
+        selected_weight=Decimal("4"),
+        total_weight=Decimal("10"),
+        selection_probability=Decimal("0.4"),
+        selection_roll=Decimal("0.5"),
+        quantity_rolled=2,
+        quantity_requested=2,
+        stock_before=5,
+        stock_after=3,
+        quantity_granted=2,
+        inventory_grants=[{"slot_id": 3, "quantity": 2}],
+        delivery_target="inventory",
+        status="granted",
+    )
+    result = _result(item_drop=None, item_drop_resolution=resolution)
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-typed",
+        loot_pool=[result.loot],
+    )
+
+    drop_kwargs = ledger.repo.add_item_drop.call_args.kwargs
+    assert drop_kwargs["selection_total_weight"] == Decimal("10")
+    assert drop_kwargs["inventory_grants"] == [{"slot_id": 3, "quantity": 2}]
+    assert drop_kwargs["grant_status"] == "granted"

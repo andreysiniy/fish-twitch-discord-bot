@@ -530,12 +530,12 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "ALTER TABLE users_progress DROP COLUMN base_inventory_slots, "
         "ADD COLUMN inventory JSONB DEFAULT '{\"equipped_rod_slot\": null, \"max_slots\": 20}'::jsonb",
         "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version, "
-        "DROP COLUMN current_charges",
+        "DROP COLUMN current_charges, DROP COLUMN obtained_definition_version",
         "ALTER TABLE fishing_casts DROP COLUMN error_message, "
         "DROP COLUMN item_drop_gate_success, DROP COLUMN item_drop_selection_success, "
         "DROP COLUMN item_drop_stock_reserved, DROP COLUMN item_drop_grant_success",
-        "ALTER TABLE outbox_events DROP COLUMN lease_expires_at",
-        "ALTER TABLE economy_operations DROP COLUMN compensated_at",
+        "ALTER TABLE outbox_events DROP COLUMN lease_expires_at, DROP COLUMN version",
+        "ALTER TABLE economy_operations DROP COLUMN compensated_at, DROP COLUMN version",
         "ALTER TABLE item_definitions DROP COLUMN max_durability, DROP COLUMN break_policy, "
         "DROP COLUMN effects, DROP COLUMN value, DROP COLUMN schema_version, "
         "DROP COLUMN version, DROP COLUMN is_active, DROP COLUMN archived_at, "

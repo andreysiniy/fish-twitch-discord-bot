@@ -27,6 +27,7 @@ from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.se_client import SEApiClient
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.player_modifier_service import PlayerModifierService
+from services.item_dependency_validator import validate_item_dependency_graph
 
 
 class AdminService:
@@ -275,6 +276,13 @@ class AdminService:
         if not item_id:
             raise ValueError("item_id is required")
 
+        validate_item_dependency_graph(
+            self.user_repo.db,
+            channel.id,
+            item_id,
+            data.effects,
+        )
+
         definition = self.repo.upsert_item_definition(
             channel_twitch_id=channel.twitch_id,
             item_id=item_id,
@@ -284,6 +292,7 @@ class AdminService:
             slot=data.equipment_slot.value if data.equipment_slot else None,
             rarity=data.rarity.value,
             max_durability=data.max_durability,
+            max_charges=data.max_charges,
             break_policy=data.break_policy.value,
             stack_size=data.stack_size,
             image_url=data.image_url,
@@ -371,6 +380,7 @@ class AdminService:
             "image_url": definition.image_url if definition else None,
             "effects": definition.effects or [],
             "definition_version": item.definition_version,
+            "obtained_definition_version": item.obtained_definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

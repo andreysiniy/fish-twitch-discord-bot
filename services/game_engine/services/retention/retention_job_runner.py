@@ -142,7 +142,9 @@ class RetentionJobRunner:
                     db,
                     db.query(OutboxEvent).filter(
                         OutboxEvent.created_at < cutoff,
-                        OutboxEvent.state.in_(("completed", "dead_letter", "failed")),
+                        OutboxEvent.state.in_(
+                            ("processed", "dead_letter", "failed", "compensated")
+                        ),
                     ),
                 )
 

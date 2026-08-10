@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from domain.logic.mass import apply_mass_mutation
 from infrastructure.models import (
     EquippedItem,
     InventoryItem,
@@ -13,6 +14,7 @@ from infrastructure.models import (
     OutboxEvent,
     UserProgress,
 )
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
 from services.loot_table_service import LootTableRollService
 
 
@@ -260,6 +262,8 @@ class InventoryRepository:
         self.db.flush()
 
         grants: list[dict[str, Any]] = []
+        granted: list[InventoryItem] = []
+        loot_resolutions: list[Any] = []
         mass_delta = Decimal("0")
         actions: list[dict[str, Any]] = []
         for effect in definition.effects or []:
@@ -279,16 +283,19 @@ class InventoryRepository:
                 }
                 actions.append(action)
             elif effect_type == "loot_table_roll":
-                grants.extend(
-                    self._roll_loot_table(
+                delivered, resolutions = self._roll_loot_table(
                         locked_user.channel_id,
                         str(effect["loot_table_id"]),
                         int(effect.get("rolls", 1)),
+                        user=locked_user,
+                        source_id=idempotency_key,
                     )
-                )
+                granted.extend(delivered)
+                loot_resolutions.extend(resolutions)
 
-        granted = self.grant_many(locked_user, grants)
-        locked_user.current_mass = Decimal(locked_user.current_mass) + mass_delta
+        if grants:
+            granted.extend(self.grant_many(locked_user, grants))
+        apply_mass_mutation(locked_user, mass_delta, track_total=True)
         for index, action in enumerate(actions):
             self.db.add(
                 OutboxEvent(
@@ -315,6 +322,9 @@ class InventoryRepository:
                     "slot_id": granted_item.slot_id,
                 }
                 for granted_item in granted
+            ],
+            "loot_resolutions": [
+                resolution.model_dump(mode="json") for resolution in loot_resolutions
             ],
             "actions": actions,
         }
@@ -396,6 +406,7 @@ class InventoryRepository:
                 current_charges=charges,
                 meta=meta,
                 definition_version=definition.version,
+                obtained_definition_version=definition.version,
             )
             self.db.add(created)
             self.db.flush()
@@ -426,17 +437,52 @@ class InventoryRepository:
             raise ValueError(f"Active item definition not found: {', '.join(missing)}")
         return definitions
 
-    def _roll_loot_table(self, channel_id: int, table_id: str, rolls: int) -> list[dict[str, Any]]:
+    def _roll_loot_table(
+        self,
+        channel_id: int,
+        table_id: str,
+        rolls: int,
+        *,
+        user: UserProgress,
+        source_id: str,
+    ) -> tuple[list[InventoryItem], list[Any]]:
         service = LootTableRollService(self.db)
         resolutions = service.roll(channel_id, table_id, rolls=rolls)
-        return [
-            {
-                "item_id": resolution.item_id,
-                "quantity": resolution.quantity_granted,
-            }
-            for resolution in resolutions
-            if resolution.quantity_granted > 0
-        ]
+        delivered: list[InventoryItem] = []
+        overflow_repo = InventoryOverflowRepository(self.db)
+        for resolution in resolutions:
+            quantity = int(resolution.quantity_granted or 0)
+            if quantity <= 0:
+                continue
+            try:
+                rows = self.grant_many(
+                    user,
+                    [{"item_id": resolution.item_id, "quantity": quantity}],
+                )
+            except InventoryCapacityError:
+                if resolution.item_definition_id is None:
+                    resolution.status = "failed"
+                    resolution.failure_reason = "item definition is unavailable"
+                    continue
+                overflow_repo.park(
+                    user=user,
+                    item_definition_id=resolution.item_definition_id,
+                    quantity=quantity,
+                    source_type="lootbox",
+                    source_id=source_id,
+                )
+                resolution.status = "overflowed"
+                resolution.delivery_target = "overflow"
+                resolution.quantity_granted = quantity
+                continue
+            resolution.status = "granted"
+            resolution.delivery_target = "inventory"
+            resolution.quantity_granted = quantity
+            resolution.inventory_grants = [
+                {"slot_id": row.slot_id, "quantity": row.quantity} for row in rows
+            ]
+            delivered.extend(rows)
+        return delivered, resolutions
 
     def _resolve_durability(
         self, definition: ItemDefinition, requested: int | None
