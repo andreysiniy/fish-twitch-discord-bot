@@ -86,6 +86,7 @@ class UseItemResponseDTO(BaseModel):
     item_title: str
     mass_delta: Decimal
     granted_items: List[Dict[str, Any]] = Field(default_factory=list)
+    loot_resolutions: List[Dict[str, Any]] = Field(default_factory=list)
     actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 

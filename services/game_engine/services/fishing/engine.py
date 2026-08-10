@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
-from domain.logic.loot_selection import select_item_drop
+from services.loot_table_service import LootTableRollService
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
@@ -243,7 +243,7 @@ class FishingEngine:
                 }
             )
             if item_gate_succeeded:
-                item_resolution = select_item_drop(
+                item_resolution = LootTableRollService.select(
                     item_pool,
                     rarity_luck=rarity_luck,
                     random_source=random.random,
