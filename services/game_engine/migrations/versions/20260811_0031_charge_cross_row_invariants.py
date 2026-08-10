@@ -8,7 +8,6 @@ definition (or whose definition is later reduced below existing charges).
 
 from alembic import op
 
-
 revision = "20260811_0031"
 down_revision = "20260811_0030"
 branch_labels = None

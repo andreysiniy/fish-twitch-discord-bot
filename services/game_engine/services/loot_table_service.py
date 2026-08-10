@@ -7,13 +7,13 @@ ledger) can reuse without re-deriving weights or rolls.
 """
 
 import random
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, Callable
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from domain.logic.loot_selection import ItemDropResolution, select_item_drop
 from infrastructure.models import LootTable, LootTableEntry
+from sqlalchemy.orm import Session
 
 
 class LootTableRollService:
@@ -31,7 +31,7 @@ class LootTableRollService:
     def select(
         candidates: list[dict[str, Any]],
         *,
-        rarity_luck: Decimal = Decimal("1"),
+        rarity_luck: Decimal = Decimal(1),
         random_source: Callable[[], float] = random.random,
     ) -> ItemDropResolution | None:
         """Run the canonical pure selector for an already loaded table.
@@ -82,7 +82,7 @@ class LootTableRollService:
         channel_id: int,
         loot_table_id: str,
         rolls: int = 1,
-        rarity_luck: Decimal = Decimal("1"),
+        rarity_luck: Decimal = Decimal(1),
         random_source: Callable[[], float] = random.random,
     ) -> list[ItemDropResolution]:
         """Select and reserve one entry per roll with the shared policy."""
