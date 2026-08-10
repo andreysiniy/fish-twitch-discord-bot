@@ -50,8 +50,7 @@ def test_rejected_statuses_family() -> None:
 
 def test_outbox_success_states_match_the_persisted_state_machine() -> None:
     source = inspect.getsource(RetentionJobRunner.run_once)
-    assert "processed" in source
-    assert "completed" not in source
+    assert '("processed", "dead_letter", "failed", "compensated")' in source
 
 
 def test_runner_constructs_with_interval() -> None:
