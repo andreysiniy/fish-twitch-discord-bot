@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-
 from infrastructure.repositories.channel_repo import ChannelRepository
 from services.fishing.engine import CalculationStrategy, DefaultLootStrategy
 
@@ -8,9 +6,7 @@ from services.fishing.engine import CalculationStrategy, DefaultLootStrategy
 @dataclass
 class ResolvedFishingStrategy:
     calculation_strategy: CalculationStrategy
-    cooldown_multiplier: float
-    override_loot_pool_location_id: Optional[str]
-    modifiers: Dict[str, Any]
+    override_loot_pool_location_id: str | None
 
 
 class FishingStrategyResolver:
@@ -19,23 +15,7 @@ class FishingStrategyResolver:
 
     def resolve(self, channel_id: int) -> ResolvedFishingStrategy:
         event = self.channel_repo.get_active_fishing_event(channel_id)
-        if not event:
-            return ResolvedFishingStrategy(
-                calculation_strategy=DefaultLootStrategy(),
-                cooldown_multiplier=1.0,
-                override_loot_pool_location_id=None,
-                modifiers={},
-            )
-
-        modifiers = dict(event.modifiers or {})
-        strategy = DefaultLootStrategy()
-        cooldown_multiplier = 1.0
-
-        override_pool_id = event.override_loot_pool
-
         return ResolvedFishingStrategy(
-            calculation_strategy=strategy,
-            cooldown_multiplier=cooldown_multiplier,
-            override_loot_pool_location_id=override_pool_id,
-            modifiers=modifiers,
+            calculation_strategy=DefaultLootStrategy(),
+            override_loot_pool_location_id=(event.override_loot_pool if event else None),
         )
