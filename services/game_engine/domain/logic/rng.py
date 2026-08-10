@@ -149,14 +149,6 @@ def calculate_chance_traced(
     return roll < _to_decimal(chance), roll
 
 
-def calculate_chance(chance: float) -> bool:
-    return calculate_chance_traced(chance)[0]
-
-
-def is_russian_roulette_hit(bullets: int, chambers: int) -> bool:
-    return is_russian_roulette_hit_traced(bullets, chambers)[0]
-
-
 def is_russian_roulette_hit_traced(bullets: int, chambers: int) -> tuple[bool, Decimal]:
     if chambers <= 0:
         return False, Decimal("0")

@@ -91,15 +91,6 @@ class LegacyRewardImportRequest(StrictDTO):
         return self
 
 
-class VersionedDeleteRequest(StrictDTO):
-    expected_version: int = Field(..., ge=1)
-
-
-class DiscordLinkStartResponse(BaseModel):
-    authorization_url: str
-    expires_in: int
-
-
 class GuildBindRequest(StrictDTO):
     replace: bool = False
 

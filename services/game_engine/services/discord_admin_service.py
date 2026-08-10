@@ -2630,9 +2630,20 @@ class DiscordAdminService:
         channel, _ = self._authorize(
             context, ChannelPermission.RECONCILIATION_READ, channel_twitch_id
         )
+        operation_ids = [
+            row[0]
+            for row in self.db.query(EconomyOperation.id)
+            .filter(EconomyOperation.channel_id == channel.id)
+            .all()
+        ]
+        if not operation_ids:
+            return {"items": [], "count": 0}
         events = (
             self.db.query(OutboxEvent)
-            .filter(OutboxEvent.state == "reconciliation_required")
+            .filter(
+                OutboxEvent.state == "reconciliation_required",
+                OutboxEvent.payload["operation_id"].as_string().in_(operation_ids),
+            )
             .order_by(OutboxEvent.created_at.asc())
             .limit(max(1, min(limit, 100)))
             .all()
@@ -2814,7 +2825,7 @@ class DiscordAdminService:
             "attempts": event.attempts,
             "last_error": event.last_error or operation.last_error,
             "created_at": event.created_at.isoformat(),
-            "updated_at": event.created_at.isoformat(),
+            "updated_at": operation.updated_at.isoformat(),
         }
 
     @staticmethod

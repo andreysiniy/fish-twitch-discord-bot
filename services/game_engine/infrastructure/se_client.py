@@ -9,25 +9,6 @@ class SEApiClient:
     BASE_URL = "https://api.streamelements.com/kappa/v2/points"
     CHANNELS_ME_URL = "https://api.streamelements.com/kappa/v2/channels/me"
 
-    async def get_balance(self, se_channel_id: str, plain_token: str, username: str) -> int:
-        url = f"{self.BASE_URL}/{se_channel_id}/{username}"
-        headers = self._build_headers(plain_token)
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, headers=headers)
-
-        if response.status_code == 404:
-            return 0
-        if response.status_code in {401, 403}:
-            raise PermissionError("Invalid Token")
-        if response.status_code == 429:
-            raise SETransientError("StreamElements rate limit reached")
-        if response.status_code >= 400:
-            raise ValueError("SE API Error")
-
-        payload = response.json()
-        return int(payload.get("points", 0) or 0)
-
     def get_balance_sync(self, se_channel_id: str, plain_token: str, username: str) -> int:
         url = f"{self.BASE_URL}/{se_channel_id}/{username}"
         with httpx.Client(timeout=10.0) as client:
