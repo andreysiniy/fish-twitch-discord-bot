@@ -86,6 +86,69 @@ def test_legacy_event_contributions_still_resolve() -> None:
     assert values["xp_gain_change_ratio"] == Decimal("1")
 
 
+def test_v2_event_contributions_feed_robbery_scope() -> None:
+    from domain.item_schema import ModifierScope
+    from services.player_modifier_service import PlayerModifierService
+
+    event = _event(
+        EventModifiersV2(
+            robbery_protection_percent=Decimal("30"),
+            robbery_evasion_percent=Decimal("15"),
+        ).model_dump(mode="json")
+    )
+    contributions = PlayerModifierService._event_contributions(event, ModifierScope.ROBBERY)
+
+    values = {str(c.stat.value): c.value for c in contributions}
+    assert values["robbery_protection_pct"] == Decimal("0.30")
+    assert values["robbery_evasion_pct"] == Decimal("0.15")
+    assert all(c.scope == ModifierScope.ROBBERY for c in contributions)
+
+
+def test_v2_event_robbery_scope_ignores_fishing_stats() -> None:
+    from domain.item_schema import ModifierScope
+    from services.player_modifier_service import PlayerModifierService
+
+    event = _event(
+        EventModifiersV2(
+            fish_luck_change_percent=Decimal("40"),
+            xp_gain_change_percent=Decimal("100"),
+            robbery_protection_percent=Decimal("30"),
+        ).model_dump(mode="json")
+    )
+    contributions = PlayerModifierService._event_contributions(event, ModifierScope.ROBBERY)
+
+    values = {str(c.stat.value): c.value for c in contributions}
+    assert "fish_luck_change_ratio" not in values
+    assert "xp_gain_change_ratio" not in values
+    assert values["robbery_protection_pct"] == Decimal("0.30")
+
+
+def test_v2_event_fishing_scope_ignores_robbery_stats() -> None:
+    from domain.item_schema import ModifierScope
+    from services.player_modifier_service import PlayerModifierService
+
+    event = _event(
+        EventModifiersV2(
+            fish_luck_change_percent=Decimal("40"),
+            robbery_protection_percent=Decimal("30"),
+        ).model_dump(mode="json")
+    )
+    contributions = PlayerModifierService._event_contributions(event, ModifierScope.FISHING)
+
+    values = {str(c.stat.value): c.value for c in contributions}
+    assert values["fish_luck_change_ratio"] == Decimal("0.40")
+    assert "robbery_protection_pct" not in values
+
+
+def test_legacy_event_contributions_robbery_scope_empty() -> None:
+    from domain.item_schema import ModifierScope
+    from services.player_modifier_service import PlayerModifierService
+
+    event = _event({"luck_mult": "1.4", "xp_mult": "2", "cd_reduction": "0.5", "bonus_mass": "5"})
+    contributions = PlayerModifierService._event_contributions(event, ModifierScope.ROBBERY)
+    assert contributions == []
+
+
 def test_event_create_request_accepts_v2_human_percents() -> None:
     from domain.schemas.discord_admin import DiscordEventCreateRequest
 

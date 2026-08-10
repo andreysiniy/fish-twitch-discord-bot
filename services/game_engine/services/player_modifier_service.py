@@ -191,11 +191,11 @@ class PlayerModifierService:
     def _event_contributions(
         event: FishingEvent, scope: ModifierScope
     ) -> list[ModifierContribution]:
-        if scope != ModifierScope.FISHING:
-            return []
         modifiers = event.modifiers or {}
         if modifiers.get("schema_version") == 2:
             return PlayerModifierService._event_contributions_v2(event, scope, modifiers)
+        if scope != ModifierScope.FISHING:
+            return []
         return PlayerModifierService._event_contributions_legacy(event, scope, modifiers)
 
     @staticmethod
@@ -256,6 +256,8 @@ class PlayerModifierService:
         }
         contributions: list[ModifierContribution] = []
         for key, stat in stat_keys.items():
+            if scope not in STAT_REGISTRY[stat].scopes:
+                continue
             value = Decimal(str(payload[key]))
             if value == 0:
                 continue
