@@ -18,6 +18,7 @@ from domain.schemas.discord_admin import (
     PlayerItemGrantRequest,
     PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
+    ReconciliationActionRequest,
     RewardCreateRequest,
 )
 from infrastructure.database import SessionLocal
@@ -29,7 +30,9 @@ from infrastructure.models import (
     Channel,
     DiscordAccountLink,
     DiscordGuildBinding,
+    EconomyOperation,
     FishingCast,
+    OutboxEvent,
     RewardPool,
     UserProgress,
 )
@@ -957,6 +960,84 @@ def test_item_drop_add_existing_row_returns_item_drop_exists() -> None:
             service.upsert_item_drop(context, channel.twitch_id, "lake", request)
         assert exc_info.value.code == "ITEM_DROP_EXISTS"
         assert exc_info.value.status_code == 409
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_reconciliation_queue_actions_are_versioned_and_audited() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        channel = Channel(
+            twitch_id=f"reconcile-{uuid.uuid4().hex[:8]}",
+            name="Reconciliation",
+            config={},
+        )
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"reconcile-user-{uuid.uuid4().hex[:8]}",
+            username="reconcile_user",
+            channel_id=channel.id,
+            current_mass=Decimal("50.00"),
+        )
+        db.add(user)
+        db.add_all(
+            [
+                DiscordAccountLink(
+                    discord_user_id="1001",
+                    twitch_user_id=channel.twitch_id,
+                    twitch_login=channel.name,
+                    verified_at=now,
+                    last_verified_at=now,
+                ),
+                DiscordGuildBinding(
+                    discord_guild_id="2001",
+                    channel_id=channel.id,
+                    configured_by_discord_id="1001",
+                ),
+            ]
+        )
+        db.flush()
+        operation = EconomyOperation(
+            idempotency_key=f"reconcile-op-{uuid.uuid4().hex}",
+            operation_type="sell",
+            channel_id=channel.id,
+            user_id=user.id,
+            twitch_username=user.username,
+            mass_delta=Decimal("-10.00"),
+            points_delta=100,
+            state="reconciliation_required",
+        )
+        db.add(operation)
+        db.flush()
+        event = OutboxEvent(
+            idempotency_key=f"reconcile-event-{uuid.uuid4().hex}",
+            topic="streamelements.points",
+            payload={"operation_id": operation.id},
+            state="reconciliation_required",
+        )
+        db.add(event)
+        db.commit()
+
+        service = DiscordAdminService(db)
+        listed = service.list_reconciliation(_context("reconcile-list"), channel.twitch_id)
+        assert listed["count"] == 1
+        assert listed["items"][0]["version"] == 1
+
+        action = ReconciliationActionRequest(expected_version=1, reason="Retry external delivery")
+        retried = service.retry_reconciliation(
+            _context("reconcile-retry"), channel.twitch_id, event.id, action
+        )
+        assert retried["event_state"] == "pending"
+        assert retried["operation_state"] == "pending"
+        assert retried["version"] == 2
+        replay = service.retry_reconciliation(
+            _context("reconcile-retry"), channel.twitch_id, event.id, action
+        )
+        assert replay == retried
     finally:
         db.rollback()
         db.close()
