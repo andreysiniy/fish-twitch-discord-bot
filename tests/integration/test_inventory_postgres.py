@@ -3,6 +3,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from infrastructure.database import SessionLocal
 from infrastructure.models import Channel, InventoryItem, ItemDefinition, UserProgress
@@ -315,6 +316,55 @@ def test_charge_grant_rejects_durability_mismatch_and_out_of_range() -> None:
 
         with pytest.raises(ValueError, match="indestructible"):
             repository.grant_many(user, [{"item_id": "spell_potion", "current_durability": 2}])
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_database_enforces_current_charges_against_definition() -> None:
+    """Charge bounds remain enforced when service validation is bypassed."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"charges-db-{suffix}", name="Charges DB", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="charges_db_user",
+            channel_id=channel.id,
+        )
+        potion = ItemDefinition(
+            channel_id=channel.id,
+            item_id="db_charge_potion",
+            title="DB Charge Potion",
+            type="consumable",
+            stack_size=1,
+            max_charges=3,
+            effects=[],
+        )
+        db.add_all([user, potion])
+        db.commit()
+
+        db.add(
+            InventoryItem(
+                channel_id=channel.id,
+                user_id=user.id,
+                item_id=potion.id,
+                slot_id=1,
+                quantity=1,
+                current_charges=4,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+        persisted = db.query(ItemDefinition).filter(ItemDefinition.id == potion.id).one()
+        persisted.max_charges = 2
+        with pytest.raises(IntegrityError):
+            db.flush()
     finally:
         db.rollback()
         db.close()
