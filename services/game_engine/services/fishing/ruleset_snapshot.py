@@ -84,6 +84,10 @@ def build_ruleset_snapshot_payload(
                 "weight": entry.get("weight"),
                 "rarity": entry.get("rarity"),
                 "definition_version": entry.get("definition_version"),
+                "item_type": entry.get("item_type"),
+                "min_quantity": entry.get("min_quantity"),
+                "max_quantity": entry.get("max_quantity"),
+                "remaining_stock": entry.get("remaining_stock"),
             }
             for entry in item_entries
         ],

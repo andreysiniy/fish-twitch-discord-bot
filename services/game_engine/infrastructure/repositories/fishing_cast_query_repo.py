@@ -1,9 +1,16 @@
 """Read-side queries for the fishing cast ledger (admin history, search, stats)."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 
-from infrastructure.models import FishingCast, FishingCastItemDrop, FishingStatsDaily
+from domain.logic.rng import RARITY_RANK
+from infrastructure.models import (
+    FishingCast,
+    FishingCastItemDrop,
+    FishingRulesetSnapshot,
+    FishingStatsDaily,
+)
 from sqlalchemy import Integer, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -203,16 +210,24 @@ class FishingCastQueryRepository:
         cast_ids_with_drops = [
             cast.id for cast in rows if cast.status == "resolved" and cast.item_drop_count
         ]
-        drops_by_cast: dict[int, list[int | None]] = {}
+        drops_by_cast: dict[Any, list[FishingCastItemDrop]] = {}
         if cast_ids_with_drops:
             for drop in (
-                self.db.query(
-                    FishingCastItemDrop.cast_id, FishingCastItemDrop.item_definition_id
-                )
+                self.db.query(FishingCastItemDrop)
                 .filter(FishingCastItemDrop.cast_id.in_(cast_ids_with_drops))
                 .all()
             ):
-                drops_by_cast.setdefault(drop[0], []).append(drop[1])
+                drops_by_cast.setdefault(drop.cast_id, []).append(drop)
+
+        snapshot_ids = {
+            cast.ruleset_snapshot_id for cast in rows if cast.ruleset_snapshot_id is not None
+        }
+        snapshots = {
+            snapshot.id: snapshot.item_entries_snapshot or []
+            for snapshot in self.db.query(FishingRulesetSnapshot)
+            .filter(FishingRulesetSnapshot.id.in_(snapshot_ids))
+            .all()
+        }
 
         buckets: dict[tuple, dict[str, Any]] = {}
         for cast in rows:
@@ -247,7 +262,15 @@ class FishingCastQueryRepository:
                 bucket["xp_gained"] += int(cast.xp_gained or 0)
                 bucket["item_drop_expected"] += float(cast.item_drop_probability or 0)
                 bucket["item_drop_actual"] += int(cast.item_drop_count or 0)
-                for item_definition_id in drops_by_cast.get(cast.id, []):
+                item_probabilities = self._item_expected_probabilities(
+                    cast,
+                    snapshots.get(cast.ruleset_snapshot_id, []),
+                )
+                drops = drops_by_cast.get(cast.id, [])
+                drops_by_definition = {
+                    drop.item_definition_id: drop for drop in drops
+                }
+                for item_definition_id, expected_probability in item_probabilities.items():
                     item_key = (
                         cast.channel_id,
                         cast.location_id,
@@ -270,12 +293,17 @@ class FishingCastQueryRepository:
                     )
                     item_bucket["casts"] += 1
                     item_bucket["players"].add(cast.user_progress_id)
-                    item_bucket["mass_positive"] += delta
-                    item_bucket["xp_gained"] += int(cast.xp_gained or 0)
-                    item_bucket["item_drop_expected"] += float(
-                        cast.item_drop_probability or 0
-                    )
-                    item_bucket["item_drop_actual"] += 1
+                    item_bucket["item_drop_expected"] += float(expected_probability)
+                    drop = drops_by_definition.get(item_definition_id)
+                    if drop is not None:
+                        if delta >= 0:
+                            item_bucket["mass_positive"] += delta
+                        else:
+                            item_bucket["mass_negative"] += -delta
+                        item_bucket["xp_gained"] += int(cast.xp_gained or 0)
+                        item_bucket["item_drop_actual"] += int(
+                            drop.quantity_granted or 0
+                        )
             elif cast.status in ("failed", "compensated"):
                 bucket["failures"] += 1
 
@@ -310,6 +338,42 @@ class FishingCastQueryRepository:
             )
         self.db.flush()
         return len(buckets)
+
+    @staticmethod
+    def _item_expected_probabilities(
+        cast: FishingCast,
+        item_entries: list[dict[str, Any]],
+    ) -> dict[int, Decimal]:
+        """Return gate × selection probability for every item entry.
+
+        The denominator is the complete eligible item table captured for the
+        cast, so casts without a drop still contribute expected probability.
+        """
+        gate = Decimal(str(cast.item_drop_probability or 0))
+        if gate <= 0 or not item_entries:
+            return {}
+        raw_luck = (cast.resolved_modifiers or {}).get("item_rarity_luck_pct", "0")
+        luck = max(Decimal("1") + Decimal(str(raw_luck or 0)), Decimal("0.05"))
+        weighted: list[tuple[int, Decimal]] = []
+        for entry in item_entries:
+            definition_id = entry.get("item_definition_id")
+            if definition_id is None:
+                continue
+            remaining = entry.get("remaining_stock")
+            if remaining is not None and int(remaining) <= 0:
+                continue
+            weight = Decimal(str(entry.get("weight") or 0))
+            rarity_rank = RARITY_RANK.get(str(entry.get("rarity", "common")).lower(), 0)
+            effective_weight = weight * (luck ** rarity_rank)
+            if effective_weight > 0:
+                weighted.append((int(definition_id), effective_weight))
+        total_weight = sum((weight for _, weight in weighted), Decimal("0"))
+        if total_weight <= 0:
+            return {}
+        return {
+            definition_id: gate * (weight / total_weight)
+            for definition_id, weight in weighted
+        }
 
 
 def utcnow() -> datetime:
