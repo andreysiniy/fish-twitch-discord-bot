@@ -368,6 +368,26 @@ ItemEffect = Annotated[
 ]
 
 
+# Compatibility matrix (plan §4): an effect is only valid on an item type
+# when a runtime executor actually processes it there. Anything else would be a
+# schema-valid no-op, so it is rejected at definition time.
+_ITEM_TYPE_EFFECT_COMPATIBILITY: dict[str, frozenset[ItemType]] = {
+    "stat_add": frozenset({ItemType.EQUIPMENT}),
+    "stat_multiply": frozenset({ItemType.EQUIPMENT}),
+    "reroll_reward": frozenset({ItemType.EQUIPMENT}),
+    "block_action": frozenset({ItemType.EQUIPMENT}),
+    "robbery_counter": frozenset({ItemType.EQUIPMENT}),
+    "absorb_robbery": frozenset({ItemType.EQUIPMENT}),
+    "mass_floor": frozenset({ItemType.EQUIPMENT}),
+    "grant_item": frozenset({ItemType.CONSUMABLE, ItemType.LOOTBOX}),
+    "grant_mass": frozenset({ItemType.CONSUMABLE, ItemType.LOOTBOX}),
+    "apply_timeout": frozenset({ItemType.CONSUMABLE, ItemType.LOOTBOX}),
+    "loot_table_roll": frozenset({ItemType.CONSUMABLE, ItemType.LOOTBOX}),
+    "consume_durability": frozenset({ItemType.EQUIPMENT}),
+    "consume_charge": frozenset({ItemType.CONSUMABLE}),
+}
+
+
 class ItemDefinitionData(StrictItemModel):
     item_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
     title: str = Field(..., min_length=1, max_length=120)
@@ -405,13 +425,23 @@ class ItemDefinitionData(StrictItemModel):
             raise ValueError("max_durability is only allowed for equipment")
         for effect in self.effects:
             effect_type = effect.type
-            if effect_type == "consume_durability" and self.item_type != ItemType.EQUIPMENT:
-                raise ValueError("consume_durability is only allowed for equipment")
+            if effect_type == "consume_durability":
+                if self.item_type != ItemType.EQUIPMENT:
+                    raise ValueError("consume_durability is only allowed for equipment")
+                continue
             if effect_type == "consume_charge":
                 if self.item_type != ItemType.CONSUMABLE:
                     raise ValueError("consume_charge is only allowed for consumables")
                 if self.max_charges is None:
                     raise ValueError("consume_charge requires max_charges on the consumable")
+                continue
+            allowed_types = _ITEM_TYPE_EFFECT_COMPATIBILITY.get(effect_type)
+            if allowed_types is None:
+                raise ValueError(f"Unsupported effect type: {effect_type}")
+            if self.item_type not in allowed_types:
+                raise ValueError(
+                    f"{effect_type} is not compatible with {self.item_type.value}"
+                )
         return self
 
 

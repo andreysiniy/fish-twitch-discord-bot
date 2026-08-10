@@ -10,6 +10,8 @@ review-only warnings from spec §65; the backend remains the final authority
 from decimal import Decimal
 from typing import Any
 
+from app.domain.item_effect_registry import effect_label
+
 # A loot box must produce at least one of these to be worth opening (spec §37).
 LOOT_PRODUCING_EFFECTS = frozenset({"loot_table_roll", "grant_item"})
 
@@ -21,6 +23,26 @@ _EQUIPMENT_TYPES = frozenset({"equipment"})
 _CONSUMABLE_TYPES = frozenset({"consumable"})
 _LOOTBOX_TYPES = frozenset({"lootbox"})
 _PASSIVE_STAT_EFFECTS = frozenset({"stat_add", "stat_multiply"})
+
+# Effect / item-type compatibility mirror (plan §4): an effect is only valid on
+# an item type that has a runtime executor. The backend re-validates on submit
+# and is the authority; this mirror keeps Confirm disabled for drafts the
+# backend would reject.
+_EQUIPMENT_ONLY_EFFECTS = frozenset(
+    {
+        "stat_add",
+        "stat_multiply",
+        "reroll_reward",
+        "block_action",
+        "robbery_counter",
+        "absorb_robbery",
+        "mass_floor",
+        "consume_durability",
+    }
+)
+_USE_ONLY_EFFECTS = frozenset(
+    {"grant_item", "grant_mass", "apply_timeout", "loot_table_roll"}
+)
 
 
 def _effect_types(effects: list[dict[str, Any]]) -> list[str]:
@@ -93,7 +115,7 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
         elif not any(effect_type in LOOT_PRODUCING_EFFECTS for effect_type in effect_type_list):
             errors.append("A loot box must contain at least one loot table roll or grant effect.")
 
-    # Effect compatibility (spec §36/§11.4).
+    # Effect compatibility (spec §36/§11.4 + plan §4 matrix).
     for effect in effects:
         effect_type = str(effect.get("type") or "")
         if effect_type == "consume_durability":
@@ -106,9 +128,13 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
                 errors.append("Consume Charge is only compatible with a consumable.")
             elif not max_charges:
                 errors.append("Consume Charge requires a maximum charge count on the consumable.")
-        if effect_type in _PASSIVE_STAT_EFFECTS and item_type not in _EQUIPMENT_TYPES:
-            warnings.append(
-                "Passive stat bonuses only apply to equipped items. This item cannot be equipped."
+        if effect_type in _EQUIPMENT_ONLY_EFFECTS and item_type not in _EQUIPMENT_TYPES:
+            errors.append(
+                f"{effect_label(effect_type)} is only compatible with equipment."
+            )
+        if effect_type in _USE_ONLY_EFFECTS and item_type not in _CONSUMABLE_TYPES | _LOOTBOX_TYPES:
+            errors.append(
+                f"{effect_label(effect_type)} is only compatible with consumables and loot boxes."
             )
         if item_type in _LOOTBOX_TYPES and effect_type == "grant_item":
             if effect.get("item_id") == draft.get("item_id"):

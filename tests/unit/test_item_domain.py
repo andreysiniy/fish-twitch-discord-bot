@@ -264,3 +264,91 @@ def test_equipment_rejects_max_charges_and_consumable_rejects_slot() -> None:
             item_type="consumable",
             equipment_slot="rod",
         )
+
+
+
+def test_compatibility_matrix_blocks_passive_stat_on_non_equipment() -> None:
+    for item_type in ("consumable", "lootbox", "material", "quest", "currency", "collectible"):
+        with pytest.raises(ValidationError, match="stat_add is not compatible"):
+            ItemDefinitionData(
+                item_id=f"bad_stat_{item_type}",
+                title="Bad",
+                item_type=item_type,
+                effects=[
+                    {
+                        "type": "stat_add",
+                        "stat": "fish_luck_change_ratio",
+                        "value": "0.10",
+                    }
+                ],
+            )
+
+
+def test_compatibility_matrix_blocks_grant_effects_on_equipment() -> None:
+    for effect in (
+        {"type": "grant_item", "item_id": "rod_carbon", "quantity": 1},
+        {"type": "grant_mass", "mass": "5"},
+        {"type": "apply_timeout", "duration_seconds": 60},
+        {"type": "loot_table_roll", "loot_table_id": "pool-1", "rolls": 1},
+    ):
+        with pytest.raises(ValidationError, match=f"{effect['type']} is not compatible"):
+            ItemDefinitionData(
+                item_id="bad_equip_grant",
+                title="Bad",
+                item_type="equipment",
+                equipment_slot="rod",
+                effects=[effect],
+            )
+
+
+def test_compatibility_matrix_blocks_equipment_effects_on_material() -> None:
+    for effect in (
+        {"type": "reroll_reward", "trigger": "after_reward_roll", "target_action_types": ["nothing"], "max_rerolls": 1},
+        {"type": "block_action", "trigger": "on_robbery_attempt", "target_action_types": ["robbery"], "chance": "1"},
+        {"type": "robbery_counter", "trigger": "on_robbery_attempt", "chance": "1", "action": {"type": "timeout", "duration_seconds": 30}},
+        {"type": "absorb_robbery", "trigger": "on_robbery_attempt", "chance": "1"},
+        {"type": "mass_floor", "protected_mass": "1000", "scopes": ["robbery"]},
+    ):
+        with pytest.raises(ValidationError, match=f"{effect['type']} is not compatible"):
+            ItemDefinitionData(
+                item_id="bad_material_effect",
+                title="Bad",
+                item_type="material",
+                effects=[effect],
+            )
+
+
+def test_compatibility_matrix_accepts_valid_combinations() -> None:
+    equipment = ItemDefinitionData(
+        item_id="lucky_rod",
+        title="Lucky Rod",
+        item_type="equipment",
+        equipment_slot="rod",
+        effects=[
+            {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"},
+            {"type": "reroll_reward", "trigger": "after_reward_roll", "target_action_types": ["nothing"], "max_rerolls": 1},
+            {"type": "mass_floor", "protected_mass": "1000", "scopes": ["robbery", "negative_rewards"]},
+        ],
+    )
+    assert equipment.effects
+
+    consumable = ItemDefinitionData(
+        item_id="gift_bag",
+        title="Gift Bag",
+        item_type="consumable",
+        effects=[
+            {"type": "grant_item", "item_id": "rod_bamboo", "quantity": 1},
+            {"type": "grant_mass", "mass": "5"},
+        ],
+    )
+    assert consumable.effects
+
+    lootbox = ItemDefinitionData(
+        item_id="lootbox_pool",
+        title="Lootbox Pool",
+        item_type="lootbox",
+        effects=[
+            {"type": "loot_table_roll", "loot_table_id": "pool-1", "rolls": 2},
+        ],
+    )
+    assert lootbox.effects

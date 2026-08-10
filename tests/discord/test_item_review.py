@@ -208,13 +208,37 @@ def test_consumable_max_charges_with_wrong_stack_blocks() -> None:
     assert any("stack size 1" in error.lower() for error in errors)
 
 
-def test_passive_stat_on_non_equipment_warns() -> None:
-    _, warnings = compatibility_issues(
+def test_passive_stat_on_non_equipment_blocks() -> None:
+    errors, _ = compatibility_issues(
         _material_draft(
             effects=[{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"}]
         )
     )
-    assert any("only apply to equipped items" in warning for warning in warnings)
+    assert any("only compatible with equipment" in error for error in errors)
+
+
+def test_equipment_only_effect_on_consumable_blocks() -> None:
+    errors, _ = compatibility_issues(
+        _consumable_draft(
+            effects=[
+                {
+                    "type": "mass_floor",
+                    "protected_mass": "1000",
+                    "scopes": ["robbery"],
+                }
+            ]
+        )
+    )
+    assert any("only compatible with equipment" in error for error in errors)
+
+
+def test_use_effect_on_equipment_blocks() -> None:
+    errors, _ = compatibility_issues(
+        _equipment_draft(
+            effects=[{"type": "grant_mass", "mass": "5"}]
+        )
+    )
+    assert any("only compatible with consumables and loot boxes" in error for error in errors)
 
 
 def test_large_fishing_bonus_warns() -> None:
