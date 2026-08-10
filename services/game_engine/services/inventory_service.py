@@ -176,7 +176,7 @@ class InventoryService:
             "stack_size": definition.stack_size,
             "image_url": definition.image_url,
             "effects": definition.effects or [],
-            "definition_version": item.definition_version,
+            "definition_version": definition.version,
             "obtained_definition_version": item.obtained_definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
