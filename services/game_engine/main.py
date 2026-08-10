@@ -14,11 +14,12 @@ from api.routes import (
 )
 from core.api_errors import ApiProblem
 from core.config import settings
+from core import metrics as metrics_module
 from core.logging_config import configure_logging, reset_request_id, set_request_id
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from infrastructure.database import SessionLocal
 from infrastructure.migration_status import get_schema_revisions
 from infrastructure.redis_client import RedisClient
@@ -136,6 +137,12 @@ def readiness() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return readiness()
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics() -> PlainTextResponse:
+    """Expose the process counters to a Prometheus-compatible scrape."""
+    return PlainTextResponse(metrics_module.prometheus_text())
 
 
 if __name__ == "__main__":

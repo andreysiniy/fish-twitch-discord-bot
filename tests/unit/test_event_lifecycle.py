@@ -136,3 +136,61 @@ def test_due_events_are_ended_directly_from_postgres(monkeypatch) -> None:
     assert ended_count == 1
     assert channel_repo.deactivated == [7]
     assert channel_repo.ended == [1]
+
+
+def test_due_event_cancels_scheduler_by_twitch_channel_id() -> None:
+    from services.eventing.event_lifecycle_service import FishingEventLifecycleService
+
+    now = datetime.now(timezone.utc)
+    due = SimpleNamespace(
+        id=1,
+        channel_id=7,
+        channel=SimpleNamespace(twitch_id="twitch-7"),
+        is_active=True,
+        status="active",
+        ends_at=now - timedelta(seconds=1),
+        deactivated_at=None,
+    )
+
+    class FakeQuery:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def with_for_update(self, skip_locked=False):
+            return self
+
+        def limit(self, amount):
+            return self
+
+        def all(self):
+            return [due]
+
+    class FakeDb:
+        def query(self, model):
+            return FakeQuery()
+
+    class FakeChannelRepo:
+        db = FakeDb()
+
+        def set_active_fishing_event(self, channel_id, value):
+            pass
+
+    class FakeScheduler:
+        def __init__(self):
+            self.cancelled = []
+
+        def cancel_scheduled_disable(self, value):
+            self.cancelled.append(value)
+
+        def get_due_jobs(self, limit=50):
+            return []
+
+    scheduler = FakeScheduler()
+    service = FishingEventLifecycleService.__new__(FishingEventLifecycleService)
+    service.channel_repo = FakeChannelRepo()
+    service.scheduler = scheduler
+    service._mark_event_ended = lambda event: None
+
+    service._end_due_events_from_postgres()
+
+    assert scheduler.cancelled == ["twitch-7"]

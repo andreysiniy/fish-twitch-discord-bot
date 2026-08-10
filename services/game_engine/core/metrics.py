@@ -52,6 +52,36 @@ def log_summary(logger: Any) -> None:
     logger.info("fishing_metrics_snapshot metrics=%s", values)
 
 
+def prometheus_text() -> str:
+    """Render the in-process metrics as a scrapeable Prometheus payload."""
+    with _LOCK:
+        counters = dict(_COUNTERS)
+        gauges = dict(_GAUGES)
+
+    lines: list[str] = []
+    seen_types: set[str] = set()
+    for key, value in {**counters, **gauges}.items():
+        name, separator, raw_labels = key.partition("{")
+        metric_type = "gauge" if key in gauges else "counter"
+        if name not in seen_types:
+            lines.append(f"# TYPE {name} {metric_type}")
+            seen_types.add(name)
+        labels = ""
+        if separator and raw_labels.endswith("}"):
+            pairs = []
+            for pair in raw_labels[:-1].split(","):
+                label_name, _, label_value = pair.partition("=")
+                escaped = label_value.replace("\\", "\\\\").replace('"', '\\"')
+                pairs.append(f'{label_name}="{escaped}"')
+            labels = "{" + ",".join(pairs) + "}"
+        try:
+            rendered = str(float(value)) if isinstance(value, float) else str(value)
+        except Exception:
+            continue
+        lines.append(f"{name}{labels} {rendered}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def count_cast(status: str, reward_type: str | None = None) -> None:
     labels = {"status": status}
     if reward_type:
