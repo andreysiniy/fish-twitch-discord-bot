@@ -425,6 +425,8 @@ class ItemDefinitionData(StrictItemModel):
             raise ValueError("max_durability is only allowed for equipment")
         for effect in self.effects:
             effect_type = effect.type
+            if effect_type == "grant_item" and effect.item_id == self.item_id:
+                raise ValueError("An item cannot grant itself")
             if effect_type == "consume_durability":
                 if self.item_type != ItemType.EQUIPMENT:
                     raise ValueError("consume_durability is only allowed for equipment")

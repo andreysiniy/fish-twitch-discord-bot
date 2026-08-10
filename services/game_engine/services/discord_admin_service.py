@@ -69,6 +69,7 @@ from services.idempotency_service import IdempotencyService
 from services.inventory_service import InventoryService
 from services.legacy_rewards import convert_legacy_rewards
 from services.player_modifier_service import PlayerModifierService
+from services.item_dependency_validator import validate_item_dependency_graph
 from sqlalchemy.orm.attributes import flag_modified
 
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
@@ -634,6 +635,12 @@ class DiscordAdminService:
                 .with_for_update(of=ItemDefinition)
                 .first()
             )
+            validate_item_dependency_graph(
+                self.db,
+                channel.id,
+                data.item_id,
+                data.effects,
+            )
             before = self._serialize_item_definition(existing, channel) if existing else {}
             row = self.channel_repo.upsert_item_definition(
                 channel_twitch_id=channel.twitch_id,
@@ -928,6 +935,15 @@ class DiscordAdminService:
             row.weight = data.weight
             row.xp_gain = data.xp_gain
             row.message = data.message
+            try:
+                validate_item_dependency_graph(
+                    self.db,
+                    channel.id,
+                    definition.item_id,
+                    definition.effects or [],
+                )
+            except ValueError as error:
+                raise ApiProblem(422, "VALIDATION_ERROR", str(error)) from error
             stock = (
                 self.db.query(LootTableEntryStock)
                 .filter(LootTableEntryStock.loot_table_entry_id == row.id)

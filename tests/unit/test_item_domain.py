@@ -248,6 +248,16 @@ def test_consume_charge_requires_consumable_with_max_charges() -> None:
         )
 
 
+def test_item_cannot_directly_grant_itself() -> None:
+    with pytest.raises(ValidationError, match="cannot grant itself"):
+        ItemDefinitionData(
+            item_id="self_box",
+            title="Self Box",
+            item_type="lootbox",
+            effects=[{"type": "grant_item", "item_id": "self_box", "quantity": 2}],
+        )
+
+
 def test_equipment_rejects_max_charges_and_consumable_rejects_slot() -> None:
     with pytest.raises(ValidationError, match="max_charges is only allowed for consumables"):
         ItemDefinitionData(
