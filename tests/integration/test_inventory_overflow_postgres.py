@@ -36,18 +36,22 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _context(key: str) -> DiscordServiceContext:
+def _context(key: str, suffix: str) -> DiscordServiceContext:
+    discord_user_id = f"1001-{suffix}"
+    discord_guild_id = f"2001-{suffix}"
     return DiscordServiceContext(
-        discord_user_id="1001",
-        discord_guild_id="2001",
+        discord_user_id=discord_user_id,
+        discord_guild_id=discord_guild_id,
         request_id=f"request-{key}",
-        idempotency_key=f"integration:overflow:{key}",
+        idempotency_key=f"integration:overflow:{suffix}:{key}",
         can_manage_guild=True,
         management_channel_id="3001",
     )
 
 
 def _seed(db, suffix: str, *, slots: int = 1) -> tuple[Channel, UserProgress, ItemDefinition]:
+    discord_user_id = f"1001-{suffix}"
+    discord_guild_id = f"2001-{suffix}"
     channel = Channel(twitch_id=f"overflow-{suffix}", name="Overflow Channel", config={})
     db.add(channel)
     db.flush()
@@ -71,16 +75,16 @@ def _seed(db, suffix: str, *, slots: int = 1) -> tuple[Channel, UserProgress, It
             player,
             definition,
             DiscordAccountLink(
-                discord_user_id="1001",
+                discord_user_id=discord_user_id,
                 twitch_user_id=channel.twitch_id,
                 twitch_login=channel.name,
                 verified_at=now,
                 last_verified_at=now,
             ),
             DiscordGuildBinding(
-                discord_guild_id="2001",
+                discord_guild_id=discord_guild_id,
                 channel_id=channel.id,
-                configured_by_discord_id="1001",
+                configured_by_discord_id=discord_user_id,
             ),
         ]
     )
@@ -109,7 +113,7 @@ def test_overflow_rows_are_parked_and_listed_for_the_owner() -> None:
         service = DiscordAdminService(db)
 
         listed = service.list_player_overflow(
-            _context("list"), channel.twitch_id, player.user_twitch_id
+            _context("list", suffix), channel.twitch_id, player.user_twitch_id
         )
         assert listed["user_twitch_id"] == player.user_twitch_id
         assert len(listed["items"]) == 1
@@ -131,8 +135,8 @@ def test_overflow_rows_are_parked_and_listed_for_the_owner() -> None:
         db.add(other)
         db.flush()
         assert (
-            service.list_player_overflow(
-                _context("list-other"), channel.twitch_id, other.user_twitch_id
+                service.list_player_overflow(
+                _context("list-other", suffix), channel.twitch_id, other.user_twitch_id
             )["items"]
             == []
         )
@@ -152,7 +156,7 @@ def test_claim_overflow_grants_item_and_marks_row_claimed() -> None:
         service = DiscordAdminService(db)
 
         result = service.claim_player_overflow(
-            _context("claim-ok"),
+            _context("claim-ok", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(
@@ -195,10 +199,10 @@ def test_claim_overflow_is_idempotent_and_does_not_double_grant() -> None:
         )
 
         first = service.claim_player_overflow(
-            _context("claim-replay"), channel.twitch_id, player.user_twitch_id, request
+            _context("claim-replay", suffix), channel.twitch_id, player.user_twitch_id, request
         )
         replay = service.claim_player_overflow(
-            _context("claim-replay"), channel.twitch_id, player.user_twitch_id, request
+            _context("claim-replay", suffix), channel.twitch_id, player.user_twitch_id, request
         )
 
         assert replay == first
@@ -235,7 +239,7 @@ def test_claim_overflow_when_inventory_full_returns_capacity_conflict() -> None:
         service = DiscordAdminService(db)
 
         result = service.claim_player_overflow(
-            _context("claim-full"),
+            _context("claim-full", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(
@@ -267,7 +271,7 @@ def test_claim_overflow_stale_version_returns_version_conflict() -> None:
         service = DiscordAdminService(db)
 
         result = service.claim_player_overflow(
-            _context("claim-stale"),
+            _context("claim-stale", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(items=[PlayerOverflowItemDTO(id=parked.id, version=99)]),
@@ -296,7 +300,7 @@ def test_claim_overflow_unknown_or_already_claimed_row_is_not_found() -> None:
         service = DiscordAdminService(db)
 
         missing = service.claim_player_overflow(
-            _context("claim-missing"),
+            _context("claim-missing", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(items=[PlayerOverflowItemDTO(id=999_999, version=1)]),
@@ -305,7 +309,7 @@ def test_claim_overflow_unknown_or_already_claimed_row_is_not_found() -> None:
         assert missing["failed"][0]["code"] == "OVERFLOW_ITEM_NOT_FOUND"
 
         service.claim_player_overflow(
-            _context("claim-first"),
+            _context("claim-first", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(
@@ -313,7 +317,7 @@ def test_claim_overflow_unknown_or_already_claimed_row_is_not_found() -> None:
             ),
         )
         repeat = service.claim_player_overflow(
-            _context("claim-repeat"),
+            _context("claim-repeat", suffix),
             channel.twitch_id,
             player.user_twitch_id,
             PlayerOverflowClaimRequest(
@@ -336,7 +340,7 @@ def test_overflow_claim_requires_permission() -> None:
         parked = _park(db, player, definition)
         db.add(
             DiscordAccountLink(
-                discord_user_id="1002",
+                discord_user_id=f"1002-{suffix}",
                 twitch_user_id=f"outsider-{suffix}",
                 twitch_login=f"outsider_{suffix}",
                 verified_at=datetime.now(timezone.utc),
@@ -346,10 +350,10 @@ def test_overflow_claim_requires_permission() -> None:
         db.flush()
         service = DiscordAdminService(db)
         outsider = DiscordServiceContext(
-            discord_user_id="1002",
-            discord_guild_id="2001",
-            request_id="request-claim-forbidden",
-            idempotency_key="integration:overflow:claim-forbidden",
+            discord_user_id=f"1002-{suffix}",
+            discord_guild_id=f"2001-{suffix}",
+            request_id=f"request-claim-forbidden-{suffix}",
+            idempotency_key=f"integration:overflow:{suffix}:claim-forbidden",
             can_manage_guild=True,
             management_channel_id="3001",
         )
