@@ -38,6 +38,7 @@ from services.fishing.engine import FishingEngine
 from services.fishing.ledger_service import FishingLedgerService
 from services.fishing.presenter import FishingPresenter
 from services.fishing.strategy_resolver import FishingStrategyResolver
+from services.loot_table_service import LootTableRollService
 from services.player_modifier_service import PlayerModifierService
 
 logger = logging.getLogger(__name__)
@@ -290,11 +291,20 @@ class FishingService:
                 int(result.item_drop.get("quantity_requested") or 0) or 1,
                 1,
             )
-            ok, before, after, reserved = self.config_repo.reserve_loot_table_entry_stock(
-                result.item_drop.get("loot_table_entry_id")
-                or result.item_drop.get("db_id"),
-                quantity_requested,
-            )
+            resolution = result.item_drop_resolution
+            if resolution is not None:
+                resolution.quantity_requested = quantity_requested
+                resolution = LootTableRollService(self.user_repo.db).reserve(resolution)
+                ok = resolution.status != "stock_empty"
+                before = resolution.stock_before
+                after = resolution.stock_after
+                reserved = resolution.quantity_granted
+            else:
+                ok, before, after, reserved = self.config_repo.reserve_loot_table_entry_stock(
+                    result.item_drop.get("loot_table_entry_id")
+                    or result.item_drop.get("db_id"),
+                    quantity_requested,
+                )
             result.item_drop["stock_reserved"] = ok
             result.item_drop["stock_before"] = before
             result.item_drop["stock_after"] = after
@@ -307,7 +317,7 @@ class FishingService:
                 # different times from merging.
                 item_meta = dict(result.item_drop.get("meta") or {})
                 try:
-                    InventoryRepository(
+                    granted_rows = InventoryRepository(
                         self.user_repo.db,
                         max_slots_add=self.modifier_service.inventory_slot_bonus(user),
                     ).grant_many(
@@ -323,8 +333,17 @@ class FishingService:
                             }
                         ],
                     )
+                    result.item_drop["inventory_grants"] = [
+                        {"slot_id": row.slot_id, "quantity": row.quantity}
+                        for row in granted_rows
+                    ]
                     result.item_drop["grant_success"] = True
                     result.item_drop["quantity"] = reserved
+                    if resolution is not None:
+                        resolution.status = "granted"
+                        resolution.delivery_target = "inventory"
+                        resolution.quantity_granted = reserved
+                        resolution.inventory_grants = result.item_drop["inventory_grants"]
                 except InventoryCapacityError:
                     # A full inventory must not cancel the cast or lose a
                     # finite-stock drop: park the item in durable overflow
@@ -336,6 +355,9 @@ class FishingService:
                         # Without a definition id the drop cannot be parked;
                         # treat it as a failed grant (no item, no item XP).
                         result.item_drop["grant_success"] = False
+                        if resolution is not None:
+                            resolution.status = "failed"
+                            resolution.failure_reason = "item definition is unavailable"
                     else:
                         self.overflow_repo.park(
                             user=user,
@@ -347,7 +369,14 @@ class FishingService:
                         result.item_drop["grant_success"] = True
                         result.item_drop["quantity"] = reserved
                         result.item_drop["overflowed"] = True
+                        if resolution is not None:
+                            resolution.status = "overflowed"
+                            resolution.delivery_target = "overflow"
+                            resolution.quantity_granted = reserved
             else:
+                if resolution is not None:
+                    resolution.status = "stock_empty"
+                    resolution.failure_reason = "entry stock exhausted"
                 result.item_drop = None
 
         if result.item_drop is None or not result.item_drop.get("grant_success"):

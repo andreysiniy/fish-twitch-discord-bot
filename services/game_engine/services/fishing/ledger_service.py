@@ -152,6 +152,13 @@ class FishingLedgerService:
         recovered as ``current_mass - applied_delta``.
         """
         loot = result.loot or {}
+        typed_item = result.item_drop_resolution
+        item_payload = (
+            result.item_drop
+            if result.item_drop is not None
+            else typed_item.model_dump(mode="json") if typed_item is not None else None
+        )
+        item_present = item_payload is not None
         pool = self._find_pool(user, pool_location_id)
         reward_id = loot.get("reward_id") or loot.get("identifier") or loot.get("id")
         reward_type = loot.get("type")
@@ -224,8 +231,12 @@ class FishingLedgerService:
             reward_probability=_decimal_or_none(_trace_value(result.reward_roll_trace, "selected_probability")),
             reward_roll=_decimal_or_none(_trace_value(result.reward_roll_trace, "roll")),
             reward_snapshot=loot,
-            item_drop_succeeded=result.item_drop is not None,
-            item_drop_count=1 if result.item_drop is not None else 0,
+            item_drop_succeeded=bool(
+                item_payload is not None
+                and (item_payload.get("grant_success") is not False)
+                and (typed_item is None or typed_item.status not in {"failed", "stock_empty"})
+            ),
+            item_drop_count=1 if item_present else 0,
             item_drop_probability=result.item_drop_probability,
             item_drop_roll=result.item_drop_roll,
             item_drop_gate_success=bool(
@@ -233,14 +244,23 @@ class FishingLedgerService:
                     _stage_by_name(result, "item_drop_gate"), "success"
                 )
             )
-            if result.item_drop is not None
+            if item_present
             else None,
-            item_drop_selection_success=result.item_drop is not None,
-            item_drop_stock_reserved=bool(result.item_drop.get("stock_reserved"))
-            if result.item_drop is not None
+            item_drop_selection_success=item_present,
+            item_drop_stock_reserved=(
+                bool(item_payload.get("stock_reserved"))
+                if "stock_reserved" in item_payload
+                else typed_item is not None and typed_item.status != "stock_empty"
+            )
+            if item_present
             else None,
-            item_drop_grant_success=bool(result.item_drop.get("grant_success"))
-            if result.item_drop is not None
+            item_drop_grant_success=(
+                bool(item_payload.get("grant_success"))
+                if "grant_success" in item_payload
+                else typed_item is not None
+                and typed_item.status in {"granted", "overflowed"}
+            )
+            if item_present
             else None,
             resolved_modifiers=json.loads(trace_builder.compact_json(resolved_modifiers)),
             modifier_sources=json.loads(trace_builder.compact_json(explanation)),
@@ -325,15 +345,26 @@ class FishingLedgerService:
         )
 
     def _record_item_drop(self, cast, result: FishingResult) -> None:
+        resolution = result.item_drop_resolution
         item = result.item_drop
+        if item is None and resolution is not None:
+            # The typed resolution is the canonical forensic record even when
+            # delivery failed after selection (for example stock exhaustion).
+            item = resolution.model_dump(mode="json")
         if not item:
             return
+        if resolution is not None:
+            typed = resolution.model_dump(mode="json")
+            typed.update(item)
+            item = typed
         selection_trace = _stage_by_name(result, "item_selection") or {}
         quantity_requested = int(item.get("quantity_requested") or 0) or int(
             item.get("quantity") or 1
         )
         grant_status = "granted"
-        if item.get("grant_success") is False:
+        if resolution is not None and resolution.status in {"failed", "stock_empty"}:
+            grant_status = resolution.status
+        elif item.get("grant_success") is False:
             grant_status = "failed"
         elif item.get("stock_reserved") is False:
             grant_status = "stock_empty"
