@@ -20,6 +20,8 @@ class ChannelPermission(str, Enum):
     PLAYER_MODIFIERS_WRITE = "channel.player_modifiers.write"
     CASTS_READ = "channel.casts.read"
     CASTS_TECHNICAL_READ = "channel.casts.technical_read"
+    RECONCILIATION_READ = "channel.reconciliation.read"
+    RECONCILIATION_WRITE = "channel.reconciliation.write"
 
 
 ROLE_PERMISSIONS = {

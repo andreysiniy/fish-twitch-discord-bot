@@ -15,6 +15,7 @@ from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
 from domain.item_schema import ModifierScope
 from domain.logic.formulas import geometric_first_success_stats
+from domain.logic.mass import apply_mass_mutation
 from domain.schemas.admin import ChannelCreateDTO
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
@@ -33,12 +34,14 @@ from domain.schemas.discord_admin import (
     PlayerItemRevokeRequest,
     PlayerModifierSetRequest,
     PlayerOverflowClaimRequest,
+    ReconciliationActionRequest,
     RewardCreateRequest,
     RewardPatchRequest,
     VersionedStateRequest,
 )
 from infrastructure.models import (
     AdminAuditLog,
+    EconomyOperation,
     LootTable,
     LootTableEntry,
     LootTableEntryStock,
@@ -50,6 +53,7 @@ from infrastructure.models import (
     InventoryOverflowItem,
     ItemDefinition,
     PlayerModifier,
+    OutboxEvent,
     RewardPool,
     UserProgress,
 )
@@ -2616,3 +2620,246 @@ class DiscordAdminService:
                 ),
             }
         return detail
+
+    # --- Economy reconciliation --------------------------------------------
+
+    def list_reconciliation(self, context, channel_twitch_id: str, *, limit: int = 100) -> dict:
+        channel, _ = self._authorize(
+            context, ChannelPermission.RECONCILIATION_READ, channel_twitch_id
+        )
+        events = (
+            self.db.query(OutboxEvent)
+            .filter(OutboxEvent.state == "reconciliation_required")
+            .order_by(OutboxEvent.created_at.asc())
+            .limit(max(1, min(limit, 100)))
+            .all()
+        )
+        items = []
+        for event in events:
+            operation = self._reconciliation_operation(event, channel.id)
+            if operation is not None:
+                items.append(self._serialize_reconciliation(event, operation))
+        return {"items": items, "count": len(items)}
+
+    def get_reconciliation(self, context, channel_twitch_id: str, event_id: str) -> dict:
+        channel, _ = self._authorize(
+            context, ChannelPermission.RECONCILIATION_READ, channel_twitch_id
+        )
+        event, operation = self._find_reconciliation(event_id, channel.id)
+        return self._serialize_reconciliation(event, operation)
+
+    def retry_reconciliation(
+        self,
+        context,
+        channel_twitch_id: str,
+        event_id: str,
+        data: ReconciliationActionRequest,
+    ) -> dict:
+        return self._run_reconciliation_action(
+            context,
+            channel_twitch_id,
+            event_id,
+            data,
+            "economy.reconciliation.retry",
+            self._retry_reconciliation,
+        )
+
+    def complete_reconciliation(
+        self,
+        context,
+        channel_twitch_id: str,
+        event_id: str,
+        data: ReconciliationActionRequest,
+    ) -> dict:
+        return self._run_reconciliation_action(
+            context,
+            channel_twitch_id,
+            event_id,
+            data,
+            "economy.reconciliation.complete",
+            self._complete_reconciliation,
+        )
+
+    def compensate_reconciliation(
+        self,
+        context,
+        channel_twitch_id: str,
+        event_id: str,
+        data: ReconciliationActionRequest,
+    ) -> dict:
+        return self._run_reconciliation_action(
+            context,
+            channel_twitch_id,
+            event_id,
+            data,
+            "economy.reconciliation.compensate",
+            self._compensate_reconciliation,
+        )
+
+    def dead_letter_reconciliation(
+        self,
+        context,
+        channel_twitch_id: str,
+        event_id: str,
+        data: ReconciliationActionRequest,
+    ) -> dict:
+        return self._run_reconciliation_action(
+            context,
+            channel_twitch_id,
+            event_id,
+            data,
+            "economy.reconciliation.dead_letter",
+            self._dead_letter_reconciliation,
+        )
+
+    def _run_reconciliation_action(
+        self,
+        context,
+        channel_twitch_id: str,
+        event_id: str,
+        data: ReconciliationActionRequest,
+        action: str,
+        callback,
+    ) -> dict:
+        channel, link = self._authorize(
+            context,
+            ChannelPermission.RECONCILIATION_WRITE,
+            channel_twitch_id,
+            for_update=True,
+        )
+
+        def mutation() -> dict:
+            event, operation = self._find_reconciliation(event_id, channel.id, for_update=True)
+            self._check_version(event.version, data.expected_version, context)
+            before = self._serialize_reconciliation(event, operation)
+            callback(event, operation, channel)
+            event.version += 1
+            operation.version += 1
+            after = self._serialize_reconciliation(event, operation)
+            after["reason"] = data.reason
+            self._audit(
+                context,
+                link.twitch_user_id,
+                action,
+                "economy_reconciliation",
+                event.id,
+                before,
+                {**after, "channel_twitch_id": channel.twitch_id},
+            )
+            return after
+
+        return self.idempotency.execute(
+            context.actor_scope,
+            context.idempotency_key,
+            action,
+            {"event_id": event_id, **data.model_dump(mode="json")},
+            context.request_id,
+            mutation,
+        )
+
+    def _find_reconciliation(
+        self,
+        event_id: str,
+        channel_id: int,
+        *,
+        for_update: bool = False,
+    ) -> tuple[OutboxEvent, EconomyOperation]:
+        query = self.db.query(OutboxEvent).filter(
+            OutboxEvent.id == event_id,
+            OutboxEvent.state == "reconciliation_required",
+        )
+        if for_update:
+            query = query.with_for_update()
+        event = query.first()
+        if event is None:
+            raise ApiProblem(404, "RECONCILIATION_NOT_FOUND", "Reconciliation record not found")
+        operation_id = str((event.payload or {}).get("operation_id") or "")
+        operation_query = self.db.query(EconomyOperation).filter(
+            EconomyOperation.id == operation_id,
+            EconomyOperation.channel_id == channel_id,
+        )
+        if for_update:
+            operation_query = operation_query.with_for_update()
+        operation = operation_query.first()
+        if operation is None:
+            raise ApiProblem(409, "RECONCILIATION_ORPHANED", "Economy operation is unavailable")
+        return event, operation
+
+    def _reconciliation_operation(self, event: OutboxEvent, channel_id: int):
+        operation_id = str((event.payload or {}).get("operation_id") or "")
+        return (
+            self.db.query(EconomyOperation)
+            .filter(
+                EconomyOperation.id == operation_id,
+                EconomyOperation.channel_id == channel_id,
+            )
+            .first()
+        )
+
+    @staticmethod
+    def _serialize_reconciliation(event: OutboxEvent, operation: EconomyOperation) -> dict:
+        return {
+            "id": str(event.id),
+            "operation_id": str(operation.id),
+            "event_state": event.state,
+            "operation_state": operation.state,
+            "version": event.version,
+            "operation_version": operation.version,
+            "operation_type": operation.operation_type,
+            "mass_delta": str(operation.mass_delta),
+            "points_delta": operation.points_delta,
+            "attempts": event.attempts,
+            "last_error": event.last_error or operation.last_error,
+            "created_at": event.created_at.isoformat(),
+            "updated_at": event.created_at.isoformat(),
+        }
+
+    @staticmethod
+    def _retry_reconciliation(event, operation, channel) -> None:
+        event.state = "pending"
+        event.next_attempt_at = datetime.now(timezone.utc)
+        event.lease_expires_at = None
+        operation.state = "pending"
+
+    @staticmethod
+    def _complete_reconciliation(event, operation, channel) -> None:
+        now = datetime.now(timezone.utc)
+        event.state = "processed"
+        event.processed_at = now
+        event.lease_expires_at = None
+        operation.state = "completed"
+        operation.external_applied = True
+
+    def _compensate_reconciliation(self, event, operation, channel) -> None:
+        if operation.operation_type != "sell":
+            raise ApiProblem(
+                422,
+                "RECONCILIATION_UNSUPPORTED",
+                "Only sell operations can be compensated automatically",
+            )
+        user = (
+            self.db.query(UserProgress)
+            .filter(
+                UserProgress.id == operation.user_id,
+                UserProgress.channel_id == operation.channel_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if user is None:
+            raise ApiProblem(409, "RECONCILIATION_ORPHANED", "Refund target is unavailable")
+        if operation.compensated_at is None:
+            refund = max(-Decimal(str(operation.mass_delta)), Decimal("0"))
+            apply_mass_mutation(user, refund, track_total=False)
+            operation.compensated_at = datetime.now(timezone.utc)
+        operation.external_applied = False
+        operation.state = "compensated"
+        event.state = "compensated"
+        event.processed_at = datetime.now(timezone.utc)
+        event.lease_expires_at = None
+
+    @staticmethod
+    def _dead_letter_reconciliation(event, operation, channel) -> None:
+        event.state = "dead_letter"
+        event.lease_expires_at = None
+        operation.state = "dead_letter"

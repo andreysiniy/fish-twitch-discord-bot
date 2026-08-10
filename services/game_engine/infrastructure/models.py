@@ -462,6 +462,7 @@ class EconomyOperation(Base):
     state = Column(String, nullable=False, default="pending", index=True)
     external_applied = Column(Boolean, nullable=False, default=False)
     attempts = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
     last_error = Column(Text, nullable=True)
     response_payload = Column(JSONB, default=dict, nullable=False)
     created_at = Column(
@@ -494,6 +495,7 @@ class OutboxEvent(Base):
     payload = Column(JSONB, default=dict, nullable=False)
     state = Column(String, nullable=False, default="pending", index=True)
     attempts = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
     last_error = Column(Text, nullable=True)
     next_attempt_at = Column(
         DateTime(timezone=True),
