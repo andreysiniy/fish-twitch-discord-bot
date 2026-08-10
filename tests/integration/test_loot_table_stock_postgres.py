@@ -184,3 +184,220 @@ def test_loot_table_drop_records_definition_id_not_entry_id() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_loot_table_roll_service_reserves_clamped_quantity() -> None:
+    """The shared roll service reserves the rolled quantity and clamps it."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        channel = Channel(twitch_id=f"clamp-{suffix}", name="Clamp", config={})
+        db.add(channel)
+        db.flush()
+        definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="clamp_rod",
+            title="Clamp Rod",
+            type="equipment",
+            slot="rod",
+            rarity="rare",
+            stack_size=1,
+        )
+        db.add(definition)
+        db.flush()
+        table = LootTable(channel_id=channel.id, table_id="clamp_table", title="Clamp")
+        db.add(table)
+        db.flush()
+        entry = LootTableEntry(
+            loot_table_id=table.id,
+            channel_id=channel.id,
+            item_definition_id=definition.id,
+            weight=100,
+            xp_gain=5,
+            min_quantity=3,
+            max_quantity=5,
+        )
+        db.add(entry)
+        db.flush()
+        db.add(LootTableEntryStock(loot_table_entry_id=entry.id, remaining_quantity=2))
+        db.commit()
+
+        from services.loot_table_service import LootTableRollService
+
+        rolls = iter([0.0, 0.9])
+        resolutions = LootTableRollService(db).roll(
+            channel.id,
+            "clamp_table",
+            rolls=1,
+            random_source=lambda: next(rolls),
+        )
+        assert len(resolutions) == 1
+        resolution = resolutions[0]
+        assert resolution.quantity_requested == 5
+        assert resolution.quantity_granted == 2
+        assert resolution.stock_before == 2
+        assert resolution.stock_after == 0
+        assert resolution.status == "selected"
+        stock = (
+            db.query(LootTableEntryStock)
+            .filter(LootTableEntryStock.loot_table_entry_id == entry.id)
+            .one()
+        )
+        assert stock.remaining_quantity == 0
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_loot_table_roll_service_skips_exhausted_entries() -> None:
+    """Stock=0 entries never win the roll; the service returns no drop."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        channel = Channel(twitch_id=f"empty-{suffix}", name="Empty", config={})
+        db.add(channel)
+        db.flush()
+        definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="empty_rod",
+            title="Empty Rod",
+            type="equipment",
+            slot="rod",
+            rarity="common",
+            stack_size=1,
+        )
+        db.add(definition)
+        db.flush()
+        table = LootTable(channel_id=channel.id, table_id="empty_table", title="Empty")
+        db.add(table)
+        db.flush()
+        entry = LootTableEntry(
+            loot_table_id=table.id,
+            channel_id=channel.id,
+            item_definition_id=definition.id,
+            weight=100,
+            min_quantity=1,
+            max_quantity=1,
+        )
+        db.add(entry)
+        db.flush()
+        db.add(LootTableEntryStock(loot_table_entry_id=entry.id, remaining_quantity=0))
+        db.commit()
+
+        from services.loot_table_service import LootTableRollService
+
+        resolutions = LootTableRollService(db).roll(
+            channel.id, "empty_table", rolls=3, random_source=lambda: 0.0
+        )
+        assert resolutions == []
+        stock = (
+            db.query(LootTableEntryStock)
+            .filter(LootTableEntryStock.loot_table_entry_id == entry.id)
+            .one()
+        )
+        assert stock.remaining_quantity == 0
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_fishing_and_lootbox_share_candidates_and_selection() -> None:
+    """Both drop paths resolve the same candidates and pick the same entry."""
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        channel = Channel(twitch_id=f"shared-{suffix}", name="Shared", config={})
+        db.add(channel)
+        db.flush()
+        rod = ItemDefinition(
+            channel_id=channel.id,
+            item_id="shared_rod",
+            title="Shared Rod",
+            type="equipment",
+            slot="rod",
+            rarity="rare",
+            stack_size=1,
+        )
+        bait = ItemDefinition(
+            channel_id=channel.id,
+            item_id="shared_bait",
+            title="Shared Bait",
+            type="material",
+            rarity="common",
+            stack_size=10,
+        )
+        db.add_all([rod, bait])
+        db.flush()
+        table = LootTable(channel_id=channel.id, table_id="shared_table", title="Shared")
+        db.add(table)
+        db.flush()
+        rod_entry = LootTableEntry(
+            loot_table_id=table.id,
+            channel_id=channel.id,
+            item_definition_id=rod.id,
+            weight=70,
+            min_quantity=1,
+            max_quantity=1,
+        )
+        bait_entry = LootTableEntry(
+            loot_table_id=table.id,
+            channel_id=channel.id,
+            item_definition_id=bait.id,
+            weight=30,
+            min_quantity=2,
+            max_quantity=4,
+        )
+        db.add_all([rod_entry, bait_entry])
+        db.flush()
+        db.add_all(
+            [
+                LootTableEntryStock(loot_table_entry_id=rod_entry.id, remaining_quantity=5),
+                LootTableEntryStock(loot_table_entry_id=bait_entry.id, remaining_quantity=3),
+            ]
+        )
+        pool = RewardPool(
+            channel_id=channel.id,
+            location_id="lake",
+            items_drop_rate=0.5,
+            item_loot_table_id=table.id,
+            rewards_data=[],
+            requirements={},
+        )
+        db.add(pool)
+        db.commit()
+
+        from domain.logic.loot_selection import select_item_drop
+        from services.loot_table_service import LootTableRollService
+
+        _, fishing_items, _ = ConfigRepository(db).get_dual_pool(channel.twitch_id, "lake")
+        lootbox_items = LootTableRollService(db).resolve_candidates(channel.id, "shared_table")
+
+        def comparable(candidates: list[dict]) -> list[dict]:
+            return sorted(
+                (
+                    {
+                        "item_id": candidate["item_id"],
+                        "weight": candidate["weight"],
+                        "remaining_stock": candidate["remaining_stock"],
+                        "min_quantity": candidate["min_quantity"],
+                        "max_quantity": candidate["max_quantity"],
+                    }
+                    for candidate in candidates
+                ),
+                key=lambda candidate: candidate["item_id"],
+            )
+
+        assert comparable(fishing_items) == comparable(lootbox_items)
+
+        fishing_hit = select_item_drop(fishing_items, random_source=lambda: 0.1)
+        lootbox_hit = select_item_drop(lootbox_items, random_source=lambda: 0.1)
+        assert fishing_hit is not None and lootbox_hit is not None
+        assert fishing_hit.item_id == lootbox_hit.item_id
+        assert fishing_hit.quantity_rolled == lootbox_hit.quantity_rolled
+    finally:
+        db.rollback()
+        db.close()
+

@@ -6,6 +6,10 @@ from infrastructure.models import (
     LootTableEntryStock,
     RewardPool,
 )
+from infrastructure.repositories.loot_table_serializer import (
+    load_stock_by_entry,
+    serialize_loot_table_entry,
+)
 
 
 class ConfigRepository:
@@ -47,23 +51,28 @@ class ConfigRepository:
         return rewards, items, pool_obj.items_drop_rate
 
     def _resolve_item_entries(self, pool_obj: RewardPool) -> list[dict]:
-        """Resolve drop candidates from the unified loot table, else legacy rows."""
-        if pool_obj.item_loot_table_id is not None:
-            entries = (
-                self.db.query(LootTableEntry)
-                .filter(
-                    LootTableEntry.loot_table_id == pool_obj.item_loot_table_id,
-                    LootTableEntry.item_definition_id.isnot(None),
-                )
-                .all()
+        """Resolve drop candidates from the unified loot table, else legacy rows.
+
+        Exhausted finite-stock entries stay in the candidate list so the shared
+        selector can prove stock=0 exclusion in one place; ``remaining_stock``
+        is carried on every candidate.
+        """
+        if pool_obj.item_loot_table_id is None:
+            return []
+        entries = (
+            self.db.query(LootTableEntry)
+            .filter(
+                LootTableEntry.loot_table_id == pool_obj.item_loot_table_id,
+                LootTableEntry.item_definition_id.isnot(None),
             )
-            return [
-                self._serialize_loot_table_entry(entry)
-                for entry in entries
-                if self._matches_rarity_filter(entry, pool_obj)
-            ]
-        # No unified loot table: the location has no item drops.
-        return []
+            .all()
+        )
+        stock_by_entry = load_stock_by_entry(self.db, entries)
+        return [
+            serialize_loot_table_entry(entry, stock_by_entry.get(entry.id))
+            for entry in entries
+            if self._matches_rarity_filter(entry, pool_obj)
+        ]
 
     @staticmethod
     def _matches_rarity_filter(entry: LootTableEntry, pool_obj: RewardPool) -> bool:
@@ -75,11 +84,7 @@ class ConfigRepository:
         """
         if not entry.rarity_filter:
             return True
-        allowed = {
-            part.strip().lower()
-            for part in entry.rarity_filter.split(",")
-            if part.strip()
-        }
+        allowed = {part.strip().lower() for part in entry.rarity_filter.split(",") if part.strip()}
         if not allowed:
             return True
         return str((entry.definition.rarity or "").lower()) in allowed
@@ -105,12 +110,7 @@ class ConfigRepository:
         """
         if amount <= 0 or entry_id is None:
             return True
-        stock = (
-            self.db.query(LootTableEntryStock)
-            .filter(LootTableEntryStock.loot_table_entry_id == entry_id)
-            .with_for_update(of=LootTableEntryStock)
-            .first()
-        )
+        stock = self._lock_stock_row(entry_id)
         if stock is None:
             return True
         if int(stock.remaining_quantity) < amount:
@@ -120,32 +120,34 @@ class ConfigRepository:
         self.db.flush()
         return True
 
-    def _serialize_loot_table_entry(self, entry: LootTableEntry) -> dict:
-        definition = entry.definition
-        return {
-            "_source": "loot_table",
-            "db_id": entry.id,
-            "item_id": definition.item_id,
-            "title": definition.title,
-            "description": definition.description,
-            "image_url": definition.image_url,
-            "rarity": definition.rarity,
-            "item_type": definition.type,
-            "equipment_slot": definition.slot,
-            "max_durability": definition.max_durability,
-            "break_policy": definition.break_policy,
-            "stack_size": definition.stack_size,
-            "weight": entry.weight,
-            "xp_gain": entry.xp_gain,
-            "quantity": None,
-            "min_quantity": entry.min_quantity,
-            "max_quantity": entry.max_quantity,
-            "rarity_filter": entry.rarity_filter,
-            "message": entry.message or "You caught {name}!",
-            "effects": definition.effects or [],
-            "definition_version": definition.version,
-            "item_definition_id": entry.item_definition_id,
-            "loot_table_id": entry.loot_table_id,
-            "loot_table_entry_id": entry.id,
-        }
+    def reserve_loot_table_entry_stock(
+        self, entry_id: int | None, quantity_requested: int
+    ) -> tuple[bool, int | None, int | None, int]:
+        """Reserve exactly ``quantity_requested`` stock for one drop.
 
+        Returns ``(ok, stock_before, stock_after, reserved)``. Unlimited
+        entries reserve the full requested quantity. Finite stock clamps to
+        what remains (``reserved < quantity_requested``) instead of failing the
+        whole cast; ``ok`` is ``False`` only when the entry ran out entirely.
+        """
+        if quantity_requested <= 0 or entry_id is None:
+            return True, None, None, quantity_requested
+        stock = self._lock_stock_row(entry_id)
+        if stock is None:
+            return True, None, None, quantity_requested
+        before = int(stock.remaining_quantity)
+        if before <= 0:
+            return False, before, before, 0
+        reserved = min(before, quantity_requested)
+        stock.remaining_quantity = before - reserved
+        stock.version += 1
+        self.db.flush()
+        return True, before, before - reserved, reserved
+
+    def _lock_stock_row(self, entry_id: int) -> LootTableEntryStock | None:
+        return (
+            self.db.query(LootTableEntryStock)
+            .filter(LootTableEntryStock.loot_table_entry_id == entry_id)
+            .with_for_update(of=LootTableEntryStock)
+            .first()
+        )

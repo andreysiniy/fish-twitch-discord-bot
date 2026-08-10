@@ -292,12 +292,22 @@ class FishingService:
             if result.item_drop.get("quantity") is None:
                 result.item_drop["quantity"] = 1
 
-            has_stock = not bool(result.item_drop.get("db_id")) or self.config_repo.consume_item_stock(
-                result.item_drop, amount=1
+            quantity_requested = max(
+                int(result.item_drop.get("quantity_requested") or 0) or 1,
+                1,
             )
-            result.item_drop["stock_reserved"] = has_stock
+            ok, before, after, reserved = self.config_repo.reserve_loot_table_entry_stock(
+                result.item_drop.get("loot_table_entry_id")
+                or result.item_drop.get("db_id"),
+                quantity_requested,
+            )
+            result.item_drop["stock_reserved"] = ok
+            result.item_drop["stock_before"] = before
+            result.item_drop["stock_after"] = after
+            result.item_drop["quantity_requested"] = quantity_requested
+            result.item_drop["quantity_granted"] = reserved if ok else 0
             result.item_drop["grant_success"] = False
-            if has_stock:
+            if ok and reserved > 0:
                 # obtained_at is volatile per-cast metadata; keeping it in the
                 # stack meta would prevent identical stackable items dropped at
                 # different times from merging.
@@ -311,7 +321,7 @@ class FishingService:
                         [
                             {
                                 "item_id": result.item_drop["item_id"],
-                                "quantity": result.item_drop.get("quantity", 1),
+                                "quantity": reserved,
                                 "current_durability": result.item_drop.get(
                                     "current_durability"
                                 ),
@@ -320,6 +330,7 @@ class FishingService:
                         ],
                     )
                     result.item_drop["grant_success"] = True
+                    result.item_drop["quantity"] = reserved
                 except InventoryCapacityError:
                     # A full inventory must not cancel the cast or its cooldown:
                     # the drop is recorded as failed and the player keeps the

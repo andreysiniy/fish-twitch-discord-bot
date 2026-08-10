@@ -10,11 +10,10 @@ from infrastructure.models import (
     InventoryItem,
     InventoryItemUseRecord,
     ItemDefinition,
-    LootTable,
-    LootTableEntry,
     OutboxEvent,
     UserProgress,
 )
+from services.loot_table_service import LootTableRollService
 
 
 class InventoryCapacityError(ValueError):
@@ -428,36 +427,16 @@ class InventoryRepository:
         return definitions
 
     def _roll_loot_table(self, channel_id: int, table_id: str, rolls: int) -> list[dict[str, Any]]:
-        table = (
-            self.db.query(LootTable)
-            .filter(
-                LootTable.channel_id == channel_id,
-                LootTable.table_id == table_id,
-                LootTable.is_active.is_(True),
-            )
-            .first()
-        )
-        if not table:
-            raise ValueError(f"Active loot table '{table_id}' not found")
-        entries = (
-            self.db.query(LootTableEntry)
-            .filter(LootTableEntry.loot_table_id == table.id)
-            .order_by(LootTableEntry.id.asc())
-            .all()
-        )
-        if not entries:
-            raise ValueError(f"Loot table '{table_id}' is empty")
-        result: list[dict[str, Any]] = []
-        weights = [entry.weight for entry in entries]
-        for _ in range(rolls):
-            entry = self.rng.choices(entries, weights=weights, k=1)[0]
-            result.append(
-                {
-                    "item_id": entry.definition.item_id,
-                    "quantity": self.rng.randint(entry.min_quantity, entry.max_quantity),
-                }
-            )
-        return result
+        service = LootTableRollService(self.db)
+        resolutions = service.roll(channel_id, table_id, rolls=rolls)
+        return [
+            {
+                "item_id": resolution.item_id,
+                "quantity": resolution.quantity_granted,
+            }
+            for resolution in resolutions
+            if resolution.quantity_granted > 0
+        ]
 
     def _resolve_durability(
         self, definition: ItemDefinition, requested: int | None

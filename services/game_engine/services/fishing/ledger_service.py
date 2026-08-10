@@ -337,6 +337,9 @@ class FishingLedgerService:
             grant_status = "failed"
         elif item.get("stock_reserved") is False:
             grant_status = "stock_empty"
+        quantity_granted = int(item.get("quantity_granted") or 0)
+        if quantity_granted <= 0:
+            quantity_granted = quantity_requested if grant_status == "granted" else 0
         self.repo.add_item_drop(
             cast_id=cast.id,
             channel_id=cast.channel_id,
@@ -349,17 +352,22 @@ class FishingLedgerService:
             loot_table_id=item.get("loot_table_id"),
             loot_table_entry_id=item.get("loot_table_entry_id"),
             selection_weight=_decimal_or_none(
-                _trace_value(selection_trace, "selected_weight")
+                item.get("selected_weight")
+                or _trace_value(selection_trace, "selected_weight")
             ),
             selection_total_weight=_decimal_or_none(
-                _trace_value(selection_trace, "total_weight")
+                item.get("total_weight")
+                or _trace_value(selection_trace, "total_weight")
             ),
             selection_probability=_decimal_or_none(
-                _trace_value(selection_trace, "selected_probability")
+                item.get("selection_probability")
+                or _trace_value(selection_trace, "selected_probability")
             ),
-            selection_roll=_decimal_or_none(_trace_value(selection_trace, "roll")),
+            selection_roll=_decimal_or_none(
+                item.get("selection_roll") or _trace_value(selection_trace, "roll")
+            ),
             quantity_requested=quantity_requested,
-            quantity_granted=quantity_requested if grant_status == "granted" else 0,
+            quantity_granted=quantity_granted,
             grant_status=grant_status,
             stock_before=item.get("stock_before"),
             stock_after=item.get("stock_after"),

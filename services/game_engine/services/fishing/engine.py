@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
+from domain.logic.loot_selection import select_item_drop
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
@@ -224,7 +225,7 @@ class FishingEngine:
         rarity_luck = Decimal("1") + to_decimal(
             resolved_mods.get("item_rarity_luck_pct", 0)
         )
-        item_trace = None
+        item_resolution = None
         item_gate_succeeded = False
         item_drop_probability: Decimal | None = None
         item_drop_roll: Decimal | None = None
@@ -242,28 +243,29 @@ class FishingEngine:
                 }
             )
             if item_gate_succeeded:
-                item_trace = rng.roll_loot_traced(
+                item_resolution = select_item_drop(
                     item_pool,
-                    weight_transform=lambda entry: rng._rarity_luck_weight(
-                        entry, float(rarity_luck)
-                    ),
+                    rarity_luck=rarity_luck,
+                    random_source=random.random,
                 )
-        if item_pool and item_gate_succeeded and item_trace is not None and item_trace.selected is not None:
-            item_catch = _as_catch(item_trace.selected)
+        if item_pool and item_gate_succeeded and item_resolution is not None:
+            item_catch = _as_catch(item_resolution.metadata)
             rng_stages.append(
                 {
                     "stage": "item_selection",
-                    "roll": str(item_trace.roll),
-                    "total_weight": str(item_trace.total_weight),
-                    "selected_entry_id": str(item_trace.selected_id),
+                    "roll": str(item_resolution.selection_roll),
+                    "total_weight": str(item_resolution.total_weight),
+                    "selected_entry_id": str(item_resolution.loot_entry_id),
                     "selected_item_id": item_catch.get("item_id"),
-                    "selected_probability": str(item_trace.selected_probability),
+                    "selected_probability": str(
+                        item_resolution.selection_probability
+                    ),
                 }
             )
             base_durability = item_catch.get("max_durability")
-            min_quantity = max(int(item_catch.get("min_quantity") or 1), 1)
-            max_quantity = max(int(item_catch.get("max_quantity") or min_quantity), min_quantity)
-            quantity = random.randint(min_quantity, max_quantity)
+            min_quantity = item_resolution.min_quantity
+            max_quantity = item_resolution.max_quantity
+            quantity = item_resolution.quantity_rolled
 
             if not item_catch.get("title"):
                 item_catch["title"] = item_catch.get("item_id", "Unknown Item")
@@ -277,6 +279,16 @@ class FishingEngine:
                     if base_durability is not None
                     else None,
                     "obtained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "quantity_rolled": quantity,
+                    "selected_weight": str(item_resolution.selected_weight),
+                    "total_weight": str(item_resolution.total_weight),
+                    "selection_probability": str(
+                        item_resolution.selection_probability
+                    ),
+                    "selection_roll": str(item_resolution.selection_roll),
+                    "stock_before": item_resolution.stock_before,
+                    "stock_after": item_resolution.stock_after,
+                    "quantity_granted": item_resolution.quantity_granted,
                 }
             )
             rng_stages.append(
