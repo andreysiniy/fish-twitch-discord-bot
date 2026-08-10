@@ -6,6 +6,7 @@ from decimal import Decimal
 import httpx
 from core.messages import MsgKey, resolve_message
 from core.security import decrypt_token
+from domain.logic.mass import apply_mass_mutation
 from domain.schemas.fishing import FishResponse
 from infrastructure.database import SessionLocal
 from infrastructure.models import Channel, EconomyOperation, OutboxEvent, UserProgress
@@ -214,7 +215,7 @@ class SEJobRunner:
             return
 
         refund = max(-Decimal(str(operation.mass_delta)), Decimal("0"))
-        user.current_mass = Decimal(str(user.current_mass or 0)) + refund
+        apply_mass_mutation(user, refund, track_total=False)
         operation.compensated_at = datetime.now(timezone.utc)
         operation.external_applied = False
         operation.state = "compensated"

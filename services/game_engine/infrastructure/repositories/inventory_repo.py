@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from domain.logic.mass import apply_mass_mutation
 from infrastructure.models import (
     EquippedItem,
     InventoryItem,
@@ -288,7 +289,7 @@ class InventoryRepository:
                 )
 
         granted = self.grant_many(locked_user, grants)
-        locked_user.current_mass = Decimal(locked_user.current_mass) + mass_delta
+        apply_mass_mutation(locked_user, mass_delta, track_total=True)
         for index, action in enumerate(actions):
             self.db.add(
                 OutboxEvent(
