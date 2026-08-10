@@ -684,6 +684,19 @@ class FishingService:
         robbery_result.counter_actions = counter_actions
 
         if robbery_result.is_success:
+            success_actions, _absorbed = self._apply_robbery_defenses(
+                rng_stages=rng_stages,
+                attacker=user,
+                victim=victim,
+                effects=list(victim_modifiers.effects),
+                counter_chance_bonus=victim_modifiers.value(
+                    StatKey.ROBBERY_COUNTER_CHANCE_PCT
+                ),
+                trigger="on_robbery_success",
+            )
+            counter_actions.extend(success_actions)
+            robbery_result.counter_actions = counter_actions
+
             requested_stolen = max(
                 quantize_mass(robbery_result.amount_stolen),
                 ZERO_MASS,
@@ -714,18 +727,33 @@ class FishingService:
         effects: list[dict],
         counter_chance_bonus=ZERO_MASS,
         rng_stages: list | None = None,
+        trigger: str = "on_robbery_attempt",
     ) -> tuple[list[dict], bool]:
+        """Run robbery defense effects for the requested phase.
+
+        Stacking policy is FIRST_TERMINAL_DEFENSE_WINS: the first terminal
+        defense (absorb_robbery / block_action) whose roll passes stops the
+        iteration, so later defenses neither execute nor consume durability.
+        Counters before that point still run. Effects run in stored order;
+        an effect without an explicit trigger defaults to ``on_robbery_attempt``.
+        """
         actions: list[dict] = []
         absorbed = False
         inventory_repo = InventoryRepository(self.user_repo.db)
         for effect in effects:
             effect_type = effect.get("type")
-            if effect_type == "block_action":
-                if effect.get("trigger") != "on_robbery_attempt" or "robbery" not in set(
-                    effect.get("target_action_types") or []
-                ):
-                    continue
             if effect_type not in {"absorb_robbery", "robbery_counter", "block_action"}:
+                continue
+            if (effect.get("trigger") or "on_robbery_attempt") != trigger:
+                continue
+            if trigger != "on_robbery_attempt" and effect_type in {
+                "absorb_robbery",
+                "block_action",
+            }:
+                continue
+            if effect_type == "block_action" and "robbery" not in set(
+                effect.get("target_action_types") or []
+            ):
                 continue
             chance = Decimal(str(effect.get("chance", 1)))
             if effect_type == "robbery_counter":
@@ -738,6 +766,7 @@ class FishingService:
                 rng_stages.append(
                     {
                         "stage": "robbery_defense_gate",
+                        "phase": trigger,
                         "effect_type": str(effect.get("source_key") or effect_type),
                         "roll": str(defense_roll),
                         "threshold": str(chance),
@@ -752,6 +781,8 @@ class FishingService:
                 inventory_repo.consume_durability(victim.id, source_slot, durability_cost)
 
             if effect_type in {"absorb_robbery", "block_action"}:
+                # FIRST_TERMINAL_DEFENSE_WINS: later defenses must not run once
+                # a terminal defense absorbed the robbery.
                 absorbed = True
                 mass_delta = quantize_mass(effect.get("attacker_mass_delta", 0))
                 previous_mass = quantize_mass(attacker.current_mass)
@@ -768,7 +799,7 @@ class FishingService:
                             "message": effect.get("message", ""),
                         }
                     )
-                continue
+                break
 
             action = dict(effect.get("action") or {})
             if action.get("type") == "timeout":
