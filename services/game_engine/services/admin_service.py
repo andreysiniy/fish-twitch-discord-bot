@@ -380,6 +380,7 @@ class AdminService:
             "image_url": definition.image_url if definition else None,
             "effects": definition.effects or [],
             "definition_version": item.definition_version,
+            "obtained_definition_version": item.obtained_definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

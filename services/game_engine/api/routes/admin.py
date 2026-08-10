@@ -357,6 +357,9 @@ def grant_item_to_player(
             "image_url": definition.image_url if definition else None,
             "effects": definition.effects if definition else [],
             "definition_version": item.definition_version,
+            "obtained_definition_version": getattr(
+                item, "obtained_definition_version", item.definition_version
+            ),
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

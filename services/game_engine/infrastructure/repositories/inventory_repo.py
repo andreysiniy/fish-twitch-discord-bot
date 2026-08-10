@@ -406,6 +406,7 @@ class InventoryRepository:
                 current_charges=charges,
                 meta=meta,
                 definition_version=definition.version,
+                obtained_definition_version=definition.version,
             )
             self.db.add(created)
             self.db.flush()

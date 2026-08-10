@@ -95,6 +95,7 @@ PERCENT_MAX = Decimal("10")
 CHANCE_MIN = Decimal("0")
 CHANCE_MAX = Decimal("1")
 ALL_SOURCES = frozenset({"item", "event", "channel", "temporary", "player_modifier"})
+ITEM_SCHEMA_VERSION = 1
 
 # Legacy stat keys renamed by modifiers v2 (spec section 17.1). The migration
 # rewrites stored data; this mapping additionally translates legacy payloads at
@@ -399,10 +400,20 @@ class ItemDefinitionData(StrictItemModel):
     max_durability: int | None = Field(None, ge=1, le=1_000_000)
     max_charges: int | None = Field(None, ge=1, le=1_000_000)
     break_policy: BreakPolicy = BreakPolicy.INDESTRUCTIBLE
-    schema_version: int = Field(1, ge=1, le=1000)
+    schema_version: int = Field(
+        ITEM_SCHEMA_VERSION,
+        ge=ITEM_SCHEMA_VERSION,
+        le=ITEM_SCHEMA_VERSION,
+        description="Typed item-effect schema version. Only v1 is currently supported.",
+    )
     effects: list[ItemEffect] = Field(default_factory=list, max_length=100)
     image_url: str | None = Field(None, max_length=2048)
-    value: Decimal | None = Field(None, ge=0, le=1_000_000_000_000)
+    value: Decimal | None = Field(
+        None,
+        ge=0,
+        le=1_000_000_000_000,
+        description="Optional nominal appraisal value; it is not a wallet balance.",
+    )
 
     @model_validator(mode="after")
     def validate_item_shape(self):

@@ -2102,6 +2102,9 @@ class DiscordAdminService:
             "current_charges": row.current_charges,
             "max_charges": row.definition.max_charges,
             "definition_version": row.definition_version,
+            "obtained_definition_version": getattr(
+                row, "obtained_definition_version", row.definition_version
+            ),
             "version": row.version,
             "meta": row.meta or {},
         }

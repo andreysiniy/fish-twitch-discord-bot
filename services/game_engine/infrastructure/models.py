@@ -242,6 +242,10 @@ class InventoryItem(Base):
         CheckConstraint(
             "definition_version >= 1", name="ck_inventory_items_definition_version_positive"
         ),
+        CheckConstraint(
+            "obtained_definition_version >= 1",
+            name="ck_inventory_items_obtained_definition_version_positive",
+        ),
         # Tenant-aware composite FKs: an inventory row belongs to the same
         # Twitch channel as its owner and its item definition.
         ForeignKeyConstraint(
@@ -267,6 +271,7 @@ class InventoryItem(Base):
     current_charges = Column(Integer, nullable=True)
     meta = Column(JSONB, default=dict, nullable=False)
     definition_version = Column(Integer, default=1, nullable=False)
+    obtained_definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
 
     definition = relationship(
