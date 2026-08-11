@@ -225,9 +225,13 @@ class StatEffectBase(StrictItemModel):
     def validate_value(self):
         definition = STAT_REGISTRY[self.stat]
         if getattr(self, "type", None) == "stat_multiply":
+            if self.value == 1:
+                raise ValueError("Multiplier must not be 1")
             if self.value < 0 or self.value > 100:
                 raise ValueError("Multiplier must be between 0 and 100")
             return self
+        if self.value == 0:
+            raise ValueError("Stat effect value must not be zero")
         if (
             definition.value_type == "integer"
             and self.value != self.value.to_integral_value()

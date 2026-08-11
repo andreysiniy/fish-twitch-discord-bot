@@ -123,6 +123,18 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
         if identity in seen_effects:
             errors.append(f"Duplicate effect is not allowed: {effect_label(effect_type)}.")
         seen_effects.add(identity)
+        if effect_type == "stat_add":
+            try:
+                if Decimal(str(effect.get("value"))) == 0:
+                    errors.append(f"{effect_label(effect_type)} must not have a zero value.")
+            except Exception:
+                pass
+        elif effect_type == "stat_multiply":
+            try:
+                if Decimal(str(effect.get("value"))) == 1:
+                    errors.append("Multiply Stat must not use a multiplier of 1.")
+            except Exception:
+                pass
         if effect_type == "consume_durability":
             if item_type not in _EQUIPMENT_TYPES:
                 errors.append("Consume Durability is only compatible with equipment.")
