@@ -189,6 +189,20 @@ async def test_fishbag_resolves_viewer_and_requests_selected_slot(monkeypatch) -
     assert "XP -20%" in sent
 
 
+def test_fishbag_effect_formatter_preserves_integer_percentages() -> None:
+    from commands.inventory import InventoryCog
+
+    effects = InventoryCog._format_effects(
+        [
+            {"type": "stat_multiply", "stat": "fish_luck_change_ratio", "value": "2"},
+            {"type": "block_action", "target_action_types": ["robbery"], "chance": "1"},
+        ]
+    )
+
+    assert "Fish Luck +100%" in effects
+    assert "Block robbery (100% chance)" in effects
+
+
 @pytest.mark.asyncio
 async def test_fishbag_skips_empty_effect_section() -> None:
     from commands.inventory import InventoryCog

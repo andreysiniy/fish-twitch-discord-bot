@@ -310,7 +310,7 @@ class InventoryCog(commands.Cog):
 
     @staticmethod
     def _signed_number(value: Decimal) -> str:
-        rendered = format(value, "f").rstrip("0").rstrip(".")
+        rendered = InventoryCog._format_decimal(value)
         if rendered in {"", "-0"}:
             rendered = "0"
         if not rendered.startswith("-"):
@@ -323,7 +323,14 @@ class InventoryCog(commands.Cog):
             rendered = Decimal(str(value)) * Decimal(100)
         except (InvalidOperation, TypeError, ValueError):
             return "unknown"
-        return f"{format(rendered, 'f').rstrip('0').rstrip('.')}%"
+        return f"{cls._format_decimal(rendered)}%"
+
+    @staticmethod
+    def _format_decimal(value: Decimal) -> str:
+        rendered = format(value, "f")
+        if "." in rendered:
+            rendered = rendered.rstrip("0").rstrip(".")
+        return rendered
 
     @staticmethod
     def _title_case(value: str) -> str:
