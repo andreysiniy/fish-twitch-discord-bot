@@ -14,7 +14,8 @@ class StreamElementsConnectModal(discord.ui.Modal, title="Connect StreamElements
         label="StreamElements JWT",
         style=discord.TextStyle.paragraph,
         min_length=20,
-        max_length=4096,
+        # Discord text inputs reject values above 4000 characters.
+        max_length=4000,
         placeholder="Paste the token once; it is sent directly to the game engine.",
         required=True,
     )

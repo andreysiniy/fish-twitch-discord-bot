@@ -7,6 +7,7 @@ from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.commands.register import _json_confirmation
+from app.commands.streamelements import StreamElementsConnectModal
 from app.config import DiscordSettings
 from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
@@ -335,9 +336,9 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "player-stats",
         "reward",
         "setup",
-            "status",
-            "streamelements",
-            "unlink",
+        "status",
+        "streamelements",
+        "unlink",
     }
     placeholders = fish.get_command("placeholders")
     assert placeholders is not None
@@ -381,6 +382,10 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
     assert gateway_settings.DEV_GUILD_ID is None
     assert bot.intents.guilds is True
     assert bot.intents.message_content is False
+
+
+def test_streamelements_connect_modal_respects_discord_input_limit() -> None:
+    assert StreamElementsConnectModal.token.max_length == 4000
 
 
 @pytest.mark.parametrize(
