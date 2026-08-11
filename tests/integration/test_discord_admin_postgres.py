@@ -865,7 +865,7 @@ def test_item_upsert_existing_without_version_is_clean_conflict() -> None:
         db.flush()
 
         service = DiscordAdminService(db)
-        context = _context("item-conflict")
+        context = _context(f"item-conflict-{uuid.uuid4().hex}")
         request = DiscordItemUpsertRequest(
             item_id="existing_rod",
             title="Existing Rod",
@@ -878,7 +878,7 @@ def test_item_upsert_existing_without_version_is_clean_conflict() -> None:
         )
         with pytest.raises(ApiProblem) as exc_info:
             service.upsert_item(context, channel.twitch_id, request)
-        assert exc_info.value.code == "ITEM_VERSION_CONFLICT"
+        assert exc_info.value.code == "DUPLICATE_ITEM"
         assert exc_info.value.status_code == 409
     finally:
         db.rollback()

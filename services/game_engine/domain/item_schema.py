@@ -441,8 +441,13 @@ class ItemDefinitionData(StrictItemModel):
             raise ValueError("max_durability is required for breakable items")
         if self.max_durability is not None and self.item_type != ItemType.EQUIPMENT:
             raise ValueError("max_durability is only allowed for equipment")
+        seen_effects: set[tuple[str, str | None]] = set()
         for effect in self.effects:
             effect_type = effect.type
+            effect_key = _effect_identity(effect)
+            if effect_key in seen_effects:
+                raise ValueError(f"Duplicate effect is not allowed: {effect_type}")
+            seen_effects.add(effect_key)
             if effect_type == "grant_item" and effect.item_id == self.item_id:
                 raise ValueError("An item cannot grant itself")
             if effect_type == "consume_durability":
@@ -463,6 +468,18 @@ class ItemDefinitionData(StrictItemModel):
                     f"{effect_type} is not compatible with {self.item_type.value}"
                 )
         return self
+
+
+def _effect_identity(effect: ItemEffect) -> tuple[str, str | None]:
+    """Return the uniqueness key used for effects on one item definition."""
+    effect_type = str(effect.type)
+    if effect_type in {"stat_add", "stat_multiply"}:
+        return effect_type, str(effect.stat)
+    if effect_type == "grant_item":
+        return effect_type, str(effect.item_id)
+    if effect_type == "loot_table_roll":
+        return effect_type, str(effect.loot_table_id)
+    return effect_type, None
 
 
 def _parse_item_schema_v1(payload: dict[str, Any]) -> ItemDefinitionData:

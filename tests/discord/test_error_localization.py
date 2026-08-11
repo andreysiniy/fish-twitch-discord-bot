@@ -6,6 +6,7 @@ def test_all_item_inventory_modifier_codes_are_mapped() -> None:
         "ITEM_NOT_FOUND",
         "ITEM_DROP_NOT_FOUND",
         "ITEM_VERSION_CONFLICT",
+        "DUPLICATE_ITEM",
         "ITEM_INVALID_EFFECT",
         "INVENTORY_ITEM_NOT_FOUND",
         "INVENTORY_FULL",

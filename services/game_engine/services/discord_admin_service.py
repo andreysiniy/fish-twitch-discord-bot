@@ -628,19 +628,27 @@ class DiscordAdminService:
         data: DiscordItemUpsertRequest,
     ) -> dict:
         def mutation() -> dict:
-            validated_data = parse_item_definition_payload(data.model_dump(mode="python"))
+            item_payload = data.model_dump(mode="python")
+            item_payload.pop("expected_version", None)
+            validated_data = parse_item_definition_payload(item_payload)
             channel, link = self._authorize(
                 context, ChannelPermission.ITEMS_WRITE, channel_twitch_id, for_update=True
             )
-            existing = (
-                self.db.query(ItemDefinition)
-                .filter(
-                    ItemDefinition.channel_id == channel.id,
-                    ItemDefinition.item_id == data.item_id,
+            existing = self.channel_repo.get_item_definition(channel.twitch_id, data.item_id)
+            if existing is not None:
+                existing = (
+                    self.db.query(ItemDefinition)
+                    .filter(ItemDefinition.id == existing.id)
+                    .with_for_update(of=ItemDefinition)
+                    .one()
                 )
-                .with_for_update(of=ItemDefinition)
-                .first()
-            )
+            if existing is not None and data.expected_version is None:
+                raise ApiProblem(
+                    409,
+                    "DUPLICATE_ITEM",
+                    "An item with this ID already exists. Use item edit to modify it.",
+                    request_id=context.request_id,
+                )
             validate_item_dependency_graph(
                 self.db,
                 channel.id,
