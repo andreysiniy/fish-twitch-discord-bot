@@ -67,6 +67,8 @@ def human_value_to_backend(definition: UIStatDefinition, raw: str) -> tuple[str 
             return None, f"{definition.label} must be at most {definition.display_max}."
     except Exception:
         pass
+    if value == 0:
+        return None, f"{definition.label} must not be 0."
     if definition.value_type == "integer" and value != value.to_integral_value():
         return None, f"{definition.label} must be a whole number."
     if definition.unit == UNIT_PERCENT:
@@ -163,6 +165,11 @@ class StatMultiplyModal(discord.ui.Modal):
         if not 0 <= value <= 100:
             await interaction.response.send_message(
                 "Multiplier must be between 0 and 100.", ephemeral=True
+            )
+            return
+        if value == 1:
+            await interaction.response.send_message(
+                "Multiplier must not be 1 because it has no effect.", ephemeral=True
             )
             return
         payload = {

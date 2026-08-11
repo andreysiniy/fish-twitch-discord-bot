@@ -100,6 +100,21 @@ def test_duplicate_effects_block_item_review() -> None:
     assert any("Duplicate effect is not allowed" in error for error in errors)
 
 
+def test_neutral_stat_effect_blocks_item_review() -> None:
+    errors, _ = compatibility_issues(
+        _equipment_draft(
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "fish_luck_change_ratio",
+                    "value": "0",
+                }
+            ]
+        )
+    )
+    assert any("zero value" in error for error in errors)
+
+
 def test_lootbox_without_loot_producing_effect_blocks() -> None:
     errors, _ = compatibility_issues(_lootbox_draft())
     assert any("loot table roll or grant effect" in error for error in errors)

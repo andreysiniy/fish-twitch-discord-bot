@@ -164,6 +164,12 @@ def test_human_value_percent_rejects_out_of_range() -> None:
     assert error is not None and "at most" in error
 
 
+def test_human_value_rejects_neutral_zero_effect() -> None:
+    definition = UI_STAT_DEFINITIONS["fish_luck_change_ratio"]
+    _, error = human_value_to_backend(definition, "0")
+    assert error is not None and "must not be 0" in error
+
+
 def test_human_value_percentage_points_converts() -> None:
     definition = UI_STAT_DEFINITIONS["item_drop_chance_add"]
     assert human_value_to_backend(definition, "0.5") == ("0.005", None)

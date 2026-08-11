@@ -122,6 +122,37 @@ def test_duplicate_effects_are_rejected() -> None:
         )
 
 
+def test_neutral_stat_effects_are_rejected() -> None:
+    with pytest.raises(ValidationError, match="must not be zero"):
+        ItemDefinitionData(
+            item_id="zero_effect",
+            title="Zero Effect",
+            item_type="equipment",
+            equipment_slot="rod",
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "fish_luck_change_ratio",
+                    "value": "0",
+                }
+            ],
+        )
+    with pytest.raises(ValidationError, match="must not be 1"):
+        ItemDefinitionData(
+            item_id="neutral_multiplier",
+            title="Neutral Multiplier",
+            item_type="equipment",
+            equipment_slot="rod",
+            effects=[
+                {
+                    "type": "stat_multiply",
+                    "stat": "fish_luck_change_ratio",
+                    "value": "1",
+                }
+            ],
+        )
+
+
 def test_registry_defines_caps_and_scopes_for_every_stat() -> None:
     assert set(STAT_REGISTRY) == set(StatKey)
     assert ModifierScope.ROBBERY in STAT_REGISTRY[StatKey.ROBBERY_PROTECTION_PCT].scopes

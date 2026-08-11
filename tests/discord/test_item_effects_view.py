@@ -12,7 +12,7 @@ from app.domain.item_effect_registry import (
     STANDARD_MAX_EFFECTS,
     TRIGGERED_EFFECT_FORMS,
 )
-from app.interactions.items.effect_forms import StatValueModal
+from app.interactions.items.effect_forms import StatMultiplyModal, StatValueModal
 from app.interactions.items.effects import (
     AdvancedEffectPickerView,
     AdvancedModeWarningView,
@@ -322,6 +322,18 @@ def test_stat_value_modal_prefills_current_percent() -> None:
         current="0.25",
     )
     assert modal.value.default == "25"
+
+
+def test_stat_multiply_modal_rejects_neutral_multiplier() -> None:
+    saved = []
+    modal = StatMultiplyModal("fish_luck_change_ratio", saved.append)
+    modal.multiplier._value = "1"
+
+    interaction = FakeInteraction()
+    asyncio.run(modal.on_submit(interaction))
+
+    assert saved == []
+    assert "must not be 1" in interaction.sent_message[0][0]
 
 
 # --- advanced mode (spec §32/§35) ---------------------------------------------
