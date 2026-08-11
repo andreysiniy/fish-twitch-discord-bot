@@ -24,7 +24,7 @@ VALID_RARITIES = {"common", "rare", "epic", "legendary"}
 def normalize_draft(draft: dict[str, Any]) -> dict[str, Any]:
     """Normalise type-dependent fields to a valid backend item payload.
 
-    ``schema_version``, ``image_url``, ``value`` and ``expected_version`` are
+    ``schema_version``, ``image_url``, ``nominal_value`` and ``expected_version`` are
     carried over from the draft when present so the create/edit payload builder
     never silently resets them (wizard spec §53/§73.1). Create defaults are
     only applied when the draft does not already carry the value.
@@ -59,7 +59,7 @@ def normalize_draft(draft: dict[str, Any]) -> dict[str, Any]:
         "schema_version": draft.get("schema_version", 1),
         "effects": [dict(effect) for effect in (draft.get("effects") or [])],
         "image_url": draft.get("image_url"),
-        "value": draft.get("value"),
+        "nominal_value": draft.get("nominal_value", draft.get("value")),
     }
     if draft.get("expected_version") is not None:
         payload["expected_version"] = draft["expected_version"]

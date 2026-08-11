@@ -186,7 +186,8 @@ class ItemDefinition(Base):
             "schema_version >= 1", name="ck_item_definitions_schema_version_positive"
         ),
         CheckConstraint(
-            "value IS NULL OR value >= 0", name="ck_item_definitions_value_nonnegative"
+            "nominal_value IS NULL OR nominal_value >= 0",
+            name="ck_item_definitions_nominal_value_nonnegative",
         ),
     )
 
@@ -204,7 +205,7 @@ class ItemDefinition(Base):
     stack_size = Column(Integer, default=1, nullable=False)
     image_url = Column(String)
     effects = Column(JSONB, default=list, nullable=False)
-    value = Column(Numeric(18, 2), nullable=True)
+    nominal_value = Column(Numeric(18, 2), nullable=True)
     schema_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -240,9 +241,6 @@ class InventoryItem(Base):
         ),
         CheckConstraint("version >= 1", name="ck_inventory_items_version_positive"),
         CheckConstraint(
-            "definition_version >= 1", name="ck_inventory_items_definition_version_positive"
-        ),
-        CheckConstraint(
             "obtained_definition_version >= 1",
             name="ck_inventory_items_obtained_definition_version_positive",
         ),
@@ -270,10 +268,8 @@ class InventoryItem(Base):
     current_durability = Column(Integer, nullable=True)
     current_charges = Column(Integer, nullable=True)
     meta = Column(JSONB, default=dict, nullable=False)
-    # Deprecated compatibility mirror from the pre-audit schema.  Gameplay
-    # and API serializers use ``obtained_definition_version`` as the immutable
-    # audit value and resolve the current live version from ItemDefinition.
-    definition_version = Column(Integer, default=1, nullable=False)
+    # This is the immutable definition version captured when the instance was
+    # granted. The current live version is read from ItemDefinition.version.
     obtained_definition_version = Column(Integer, default=1, nullable=False)
     version = Column(Integer, default=1, nullable=False)
 

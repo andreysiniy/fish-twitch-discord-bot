@@ -165,7 +165,7 @@ class ChannelRepository:
         image_url: str | None = None,
         effects: list | None = None,
         schema_version: int = 1,
-        value=None,
+        nominal_value=None,
         expected_version: int | None = None,
         updated_by: str | None = None,
     ) -> ItemDefinition:
@@ -218,7 +218,7 @@ class ChannelRepository:
         definition.image_url = image_url
         definition.effects = effects or []
         definition.schema_version = schema_version
-        definition.value = value
+        definition.nominal_value = nominal_value
         definition.is_active = True
         definition.archived_at = None
         definition.updated_by = updated_by

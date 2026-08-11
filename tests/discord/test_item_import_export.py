@@ -35,7 +35,7 @@ def _export_payload():
         "description": "A powerful rod",
         "schema_version": 1,
         "image_url": None,
-        "value": None,
+        "nominal_value": None,
         "version": 7,
         "effects": [{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}],
     }

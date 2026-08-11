@@ -6,10 +6,37 @@ from domain.item_schema import (
     ModifierScope,
     STAT_REGISTRY,
     StatKey,
+    parse_item_definition_payload,
 )
 from domain.schemas.admin import ItemDefinitionCreateDTO
 from domain.schemas.discord_admin import PlayerModifierSetRequest
 from pydantic import ValidationError
+
+
+def test_item_schema_dispatch_accepts_legacy_value_alias_and_emits_nominal_value() -> None:
+    item = parse_item_definition_payload(
+        {
+            "item_id": "legacy_value",
+            "title": "Legacy Value",
+            "item_type": "material",
+            "value": "12.50",
+        }
+    )
+
+    assert item.nominal_value == Decimal("12.50")
+    assert item.model_dump(by_alias=True)["nominal_value"] == Decimal("12.50")
+
+
+def test_item_schema_dispatch_rejects_unknown_versions() -> None:
+    with pytest.raises(ValueError, match="Unsupported item schema version"):
+        parse_item_definition_payload(
+            {
+                "item_id": "future_item",
+                "title": "Future Item",
+                "item_type": "material",
+                "schema_version": 2,
+            }
+        )
 
 
 def test_equipment_requires_known_slot_and_single_stack() -> None:

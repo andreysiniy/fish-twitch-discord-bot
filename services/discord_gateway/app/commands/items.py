@@ -67,7 +67,8 @@ _IMPORT_PAYLOAD_FIELDS = (
     "schema_version",
     "effects",
     "image_url",
-    "value",
+    "nominal_value",
+    "value",  # legacy import alias; backend normalizes it to nominal_value
 )
 
 

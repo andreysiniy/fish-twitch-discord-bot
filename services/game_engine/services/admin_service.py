@@ -4,6 +4,7 @@ from typing import Any, List
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.messages import MsgKey, format_time, resolve_message
+from domain.item_schema import parse_item_definition_payload
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
     ChannelAccessResponseDTO,
@@ -271,6 +272,7 @@ class AdminService:
     ):
         target_channel_twitch_id = (channel_twitch_id or requester_twitch_id).strip()
         channel = self.check_access(target_channel_twitch_id, requester_twitch_id)
+        data = parse_item_definition_payload(data.model_dump(mode="python"))
 
         item_id = data.item_id.strip()
         if not item_id:
@@ -298,7 +300,7 @@ class AdminService:
             image_url=data.image_url,
             effects=[effect.model_dump(mode="json") for effect in data.effects],
             schema_version=data.schema_version,
-            value=data.value,
+            nominal_value=data.nominal_value,
             expected_version=data.expected_version,
             updated_by=requester_twitch_id,
         )
@@ -410,7 +412,7 @@ class AdminService:
             "image_url": definition.image_url,
             "effects": list(definition.effects or []),
             "schema_version": definition.schema_version,
-            "value": definition.value,
+            "nominal_value": definition.nominal_value,
             "version": definition.version,
             "is_active": definition.is_active,
             "archived_at": definition.archived_at,
