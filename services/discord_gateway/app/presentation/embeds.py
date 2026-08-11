@@ -153,6 +153,10 @@ def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
         f"Status: {status}",
         f"Version: v{item.get('version', '?')}",
     ]
+    for label, key in (("Activated", "activated_at"), ("Deactivated", "deactivated_at")):
+        rendered_date = _event_timestamp(item.get(key))
+        if rendered_date:
+            detail_parts.append(f"{label}: {rendered_date}")
     if item.get("override_loot_pool"):
         detail_parts.append(f"Loot pool: `{item['override_loot_pool']}`")
 
@@ -503,8 +507,19 @@ def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
 def _epoch(value: str) -> int:
     try:
         return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return 0
+
+
+def _event_timestamp(value: Any) -> str | None:
+    """Format an event lifecycle timestamp as Discord's localised date tag."""
+    if not value:
+        return None
+    try:
+        timestamp = int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return f"<t:{timestamp}:f>"
 
 
 def location_detail_embed(item: dict[str, Any]) -> discord.Embed:
