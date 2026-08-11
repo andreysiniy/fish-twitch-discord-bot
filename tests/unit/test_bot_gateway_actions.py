@@ -230,6 +230,56 @@ async def test_fishbag_skips_empty_effect_section() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fishtrash_sends_slot_and_stable_idempotency_key(monkeypatch) -> None:
+    from commands.inventory import InventoryCog
+
+    api_client = SimpleNamespace(
+        trash_item=AsyncMock(
+            return_value={"success": True, "message": "Discarded Old Bait x2 from slot 4."}
+        )
+    )
+    bot = SimpleNamespace(api_client=api_client)
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="author-id", name="Author"),
+        message=SimpleNamespace(id="message-123"),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):
+        return "channel-id"
+
+    monkeypatch.setattr("commands.inventory.get_channel_id", channel_id)
+    callback = InventoryCog.fishtrash._callback
+    await callback(InventoryCog(bot), ctx, "4")
+
+    api_client.trash_item.assert_awaited_once_with(
+        {
+            "user_id": "author-id",
+            "channel_id": "channel-id",
+            "slot_id": 4,
+        },
+        idempotency_key="twitch-fishtrash-message-123",
+    )
+    assert ctx.send.await_args.args[0] == "Discarded Old Bait x2 from slot 4."
+
+
+@pytest.mark.asyncio
+async def test_fishtrash_rejects_invalid_slot_without_api_call() -> None:
+    from commands.inventory import InventoryCog
+
+    api_client = SimpleNamespace(trash_item=AsyncMock())
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="author-id"),
+        send=AsyncMock(),
+    )
+
+    await InventoryCog.fishtrash._callback(InventoryCog(SimpleNamespace(api_client=api_client)), ctx, "0")
+
+    assert ctx.send.await_args.args[0] == "Slot must be a positive number."
+    api_client.trash_item.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_timeout_action_without_target_user_raises_clear_error(monkeypatch) -> None:
     """A timeout action must name its target; missing target_user fails fast."""
     bot = SimpleNamespace(

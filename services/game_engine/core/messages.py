@@ -210,7 +210,7 @@ DEFAULT_MESSAGES = {
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
     MsgKey.HELP_TEXT: (
-        "Commands: !fish, !fishbag [viewer] [slot], !fishequip <slot>, "
+        "Commands: !fish, !fishbag [viewer] [slot], !fishtrash <slot>, !fishequip <slot>, "
         "!fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop"
     ),
 }

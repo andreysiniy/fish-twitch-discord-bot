@@ -74,6 +74,21 @@ class EquipResponseDTO(BaseModel):
     equipped_item_name: str | None = None
 
 
+class TrashItemRequestDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    channel_id: str
+    slot_id: int = Field(..., ge=1)
+
+
+class TrashItemResponseDTO(BaseModel):
+    success: bool
+    message: str
+    item_title: str | None = None
+    quantity: int | None = None
+
+
 class UnequipRequestDTO(BaseModel):
     user_id: str
     channel_id: str
