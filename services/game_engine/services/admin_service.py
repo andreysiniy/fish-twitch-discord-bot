@@ -4,6 +4,7 @@ from typing import Any, List
 from core.game_limits import validate_cooldown_seconds, validate_event_duration_seconds
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.messages import MsgKey, format_time, resolve_message
+from core.security import encrypt_integration_token, integration_key_fingerprint
 from domain.item_schema import parse_item_definition_payload
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
@@ -25,7 +26,9 @@ from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
+from infrastructure.models import ChannelIntegration
 from infrastructure.se_client import SEApiClient
+from infrastructure.se_client import ProviderAuthenticationError, ProviderError
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.player_modifier_service import PlayerModifierService
 from services.item_dependency_validator import validate_item_dependency_graph
@@ -37,7 +40,7 @@ class AdminService:
         channel_repo: ChannelRepository,
         user_repo: UserRepository,
         config_repo: ConfigRepository,
-        se_client: SEApiClient | None = None
+        se_client: SEApiClient | None = None,
     ):
         self.repo = channel_repo
         self.user_repo = user_repo
@@ -56,10 +59,7 @@ class AdminService:
         return [channel] if channel else []
 
     def check_access(
-        self,
-        channel_twitch_id: str,
-        requester_twitch_id: str,
-        owner_only: bool = False
+        self, channel_twitch_id: str, requester_twitch_id: str, owner_only: bool = False
     ):
         channel = self.repo.get_by_twitch_id(channel_twitch_id)
         if not channel:
@@ -79,25 +79,17 @@ class AdminService:
         raise PermissionError("Access denied for this channel")
 
     def get_players(
-        self,
-        requester_twitch_id: str,
-        channel_twitch_id: str,
-        skip: int,
-        limit: int
+        self, requester_twitch_id: str, channel_twitch_id: str, skip: int, limit: int
     ) -> PlayerListResponse:
         self.check_access(channel_twitch_id, requester_twitch_id)
         users, total = self.user_repo.get_users_by_channel(channel_twitch_id, skip, limit)
         return PlayerListResponse(total=total, players=users)
 
     def update_channel_rewards(
-        self,
-        requester_twitch_id: str,
-        twitch_id: str,
-        location_id: str,
-        data: RewardPoolUpdateDTO
+        self, requester_twitch_id: str, twitch_id: str, location_id: str, data: RewardPoolUpdateDTO
     ):
         channel = self.check_access(twitch_id, requester_twitch_id)
-        
+
         return self.repo.update_rewards(
             channel.id,
             location_id,
@@ -108,14 +100,16 @@ class AdminService:
                 if data.requirements
                 else {}
             ),
-            data.location_name
+            data.location_name,
         )
 
     def get_channel_rewards(self, requester_twitch_id: str, twitch_id: str, location_id: str):
         channel = self.check_access(twitch_id, requester_twitch_id)
-        
+
         rewards = {}
-        loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(twitch_id, location_id)
+        loot_pool, item_pool, items_drop_rate = self.config_repo.get_dual_pool(
+            twitch_id, location_id
+        )
         pool = self.repo.get_rewards(channel.id, location_id)
         requirements = pool.requirements if pool and isinstance(pool.requirements, dict) else {}
         location_name = (
@@ -123,7 +117,7 @@ class AdminService:
             if pool and isinstance(pool.location_name, str) and pool.location_name.strip()
             else location_id
         )
-        
+
         if not loot_pool:
             rewards = {
                 "location_id": location_id,
@@ -131,21 +125,25 @@ class AdminService:
                 "requirements": requirements,
                 "items_drop_rate": 0,
                 "rewards_data": [],
-                "items": []
+                "items": [],
             }
-            
-        rewards.update({
-            "location_id": location_id,
-            "location_name": location_name,
-            "requirements": requirements,
-            "items_drop_rate": items_drop_rate,
-            "rewards_data": loot_pool,
-            "items": item_pool
-        })
+
+        rewards.update(
+            {
+                "location_id": location_id,
+                "location_name": location_name,
+                "requirements": requirements,
+                "items_drop_rate": items_drop_rate,
+                "rewards_data": loot_pool,
+                "items": item_pool,
+            }
+        )
 
         return rewards
 
-    def list_channel_access(self, requester_twitch_id: str, channel_twitch_id: str) -> list[ChannelAccessResponseDTO]:
+    def list_channel_access(
+        self, requester_twitch_id: str, channel_twitch_id: str
+    ) -> list[ChannelAccessResponseDTO]:
         channel = self.check_access(channel_twitch_id, requester_twitch_id, owner_only=True)
         return [
             ChannelAccessResponseDTO.model_validate(record)
@@ -153,16 +151,15 @@ class AdminService:
         ]
 
     def upsert_channel_access(
-        self,
-        requester_twitch_id: str,
-        channel_twitch_id: str,
-        data: ChannelAccessUpsertDTO
+        self, requester_twitch_id: str, channel_twitch_id: str, data: ChannelAccessUpsertDTO
     ) -> ChannelAccessResponseDTO:
         channel = self.check_access(channel_twitch_id, requester_twitch_id, owner_only=True)
 
         role = data.role.strip().lower()
         if role not in ALLOWED_CHANNEL_ROLES:
-            raise ValueError(f"Unsupported role. Allowed values: {', '.join(sorted(ALLOWED_CHANNEL_ROLES))}")
+            raise ValueError(
+                f"Unsupported role. Allowed values: {', '.join(sorted(ALLOWED_CHANNEL_ROLES))}"
+            )
         username = data.user_twitch_name.strip()
         if not username:
             raise ValueError("user_twitch_name is required")
@@ -170,15 +167,12 @@ class AdminService:
         if data.user_twitch_id == channel.twitch_id:
             raise ValueError("Channel owner role is managed by channel ownership")
 
-        record = self.repo.upsert_access_record(
-            channel.id,
-            data.user_twitch_id,
-            username,
-            role
-        )
+        record = self.repo.upsert_access_record(channel.id, data.user_twitch_id, username, role)
         return ChannelAccessResponseDTO.model_validate(record)
 
-    def remove_channel_access(self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str) -> None:
+    def remove_channel_access(
+        self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str
+    ) -> None:
         channel = self.check_access(channel_twitch_id, requester_twitch_id, owner_only=True)
 
         if user_twitch_id == channel.twitch_id:
@@ -193,51 +187,55 @@ class AdminService:
         requester_twitch_id: str,
         channel_twitch_id: str,
         seconds: int,
-        scope: str | None = None
+        scope: str | None = None,
     ) -> dict:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
 
         normalized_scope = (scope or "").strip().lower()
         if normalized_scope not in {"", "sub"}:
-            raise ValueError("Invalid scope. Use empty scope for general cooldown or 'sub' for subscribers")
+            raise ValueError(
+                "Invalid scope. Use empty scope for general cooldown or 'sub' for subscribers"
+            )
         seconds = validate_cooldown_seconds(seconds)
 
         config = dict(channel.config or {})
         custom_params = dict(config.get("custom_params") or {})
-        target_key = GParam.SUBS_FISHING_COOLDOWN if normalized_scope == "sub" else GParam.FISHING_COOLDOWN
+        target_key = (
+            GParam.SUBS_FISHING_COOLDOWN if normalized_scope == "sub" else GParam.FISHING_COOLDOWN
+        )
         custom_params[target_key.value] = seconds
         config["custom_params"] = custom_params
         self.repo.update(channel.id, ChannelUpdateDTO(config=config))
 
-        fishing_cd = int(custom_params.get(
-            GParam.FISHING_COOLDOWN.value,
-            DEFAULT_GAME_PARAMS[GParam.FISHING_COOLDOWN]
-        ))
-        subs_cd = int(custom_params.get(
-            GParam.SUBS_FISHING_COOLDOWN.value,
-            DEFAULT_GAME_PARAMS[GParam.SUBS_FISHING_COOLDOWN]
-        ))
+        fishing_cd = int(
+            custom_params.get(
+                GParam.FISHING_COOLDOWN.value, DEFAULT_GAME_PARAMS[GParam.FISHING_COOLDOWN]
+            )
+        )
+        subs_cd = int(
+            custom_params.get(
+                GParam.SUBS_FISHING_COOLDOWN.value,
+                DEFAULT_GAME_PARAMS[GParam.SUBS_FISHING_COOLDOWN],
+            )
+        )
         updated_scope = "sub" if normalized_scope == "sub" else "global"
         chat_message = resolve_message(
             config,
             MsgKey.COOLDOWN_UPDATED,
             updated_scope=updated_scope,
             fishing_cooldown=format_time(fishing_cd),
-            subs_fishing_cooldown=format_time(subs_cd)
+            subs_fishing_cooldown=format_time(subs_cd),
         )
 
         return {
             "chat_message": chat_message,
             "fishing_cooldown": fishing_cd,
             "subs_fishing_cooldown": subs_cd,
-            "updated_scope": updated_scope
+            "updated_scope": updated_scope,
         }
 
     async def upsert_stream_elements_integration(
-        self,
-        requester_twitch_id: str,
-        channel_twitch_id: str,
-        se_token: str
+        self, requester_twitch_id: str, channel_twitch_id: str, se_token: str
     ) -> dict:
         channel = self.check_access(channel_twitch_id, requester_twitch_id, owner_only=True)
         normalized_token = str(se_token or "").strip()
@@ -246,29 +244,50 @@ class AdminService:
 
         try:
             se_channel_id = await self.se_client.get_channel_id(normalized_token)
-        except PermissionError as error:
+        except (PermissionError, ProviderAuthenticationError) as error:
             raise ValueError("Invalid StreamElements token") from error
-        except ValueError as error:
+        except (ValueError, ProviderError) as error:
             raise ValueError("Failed to resolve StreamElements channel") from error
 
-        self.repo.update(
-            channel.id,
-            ChannelUpdateDTO(
-                se_token=normalized_token,
-                se_channel_id=se_channel_id
+        try:
+            ciphertext = encrypt_integration_token(normalized_token)
+        except ValueError as error:
+            raise ValueError("Integration encryption key is not configured") from error
+        integration = (
+            self.user_repo.db.query(ChannelIntegration)
+            .filter(
+                ChannelIntegration.channel_id == channel.id,
+                ChannelIntegration.provider == "streamelements",
             )
+            .first()
         )
+        if integration is None:
+            integration = ChannelIntegration(
+                channel_id=channel.id,
+                provider_channel_id=se_channel_id,
+                credential_ciphertext=ciphertext,
+                credential_key_version=1,
+                credential_fingerprint=integration_key_fingerprint(),
+                status="connected",
+            )
+            self.user_repo.db.add(integration)
+        else:
+            integration.provider_channel_id = se_channel_id
+            integration.credential_ciphertext = ciphertext
+            integration.credential_key_version = 1
+            integration.credential_fingerprint = integration_key_fingerprint()
+            integration.status = "connected"
+            integration.version += 1
+            integration.last_error_code = None
+        self.user_repo.db.flush()
 
-        return {
-            "status": "ok",
-            "se_channel_id": se_channel_id
-        }
+        return {"status": "ok", "se_channel_id": se_channel_id}
 
     def upsert_item_definition(
         self,
         requester_twitch_id: str,
         data: ItemDefinitionCreateDTO,
-        channel_twitch_id: str | None = None
+        channel_twitch_id: str | None = None,
     ):
         target_channel_twitch_id = (channel_twitch_id or requester_twitch_id).strip()
         channel = self.check_access(target_channel_twitch_id, requester_twitch_id)
@@ -311,7 +330,7 @@ class AdminService:
         requester_twitch_id: str,
         skip: int = 0,
         limit: int = 200,
-        channel_twitch_id: str | None = None
+        channel_twitch_id: str | None = None,
     ):
         target_channel_twitch_id = (channel_twitch_id or requester_twitch_id).strip()
         channel = self.check_access(target_channel_twitch_id, requester_twitch_id)
@@ -325,9 +344,7 @@ class AdminService:
             raise ValueError("Player not found")
 
         slot_bonus = PlayerModifierService(self.user_repo.db).inventory_slot_bonus(user)
-        inv_item = InventoryRepository(
-            self.user_repo.db, max_slots_add=slot_bonus
-        ).grant_many(
+        inv_item = InventoryRepository(self.user_repo.db, max_slots_add=slot_bonus).grant_many(
             user,
             [
                 {
@@ -342,13 +359,18 @@ class AdminService:
         )[0]
         return inv_item
 
-    def get_player_inventory(self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str):
+    def get_player_inventory(
+        self, requester_twitch_id: str, channel_twitch_id: str, user_twitch_id: str
+    ):
         self.check_access(channel_twitch_id, requester_twitch_id)
         user = self.user_repo.get_progress(user_twitch_id, channel_twitch_id)
         if not user:
             raise ValueError("Player not found")
 
-        items = [self._serialize_inventory_item(item) for item in self.user_repo.get_user_inventory_items(user.id)]
+        items = [
+            self._serialize_inventory_item(item)
+            for item in self.user_repo.get_user_inventory_items(user.id)
+        ]
         equipped_slots = {
             equipped.slot: equipped.inventory_item.slot_id
             for equipped in InventoryRepository(self.user_repo.db).get_equipped(user.id)
@@ -358,7 +380,7 @@ class AdminService:
             "items": items,
             "equipped_slots": equipped_slots,
             "equipped_rod_slot": equipped_slots.get("rod"),
-            "max_slots": max(int(getattr(user, "base_inventory_slots", 20) or 20) + slot_bonus, 1)
+            "max_slots": max(int(getattr(user, "base_inventory_slots", 20) or 20) + slot_bonus, 1),
         }
 
     def _serialize_inventory_item(self, item):
@@ -419,17 +441,22 @@ class AdminService:
             "updated_at": definition.updated_at,
         }
 
-    def list_fishing_events(self, requester_twitch_id: str, channel_twitch_id: str) -> FishingEventListResponseDTO:
+    def list_fishing_events(
+        self, requester_twitch_id: str, channel_twitch_id: str
+    ) -> FishingEventListResponseDTO:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
         channel_config = channel.config or {}
-        events = [self._serialize_fishing_event(event) for event in self.repo.list_fishing_events(channel.id)]
+        events = [
+            self._serialize_fishing_event(event)
+            for event in self.repo.list_fishing_events(channel.id)
+        ]
         active_event = next((event for event in events if event.is_active), None)
 
         if not events:
             return FishingEventListResponseDTO(
                 chat_message=resolve_message(channel_config, MsgKey.FISHEVENT_LIST_EMPTY),
                 active_event_id=None,
-                items=[]
+                items=[],
             )
 
         labels = []
@@ -439,19 +466,14 @@ class AdminService:
 
         return FishingEventListResponseDTO(
             chat_message=resolve_message(
-                channel_config,
-                MsgKey.FISHEVENT_LIST,
-                events=", ".join(labels)
+                channel_config, MsgKey.FISHEVENT_LIST, events=", ".join(labels)
             ),
             active_event_id=active_event.id if active_event else None,
-            items=events
+            items=events,
         )
 
     def create_fishing_event(
-        self,
-        requester_twitch_id: str,
-        channel_twitch_id: str,
-        data: FishingEventCreateRequestDTO
+        self, requester_twitch_id: str, channel_twitch_id: str, data: FishingEventCreateRequestDTO
     ) -> FishingEventResponseDTO:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
         event_title = data.event_title.strip()
@@ -463,7 +485,7 @@ class AdminService:
             event_title=event_title,
             modifiers=data.modifiers.model_dump(mode="json"),
             override_loot_pool=data.override_loot_pool,
-            is_active=bool(data.is_active)
+            is_active=bool(data.is_active),
         )
         if event.is_active:
             self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
@@ -474,7 +496,7 @@ class AdminService:
         requester_twitch_id: str,
         channel_twitch_id: str,
         event_id: int,
-        data: FishingEventUpdateRequestDTO
+        data: FishingEventUpdateRequestDTO,
     ) -> FishingEventResponseDTO:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
         update_kwargs: dict[str, Any] = {
@@ -501,7 +523,9 @@ class AdminService:
             self.event_lifecycle.cancel_auto_disable(channel.twitch_id)
         return self._serialize_fishing_event(event)
 
-    def delete_fishing_event(self, requester_twitch_id: str, channel_twitch_id: str, event_id: int) -> None:
+    def delete_fishing_event(
+        self, requester_twitch_id: str, channel_twitch_id: str, event_id: int
+    ) -> None:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
         event = self.repo.get_fishing_event(channel.id, event_id)
         if not event:
@@ -519,7 +543,7 @@ class AdminService:
         requester_twitch_id: str,
         channel_twitch_id: str,
         event_id: int,
-        duration_seconds: int | None = None
+        duration_seconds: int | None = None,
     ) -> FishingEventToggleResponseDTO:
         channel = self.check_access(channel_twitch_id, requester_twitch_id)
         target = self.repo.get_fishing_event(channel.id, event_id)
@@ -538,10 +562,10 @@ class AdminService:
                     channel.config or {},
                     MsgKey.FISHEVENT_DISABLED,
                     event_id=refreshed.id if refreshed else target.id,
-                    event_title=refreshed.event_title if refreshed else target.event_title
+                    event_title=refreshed.event_title if refreshed else target.event_title,
                 ),
                 event=self._serialize_fishing_event(refreshed) if refreshed else None,
-                active_event_id=None
+                active_event_id=None,
             )
 
         activated = self.repo.set_active_fishing_event(channel.id, target.id)
@@ -575,15 +599,17 @@ class AdminService:
             status="activated",
             chat_message=resolve_message(
                 channel.config or {},
-                MsgKey.FISHEVENT_ENABLED_TIMED if duration_seconds is not None else MsgKey.FISHEVENT_ENABLED,
+                MsgKey.FISHEVENT_ENABLED_TIMED
+                if duration_seconds is not None
+                else MsgKey.FISHEVENT_ENABLED,
                 event_id=activated.id,
                 event_title=activated.event_title,
-                duration=format_time(duration_seconds) if duration_seconds is not None else ""
+                duration=format_time(duration_seconds) if duration_seconds is not None else "",
             ),
             event=self._serialize_fishing_event(activated),
             active_event_id=activated.id,
             scheduled_disable_at=scheduled_disable_at,
-            scheduler_job=scheduler_job
+            scheduler_job=scheduler_job,
         )
 
     def _serialize_fishing_event(self, event) -> FishingEventResponseDTO:
@@ -592,5 +618,5 @@ class AdminService:
             event_title=event.event_title,
             is_active=bool(event.is_active),
             modifiers=dict(event.modifiers or {}),
-            override_loot_pool=event.override_loot_pool
+            override_loot_pool=event.override_loot_pool,
         )

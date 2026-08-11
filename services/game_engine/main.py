@@ -8,10 +8,12 @@ from api.routes import (
     auth,
     discord_admin,
     discord_integrations,
+    discord_streamelements,
     economy,
     fishing,
     inventory,
 )
+from api.dependencies import _SE_CLIENT
 from core.api_errors import ApiProblem
 from core.config import settings
 from core import metrics as metrics_module
@@ -56,6 +58,16 @@ app.include_router(
     tags=["Discord Integration"],
 )
 app.include_router(discord_admin.router, prefix="/v1/admin", tags=["Discord Admin"])
+app.include_router(
+    discord_streamelements.router,
+    prefix="/v1/integrations/discord",
+    tags=["Discord StreamElements"],
+)
+
+
+@app.on_event("shutdown")
+async def close_provider_client() -> None:
+    await _SE_CLIENT.close()
 
 
 @app.middleware("http")

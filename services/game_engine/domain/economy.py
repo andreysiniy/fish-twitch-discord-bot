@@ -57,7 +57,9 @@ def parse_mass_argument(raw: str | None, *, allow_all: bool = True) -> ParsedMas
     if allow_all and normalized == "all":
         return ParsedMassArgument("all", "all", None, Decimal("1"), None)
     if not normalized or normalized == "all":
-        raise EconomyDomainError("ECONOMY_INVALID_MASS", "Enter a positive mass such as 5kg or 1.5t.")
+        raise EconomyDomainError(
+            "ECONOMY_INVALID_MASS", "Enter a positive mass such as 5kg or 1.5t."
+        )
 
     match = _MASS_PATTERN.fullmatch(normalized)
     if not match:
@@ -107,4 +109,3 @@ def calculate_sell_points(mass_kg: Decimal, rate_points_per_kg: Decimal) -> int:
     if mass <= 0 or rate <= 0:
         raise EconomyDomainError("ECONOMY_INVALID_MASS", "Mass and rate must be positive.")
     return int((mass * rate).to_integral_value(rounding=ROUND_FLOOR))
-

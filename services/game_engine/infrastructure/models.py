@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from infrastructure.database import Base
 
+
 class Channel(Base):
     __tablename__ = "channels"
     __table_args__ = (UniqueConstraint("twitch_id", name="uq_channels_twitch_id"),)
@@ -32,7 +33,7 @@ class Channel(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     se_token = Column(String, nullable=True)
     se_channel_id = Column(String, nullable=True)
-    
+
     config = Column(JSONB, default=dict, nullable=False)
     config_version = Column(Integer, default=1, nullable=False)
     config_updated_at = Column(
@@ -46,9 +47,7 @@ class Channel(Base):
     item_definitions = relationship("ItemDefinition", back_populates="channel")
     fishing_events = relationship("FishingEvent", back_populates="channel")
     access_list = relationship(
-        "ChannelAccessRole",
-        back_populates="channel",
-        cascade="all, delete-orphan"
+        "ChannelAccessRole", back_populates="channel", cascade="all, delete-orphan"
     )
     integrations = relationship(
         "ChannelIntegration", back_populates="channel", cascade="all, delete-orphan"
@@ -76,7 +75,9 @@ class ChannelIntegration(Base):
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel_id = Column(
+        Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     provider = Column(String, nullable=False, default="streamelements")
     provider_channel_id = Column(String, nullable=False)
     credential_ciphertext = Column(Text, nullable=False)
@@ -86,7 +87,9 @@ class ChannelIntegration(Base):
     version = Column(Integer, nullable=False, default=1)
     last_validated_at = Column(DateTime(timezone=True), nullable=True)
     last_error_code = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -103,11 +106,15 @@ class ChannelEconomySettings(Base):
     __tablename__ = "channel_economy_settings"
     __table_args__ = (
         UniqueConstraint("channel_id", name="uq_channel_economy_settings_channel"),
-        CheckConstraint("pricing_mode IN ('single_rate','spread')", name="ck_economy_settings_pricing_mode"),
+        CheckConstraint(
+            "pricing_mode IN ('single_rate','spread')", name="ck_economy_settings_pricing_mode"
+        ),
         CheckConstraint("buy_points_per_kg > 0", name="ck_economy_settings_buy_rate_positive"),
         CheckConstraint("sell_points_per_kg > 0", name="ck_economy_settings_sell_rate_positive"),
         CheckConstraint("min_transaction_mass > 0", name="ck_economy_settings_min_mass_positive"),
-        CheckConstraint("max_transaction_mass >= min_transaction_mass", name="ck_economy_settings_mass_range"),
+        CheckConstraint(
+            "max_transaction_mass >= min_transaction_mass", name="ck_economy_settings_mass_range"
+        ),
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -121,7 +128,9 @@ class ChannelEconomySettings(Base):
     max_transaction_mass = Column(Numeric(18, 2), nullable=False, default=Decimal("1000"))
     enabled = Column(Boolean, nullable=False, default=True)
     version = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -159,12 +168,8 @@ class UserProgress(Base):
         UniqueConstraint("id", "channel_id", name="uq_users_progress_id_channel"),
         CheckConstraint("level >= 1", name="ck_users_progress_level_positive"),
         CheckConstraint("xp >= 0", name="ck_users_progress_xp_nonnegative"),
-        CheckConstraint(
-            "total_fish_stat >= 0", name="ck_users_progress_total_fish_nonnegative"
-        ),
-        CheckConstraint(
-            "current_mass >= 0", name="ck_users_progress_current_mass_nonnegative"
-        ),
+        CheckConstraint("total_fish_stat >= 0", name="ck_users_progress_total_fish_nonnegative"),
+        CheckConstraint("current_mass >= 0", name="ck_users_progress_current_mass_nonnegative"),
         CheckConstraint(
             "base_inventory_slots >= 1",
             name="ck_users_progress_base_inventory_slots_positive",
@@ -173,10 +178,10 @@ class UserProgress(Base):
 
     id = Column(Integer, primary_key=True)
     user_twitch_id = Column(String, nullable=False, index=True)
-    username = Column(String)                    
-    
+    username = Column(String)
+
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
-    
+
     level = Column(Integer, default=1, nullable=False)
     xp = Column(Integer, default=0, nullable=False)
 
@@ -194,9 +199,7 @@ class UserProgress(Base):
     equipped_items = relationship(
         "EquippedItem", back_populates="owner", cascade="all, delete-orphan"
     )
-    modifiers = relationship(
-        "PlayerModifier", back_populates="owner", cascade="all, delete-orphan"
-    )
+    modifiers = relationship("PlayerModifier", back_populates="owner", cascade="all, delete-orphan")
 
 
 class ItemDefinition(Base):
@@ -262,9 +265,7 @@ class ItemDefinition(Base):
             name="ck_item_definitions_break_policy",
         ),
         CheckConstraint("version >= 1", name="ck_item_definitions_version_positive"),
-        CheckConstraint(
-            "schema_version >= 1", name="ck_item_definitions_schema_version_positive"
-        ),
+        CheckConstraint("schema_version >= 1", name="ck_item_definitions_schema_version_positive"),
         CheckConstraint(
             "nominal_value IS NULL OR nominal_value >= 0",
             name="ck_item_definitions_nominal_value_nonnegative",
@@ -446,7 +447,7 @@ class RewardPool(Base):
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     location_id = Column(String, nullable=False, index=True)
     location_name = Column(String, nullable=True)
-    
+
     rewards_data = Column(JSONB, default=list, nullable=False)
     requirements = Column(JSONB, default=dict, nullable=False)
     version = Column(Integer, default=1, nullable=False)
@@ -460,6 +461,7 @@ class RewardPool(Base):
     items_drop_rate = Column(Numeric(18, 6), default=Decimal("0.1"), nullable=False)
     item_loot_table_id = Column(Integer, nullable=True)
     channel = relationship("Channel", back_populates="reward_pools")
+
 
 class FishingEvent(Base):
     __tablename__ = "fishing_events"
@@ -542,7 +544,9 @@ class EconomyOperation(Base):
     user_id = Column(Integer, nullable=False, index=True)
     twitch_username = Column(String, nullable=False)
     provider = Column(String, nullable=False, default="streamelements")
-    integration_id = Column(Uuid(as_uuid=True), ForeignKey("channel_integrations.id"), nullable=True, index=True)
+    integration_id = Column(
+        Uuid(as_uuid=True), ForeignKey("channel_integrations.id"), nullable=True, index=True
+    )
     source = Column(String, nullable=False, default="twitch")
     source_request_id = Column(String, nullable=True)
     provider_channel_id_snapshot = Column(String, nullable=True)
@@ -560,10 +564,14 @@ class EconomyOperation(Base):
     player_mass_after = Column(Numeric(18, 2), nullable=True)
     provider_balance_before = Column(Integer, nullable=True)
     provider_balance_after = Column(Integer, nullable=True)
+    provider_points_cap = Column(Integer, nullable=True)
+    provider_points_headroom_before = Column(Integer, nullable=True)
+    provider_points_headroom_after = Column(Integer, nullable=True)
     provider_status_code = Column(Integer, nullable=True)
     provider_request_meta = Column(JSONB, default=dict, nullable=False)
     mass_delta = Column(Numeric(18, 2), nullable=False, default=0)
-    points_delta = Column(Integer, nullable=False, default=0)
+    points_delta = Column(Numeric(30, 0), nullable=False, default=0)
+    points_calculated = Column(Numeric(30, 0), nullable=False, default=0)
     state = Column(String, nullable=False, default="pending", index=True)
     external_applied = Column(Boolean, nullable=False, default=False)
     attempts = Column(Integer, nullable=False, default=0)
@@ -573,10 +581,13 @@ class EconomyOperation(Base):
     compensation_state = Column(String, nullable=True)
     reconciliation_reason = Column(Text, nullable=True)
     response_payload = Column(JSONB, default=dict, nullable=False)
-    requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    requested_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     started_at = Column(DateTime(timezone=True), nullable=True)
     external_applied_at = Column(DateTime(timezone=True), nullable=True)
     internal_applied_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -592,21 +603,27 @@ class EconomyOperation(Base):
 class EconomyOperationEvent(Base):
     __tablename__ = "economy_operation_events"
     __table_args__ = (
-        UniqueConstraint("operation_id", "sequence_no", name="uq_economy_operation_events_sequence"),
+        UniqueConstraint(
+            "operation_id", "sequence_no", name="uq_economy_operation_events_sequence"
+        ),
         Index("ix_economy_operation_events_operation_sequence", "operation_id", "sequence_no"),
         Index("ix_economy_operation_events_created_at", "created_at"),
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    operation_id = Column(Uuid(as_uuid=True), ForeignKey("economy_operations.id", ondelete="CASCADE"), nullable=False)
+    operation_id = Column(
+        Uuid(as_uuid=True), ForeignKey("economy_operations.id", ondelete="CASCADE"), nullable=False
+    )
     sequence_no = Column(Integer, nullable=False)
     event_type = Column(String, nullable=False)
     from_state = Column(String, nullable=True)
     to_state = Column(String, nullable=True)
     actor_type = Column(String, nullable=False, default="system")
     actor_id = Column(String, nullable=True)
-    metadata = Column(JSONB, default=dict, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    event_metadata = Column("metadata", JSONB, default=dict, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
 
 class EconomyProviderAttempt(Base):
@@ -617,10 +634,15 @@ class EconomyProviderAttempt(Base):
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    operation_id = Column(Uuid(as_uuid=True), ForeignKey("economy_operations.id", ondelete="CASCADE"), nullable=False)
+    operation_id = Column(
+        Uuid(as_uuid=True), ForeignKey("economy_operations.id", ondelete="CASCADE"), nullable=False
+    )
     attempt_no = Column(Integer, nullable=False)
     request_kind = Column(String, nullable=False)
     points_delta = Column(Integer, nullable=True)
+    provider_balance_before = Column(Integer, nullable=True)
+    provider_balance_after = Column(Integer, nullable=True)
+    provider_points_cap = Column(Integer, nullable=True)
     request_started_at = Column(DateTime(timezone=True), nullable=False)
     request_finished_at = Column(DateTime(timezone=True), nullable=True)
     http_status = Column(Integer, nullable=True)
@@ -641,8 +663,18 @@ class OutboxEvent(Base):
             "'dead_letter','compensated','reconciliation_required')",
             name="ck_outbox_events_state",
         ),
-        Index("ix_outbox_pending_due", "next_attempt_at", "created_at", postgresql_where=text("state = 'pending'")),
-        Index("ix_outbox_processing_lease", "lease_expires_at", "created_at", postgresql_where=text("state = 'processing'")),
+        Index(
+            "ix_outbox_pending_due",
+            "next_attempt_at",
+            "created_at",
+            postgresql_where=text("state = 'pending'"),
+        ),
+        Index(
+            "ix_outbox_processing_lease",
+            "lease_expires_at",
+            "created_at",
+            postgresql_where=text("state = 'processing'"),
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -696,9 +728,7 @@ class PlayerModifier(Base):
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    channel_id = Column(
-        Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
-    )
+    channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
     user_progress_id = Column(Integer, nullable=False)
     stat_key = Column(String, nullable=False)
     operation = Column(String, nullable=False)
@@ -847,9 +877,7 @@ class LootTableEntryStock(Base):
 
 class InventoryItemUseRecord(Base):
     __tablename__ = "inventory_item_use_records"
-    __table_args__ = (
-        UniqueConstraint("user_id", "idempotency_key", name="uq_item_use_user_key"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_item_use_user_key"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(Integer, ForeignKey("users_progress.id", ondelete="CASCADE"), nullable=False)

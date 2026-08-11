@@ -5,6 +5,7 @@ import os
 
 API_KEY = os.getenv("BOT_API_KEY", "")
 
+
 class EngineApiError(Exception):
     pass
 
@@ -25,11 +26,18 @@ class EngineApiClient:
     async def fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fish", json=payload)
 
-    async def sell_fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return await self._request("POST", "/v1/fishsell", json=payload)
+    async def sell_fish(self, payload: Dict[str, Any], *, idempotency_key: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST", "/v1/fishsell", json=payload, idempotency_key=idempotency_key
+        )
 
-    async def buy_fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return await self._request("POST", "/v1/fishbuy", json=payload)
+    async def buy_fish(self, payload: Dict[str, Any], *, idempotency_key: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST", "/v1/fishbuy", json=payload, idempotency_key=idempotency_key
+        )
+
+    async def fish_rate(self, channel_id: str) -> Dict[str, Any]:
+        return await self._request("GET", f"/v1/fishrate/{channel_id}")
 
     async def fish_travel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fishtravel", json=payload)
@@ -37,13 +45,17 @@ class EngineApiClient:
     async def fish_cooldown(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fishcd", json=payload)
 
-    async def fish_stats(self, channel_id: str, user_id: str, username: str | None = None) -> Dict[str, Any]:
+    async def fish_stats(
+        self, channel_id: str, user_id: str, username: str | None = None
+    ) -> Dict[str, Any]:
         path = f"/v1/fishstats/{channel_id}/{user_id}"
         if username:
             path = f"{path}?username={username}"
         return await self._request("GET", path)
 
-    async def fish_top(self, channel_id: str, limit: int = 10, mode: str = "current") -> Dict[str, Any]:
+    async def fish_top(
+        self, channel_id: str, limit: int = 10, mode: str = "current"
+    ) -> Dict[str, Any]:
         return await self._request("GET", f"/v1/fishtop/{channel_id}?limit={limit}&mode={mode}")
 
     async def get_inventory(self, channel_id: str, user_id: str) -> Dict[str, Any]:
@@ -88,7 +100,7 @@ class EngineApiClient:
         return await self._request(
             "POST",
             f"/v1/admin/channels/{channel_id}/moderators/list",
-            json={"actor_twitch_id": actor_twitch_id}
+            json={"actor_twitch_id": actor_twitch_id},
         )
 
     async def admin_upsert_moderator(
@@ -97,7 +109,7 @@ class EngineApiClient:
         actor_twitch_id: str,
         user_twitch_id: str,
         user_twitch_name: str,
-        role: str
+        role: str,
     ) -> Dict[str, Any]:
         payload = {
             "actor_twitch_id": actor_twitch_id,
@@ -106,16 +118,11 @@ class EngineApiClient:
             "role": role,
         }
         return await self._request(
-            "POST",
-            f"/v1/admin/channels/{channel_id}/moderators/upsert",
-            json=payload
+            "POST", f"/v1/admin/channels/{channel_id}/moderators/upsert", json=payload
         )
 
     async def admin_remove_moderator(
-        self,
-        channel_id: str,
-        actor_twitch_id: str,
-        user_twitch_id: str
+        self, channel_id: str, actor_twitch_id: str, user_twitch_id: str
     ) -> Dict[str, Any]:
         return await self._request(
             "POST",
@@ -123,15 +130,11 @@ class EngineApiClient:
             json={
                 "actor_twitch_id": actor_twitch_id,
                 "user_twitch_id": user_twitch_id,
-            }
+            },
         )
 
     async def admin_set_fish_cooldown(
-        self,
-        channel_id: str,
-        actor_twitch_id: str,
-        seconds: int,
-        scope: str | None = None
+        self, channel_id: str, actor_twitch_id: str, seconds: int, scope: str | None = None
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "actor_twitch_id": actor_twitch_id,
@@ -140,16 +143,16 @@ class EngineApiClient:
         if scope:
             payload["scope"] = scope
         return await self._request(
-            "POST",
-            f"/v1/admin/channels/{channel_id}/fishcd/set",
-            json=payload
+            "POST", f"/v1/admin/channels/{channel_id}/fishcd/set", json=payload
         )
 
-    async def admin_list_fishing_events(self, channel_id: str, actor_twitch_id: str) -> Dict[str, Any]:
+    async def admin_list_fishing_events(
+        self, channel_id: str, actor_twitch_id: str
+    ) -> Dict[str, Any]:
         return await self._request(
             "POST",
             f"/v1/admin/channels/{channel_id}/events/list",
-            json={"actor_twitch_id": actor_twitch_id}
+            json={"actor_twitch_id": actor_twitch_id},
         )
 
     async def admin_toggle_fishing_event(
@@ -157,7 +160,7 @@ class EngineApiClient:
         channel_id: str,
         actor_twitch_id: str,
         event_number: int,
-        duration_seconds: int | None = None
+        duration_seconds: int | None = None,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "actor_twitch_id": actor_twitch_id,
@@ -166,16 +169,11 @@ class EngineApiClient:
         if duration_seconds is not None:
             payload["duration_seconds"] = int(duration_seconds)
         return await self._request(
-            "POST",
-            f"/v1/admin/channels/{channel_id}/events/toggle",
-            json=payload
+            "POST", f"/v1/admin/channels/{channel_id}/events/toggle", json=payload
         )
-    
+
     def _get_headers(self) -> Dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "X-API-KEY": API_KEY
-        }
+        return {"Content-Type": "application/json", "X-API-KEY": API_KEY}
 
     async def _request(
         self,

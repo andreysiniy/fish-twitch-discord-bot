@@ -335,8 +335,9 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
         "player-stats",
         "reward",
         "setup",
-        "status",
-        "unlink",
+            "status",
+            "streamelements",
+            "unlink",
     }
     placeholders = fish.get_command("placeholders")
     assert placeholders is not None

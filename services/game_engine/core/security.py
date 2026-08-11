@@ -16,10 +16,7 @@ _integration_fernet_instance: Fernet | None = None
 def create_access_token(subject: str | Any) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode = {
-        "sub": str(subject),
-        "exp": expire
-    }
+    to_encode = {"sub": str(subject), "exp": expire}
 
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
@@ -60,7 +57,9 @@ def encrypt_integration_token(plain_token: str) -> str:
 
     if not str(plain_token or "").strip():
         raise ValueError("Token cannot be empty")
-    return _get_integration_fernet().encrypt(str(plain_token).strip().encode("utf-8")).decode("utf-8")
+    return (
+        _get_integration_fernet().encrypt(str(plain_token).strip().encode("utf-8")).decode("utf-8")
+    )
 
 
 def decrypt_integration_token(encrypted_token: str, *, key_version: int = 1) -> str:
@@ -69,7 +68,9 @@ def decrypt_integration_token(encrypted_token: str, *, key_version: int = 1) -> 
     if key_version != settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION:
         raise ValueError("Unsupported integration credential key version")
     try:
-        return _get_integration_fernet().decrypt(str(encrypted_token).encode("utf-8")).decode("utf-8")
+        return (
+            _get_integration_fernet().decrypt(str(encrypted_token).encode("utf-8")).decode("utf-8")
+        )
     except (InvalidToken, ValueError) as error:
         raise ValueError("Failed to decrypt integration token") from error
 

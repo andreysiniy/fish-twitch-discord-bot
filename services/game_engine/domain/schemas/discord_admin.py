@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from domain.config_schema import (
     EventModifiers,
@@ -238,3 +238,36 @@ class PlayerOverflowItemDTO(StrictDTO):
 
 class PlayerOverflowClaimRequest(StrictDTO):
     items: list[PlayerOverflowItemDTO] = Field(..., min_length=1, max_length=200)
+
+
+class StreamElementsConnectRequest(StrictDTO):
+    jwt_token: str = Field(..., min_length=20, max_length=4096)
+
+
+class EconomySettingsPatchRequest(StrictDTO):
+    expected_version: int = Field(..., ge=1)
+    pricing_mode: Literal["single_rate", "spread"] = "single_rate"
+    points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+    buy_points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+    sell_points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+    buy_enabled: bool | None = None
+    sell_enabled: bool | None = None
+    enabled: bool | None = None
+    min_transaction_mass: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
+    max_transaction_mass: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
+
+    @model_validator(mode="after")
+    def validate_rate_mode(self):
+        if self.pricing_mode == "single_rate" and self.points_per_kg is None:
+            raise ValueError("points_per_kg is required for single_rate pricing")
+        if self.pricing_mode == "spread" and (
+            self.buy_points_per_kg is None or self.sell_points_per_kg is None
+        ):
+            raise ValueError("buy_points_per_kg and sell_points_per_kg are required for spread pricing")
+        if (
+            self.min_transaction_mass is not None
+            and self.max_transaction_mass is not None
+            and self.max_transaction_mass < self.min_transaction_mass
+        ):
+            raise ValueError("max_transaction_mass must not be below min_transaction_mass")
+        return self

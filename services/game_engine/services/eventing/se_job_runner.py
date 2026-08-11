@@ -3,15 +3,35 @@ import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-import httpx
 from core.messages import MsgKey, resolve_message
-from core.security import decrypt_token
+from core.security import decrypt_integration_token, decrypt_token
+from domain.economy import EconomyDomainError
 from domain.logic.mass import apply_mass_mutation
 from domain.schemas.fishing import FishResponse
 from infrastructure.database import SessionLocal
-from infrastructure.models import Channel, EconomyOperation, OutboxEvent, UserProgress
-from infrastructure.se_client import SEApiClient, SETransientError
-
+from infrastructure.models import (
+    Channel,
+    ChannelIntegration,
+    EconomyOperation,
+    EconomyOperationEvent,
+    EconomyProviderAttempt,
+    OutboxEvent,
+    UserProgress,
+)
+from infrastructure.se_client import (
+    ProviderAmbiguousWriteError,
+    ProviderConnectionNotSentError,
+    ProviderError,
+    ProviderRateLimitError,
+    SEApiClient,
+)
+from integrations.streamelements.constants import (
+    STREAMELEMENTS_POINTS_MAX,
+    provider_headroom,
+    validate_credit,
+    validate_debit,
+    validate_provider_balance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +39,7 @@ logger = logging.getLogger(__name__)
 class SEJobRunner:
     MAX_ATTEMPTS = 8
     LEASE_SECONDS = 60
-    SAFE_RETRY_ERRORS = (
-        httpx.ConnectError,
-        httpx.ConnectTimeout,
-        httpx.PoolTimeout,
-        SETransientError,
-    )
+    SAFE_RETRY_ERRORS = (ProviderConnectionNotSentError, ProviderRateLimitError)
 
     def __init__(self, poll_interval_seconds: float = 1.0):
         self.poll_interval_seconds = max(poll_interval_seconds, 0.2)
@@ -44,6 +59,7 @@ class SEJobRunner:
         if self._task:
             await self._task
             self._task = None
+        await self.se_client.close()
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -92,7 +108,16 @@ class SEJobRunner:
                 return True
 
             channel = db.query(Channel).filter(Channel.id == operation.channel_id).first()
-            if not channel or not channel.se_token or not channel.se_channel_id:
+            integration = (
+                db.query(ChannelIntegration)
+                .filter(
+                    ChannelIntegration.channel_id == operation.channel_id,
+                    ChannelIntegration.provider == "streamelements",
+                    ChannelIntegration.status == "connected",
+                )
+                .first()
+            )
+            if not channel or not integration:
                 self._finalize_failure(
                     db,
                     event,
@@ -107,9 +132,48 @@ class SEJobRunner:
             operation.state = "processing"
             db.commit()
 
-            token = decrypt_token(channel.se_token)
-            await self.se_client.add_points(
-                str(channel.se_channel_id),
+            try:
+                token = decrypt_integration_token(
+                    integration.credential_ciphertext,
+                    key_version=integration.credential_key_version,
+                )
+            except ValueError:
+                token = decrypt_token(channel.se_token or integration.credential_ciphertext)
+            provider_balance = validate_provider_balance(
+                await self.se_client.get_balance(
+                    str(integration.provider_channel_id), token, operation.twitch_username
+                )
+            )
+            operation.provider_balance_before = provider_balance
+            operation.provider_points_cap = STREAMELEMENTS_POINTS_MAX
+            operation.provider_points_headroom_before = provider_headroom(provider_balance)
+            if operation.points_delta >= 0:
+                validate_credit(provider_balance, operation.points_delta)
+            else:
+                validate_debit(provider_balance, -operation.points_delta)
+            request_started_at = datetime.now(timezone.utc)
+            attempt = EconomyProviderAttempt(
+                operation_id=operation.id,
+                attempt_no=operation.attempts + 1,
+                request_kind="add_points",
+                points_delta=operation.points_delta,
+                provider_balance_before=provider_balance,
+                provider_points_cap=STREAMELEMENTS_POINTS_MAX,
+                request_started_at=request_started_at,
+                outcome="started",
+            )
+            db.add(attempt)
+            operation.attempts += 1
+            self._append_event(
+                db,
+                operation,
+                "provider_write_started",
+                "processing",
+                "processing",
+            )
+            db.flush()
+            result = await self.se_client.add_points(
+                str(integration.provider_channel_id),
                 token,
                 operation.twitch_username,
                 operation.points_delta,
@@ -120,6 +184,30 @@ class SEJobRunner:
             event.lease_expires_at = None
             operation.state = "completed"
             operation.external_applied = True
+            operation.external_applied_at = datetime.now(timezone.utc)
+            operation.provider_balance_after = result.balance_after
+            operation.provider_status_code = result.status_code
+            if result.balance_after is not None:
+                result_balance = validate_provider_balance(result.balance_after)
+                operation.provider_balance_after = result_balance
+                operation.provider_points_headroom_after = provider_headroom(result_balance)
+            attempt.request_finished_at = datetime.now(timezone.utc)
+            attempt.latency_ms = max(
+                int((attempt.request_finished_at - request_started_at).total_seconds() * 1000),
+                0,
+            )
+            attempt.http_status = result.status_code
+            attempt.provider_balance_after = result.balance_after
+            attempt.provider_request_id = result.provider_request_id
+            attempt.outcome = "confirmed"
+            self._append_event(
+                db,
+                operation,
+                "provider_write_confirmed",
+                "processing",
+                "completed",
+            )
+            operation.completed_at = datetime.now(timezone.utc)
             operation.last_error = None
             db.commit()
             return True
@@ -128,7 +216,13 @@ class SEJobRunner:
             if event_id:
                 self._schedule_retry(db, event_id, error)
             return True
-        except (PermissionError, ValueError) as error:
+        except ProviderAmbiguousWriteError as error:
+            db.rollback()
+            if event_id:
+                self._mark_reconciliation(db, event_id, error)
+                return True
+            raise
+        except (ProviderError, EconomyDomainError) as error:
             db.rollback()
             if event_id:
                 self._dead_letter(db, event_id, error)
@@ -143,12 +237,7 @@ class SEJobRunner:
             db.close()
 
     def _schedule_retry(self, db, event_id: str, error: Exception) -> None:
-        event = (
-            db.query(OutboxEvent)
-            .filter(OutboxEvent.id == event_id)
-            .with_for_update()
-            .first()
-        )
+        event = db.query(OutboxEvent).filter(OutboxEvent.id == event_id).with_for_update().first()
         if not event:
             return
         event.attempts += 1
@@ -158,6 +247,7 @@ class SEJobRunner:
         if operation:
             operation.attempts = event.attempts
             operation.last_error = event.last_error
+            self._finish_attempt_error(db, operation, error, "retryable")
         if event.attempts >= self.MAX_ATTEMPTS:
             self._finalize_failure(db, event, operation, event.last_error)
         else:
@@ -168,17 +258,33 @@ class SEJobRunner:
             event.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
         db.commit()
 
-    def _dead_letter(self, db, event_id: str, error: Exception) -> None:
-        event = (
-            db.query(OutboxEvent)
-            .filter(OutboxEvent.id == event_id)
-            .with_for_update()
+    def _append_event(self, db, operation, event_type, from_state, to_state) -> None:
+        last = (
+            db.query(EconomyOperationEvent.sequence_no)
+            .filter(EconomyOperationEvent.operation_id == operation.id)
+            .order_by(EconomyOperationEvent.sequence_no.desc())
             .first()
         )
+        db.add(
+            EconomyOperationEvent(
+                operation_id=operation.id,
+                sequence_no=(last[0] if last else 0) + 1,
+                event_type=event_type,
+                from_state=from_state,
+                to_state=to_state,
+                actor_type="worker",
+                event_metadata={},
+            )
+        )
+
+    def _dead_letter(self, db, event_id: str, error: Exception) -> None:
+        event = db.query(OutboxEvent).filter(OutboxEvent.id == event_id).with_for_update().first()
         if not event:
             return
         operation = self._operation_for_event(db, event, for_update=True)
-        self._finalize_failure(db, event, operation, type(error).__name__)
+        if operation:
+            self._finish_attempt_error(db, operation, error, "rejected")
+        self._finalize_failure(db, event, operation, getattr(error, "code", type(error).__name__))
         db.commit()
 
     def _finalize_failure(
@@ -214,7 +320,7 @@ class SEJobRunner:
             operation.last_error = "Sell refund target not found"
             return
 
-        refund = max(-Decimal(str(operation.mass_delta)), Decimal("0"))
+        refund = max(-Decimal(str(operation.mass_delta)), Decimal(0))
         apply_mass_mutation(user, refund, track_total=False)
         operation.compensated_at = datetime.now(timezone.utc)
         operation.external_applied = False
@@ -231,8 +337,7 @@ class SEJobRunner:
             db.query(OutboxEvent)
             .filter(
                 OutboxEvent.state == "processing",
-                (OutboxEvent.lease_expires_at.is_(None))
-                | (OutboxEvent.lease_expires_at <= now),
+                (OutboxEvent.lease_expires_at.is_(None)) | (OutboxEvent.lease_expires_at <= now),
             )
             .order_by(OutboxEvent.created_at.asc())
             .with_for_update(skip_locked=True)
@@ -249,15 +354,10 @@ class SEJobRunner:
         return True
 
     def _mark_reconciliation(self, db, event_id: str, error: Exception) -> None:
-        event = (
-            db.query(OutboxEvent)
-            .filter(OutboxEvent.id == event_id)
-            .with_for_update()
-            .first()
-        )
+        event = db.query(OutboxEvent).filter(OutboxEvent.id == event_id).with_for_update().first()
         if not event:
             return
-        self._set_reconciliation(db, event, type(error).__name__)
+        self._set_reconciliation(db, event, getattr(error, "code", type(error).__name__))
         db.commit()
 
     def _set_reconciliation(self, db, event: OutboxEvent, error: str) -> None:
@@ -266,8 +366,27 @@ class SEJobRunner:
         event.lease_expires_at = None
         operation = self._operation_for_event(db, event, for_update=True)
         if operation:
+            self._finish_attempt_error(db, operation, error, "ambiguous")
             operation.state = "reconciliation_required"
             operation.last_error = error
+
+    def _finish_attempt_error(self, db, operation, error: Exception | str, outcome: str) -> None:
+        attempt = (
+            db.query(EconomyProviderAttempt)
+            .filter(EconomyProviderAttempt.operation_id == operation.id)
+            .order_by(EconomyProviderAttempt.attempt_no.desc())
+            .first()
+        )
+        if not attempt or attempt.request_finished_at is not None:
+            return
+        finished_at = datetime.now(timezone.utc)
+        attempt.request_finished_at = finished_at
+        attempt.latency_ms = max(
+            int((finished_at - attempt.request_started_at).total_seconds() * 1000), 0
+        )
+        attempt.outcome = outcome
+        attempt.error_code = getattr(error, "code", None) or str(error)
+        attempt.error_message = type(error).__name__ if isinstance(error, Exception) else None
 
     def _mark_ambiguous_jobs_for_reconciliation(self) -> None:
         db = SessionLocal()

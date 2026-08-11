@@ -53,6 +53,15 @@ ERROR_MESSAGES = {
     "PLAYER_NOT_FOUND": "Viewer not found.",
     "PLAYER_MODIFIER_NOT_FOUND": "Player modifier not found.",
     "EVENT_REQUIRES_REVIEW": "Event cannot be activated because it requires review.",
+    "STREAMELEMENTS_POINTS_CAP_EXCEEDED": "This conversion would exceed the StreamElements points limit.",
+    "STREAMELEMENTS_BALANCE_TOO_LOW": "The StreamElements balance is too low.",
+    "ECONOMY_AMOUNT_EXCEEDS_PROVIDER_RANGE": "That amount is too large for the StreamElements points limit.",
+    "ECONOMY_NO_PURCHASABLE_MASS": "There is not enough StreamElements balance to buy the minimum mass.",
+    "ECONOMY_NO_SELLABLE_MASS": "No mass can be sold within the StreamElements points limit.",
+    "PROVIDER_CAP_BLOCKS_COMPENSATION": "Full compensation is blocked by the StreamElements points limit; reconciliation is required.",
+    "INTEGRATION_KEY_UNAVAILABLE": "The game engine integration encryption key is not configured.",
+    "STREAM_ELEMENTS_INVALID_CREDENTIALS": "StreamElements rejected the credential.",
+    "STREAM_ELEMENTS_CHANNEL_MISMATCH": "The credential belongs to a different StreamElements channel.",
 }
 
 

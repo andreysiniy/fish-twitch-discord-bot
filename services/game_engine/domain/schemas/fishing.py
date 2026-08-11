@@ -87,6 +87,12 @@ class FishResponse(BaseModel):
 
     cast_id: Optional[str] = None
     is_replayed: bool = False
+    operation_id: str | None = None
+    operation_state: str | None = None
+    raw_mass_argument: str | None = None
+    mass_delta: Decimal | None = None
+    points_delta: int | None = None
+    rate: Decimal | None = None
 
 
 class RobberyResultDTO(BaseModel):

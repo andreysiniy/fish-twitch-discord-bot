@@ -19,6 +19,7 @@ from app.commands.locations import register_locations_group
 from app.commands.players import register_players_group
 from app.commands.rewards import register_rewards_group
 from app.commands.setup import register_setup_group
+from app.commands.streamelements import register_streamelements_group
 from app.commands.shared import *  # noqa: F401,F403  (re-exports for tests/tools)
 from app.commands.shared import (  # noqa: F401  (underscore helpers used by tests)
     _json_confirmation,
@@ -38,6 +39,7 @@ __all__ = [
     "register_players_group",
     "register_rewards_group",
     "register_setup_group",
+    "register_streamelements_group",
 ]
 
 
@@ -64,6 +66,7 @@ def register_commands(tree, api, sessions) -> None:
             "`placeholders` — message placeholder reference\n"
             "`cast` — fishing cast history, search, and statistics"
         )
+        embed.description += "\n`streamelements` — StreamElements connection, rates, and economy operations"
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     account = register_account_group(tree, api, sessions, fish)
@@ -76,6 +79,7 @@ def register_commands(tree, api, sessions) -> None:
     item_drops = register_item_drops_group(tree, api, sessions, fish)
     players = register_players_group(tree, api, sessions, fish)
     register_casts_group(tree, api, fish)
+    register_streamelements_group(tree, api, sessions, fish)
     tree.add_command(fish)
 
     _wire_cross_group_autocompletes(api, locations, rewards, events, items, item_drops, players)

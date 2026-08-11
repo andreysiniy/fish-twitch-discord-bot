@@ -103,3 +103,11 @@ def record_cast_duration(seconds: float) -> None:
 
 def count_item_drop(item_id: str, status: str) -> None:
     inc("fishing_item_drops_total", {"item_id": item_id, "status": status})
+
+
+def count_economy_provider_cap_rejection(operation: str) -> None:
+    inc("economy_provider_cap_rejections_total", {"operation": operation})
+
+
+def count_economy_reconciliation(reason: str) -> None:
+    inc("economy_reconciliation_required_total", {"reason": reason})

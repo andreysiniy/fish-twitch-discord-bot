@@ -1,4 +1,5 @@
 import string
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict
 
@@ -73,6 +74,10 @@ class MsgKey(str, Enum):
     BUY_INVALID_AMOUNT = "buy_invalid_amount"
     SE_NOT_CONFIGURED = "se_not_configured"
     MARKET_INFO = "market_info"
+    ECONOMY_PROCESSING = "economy_processing"
+    ECONOMY_RECONCILIATION_REQUIRED = "economy_reconciliation_required"
+    ECONOMY_PROVIDER_ERROR = "economy_provider_error"
+    ECONOMY_CAP_EXCEEDED = "economy_cap_exceeded"
 
     # --- Travel / Locations ---
     TRAVEL_SUCCESS = "travel_success"
@@ -136,8 +141,7 @@ DEFAULT_MESSAGES = {
     MsgKey.EQUIP_FAIL_NOT_FOUND: "Item in slot #{slot_id} not found.",
     MsgKey.EQUIP_FAIL_WRONG_TYPE: "Item {item_name} — is not a rod!",
     MsgKey.EQUIP_HELP: (
-        "Usage: !fishequip <slot_id> — e.g. !fishequip 1 "
-        "(slot numbers are shown by !fishbag)."
+        "Usage: !fishequip <slot_id> — e.g. !fishequip 1 (slot numbers are shown by !fishbag)."
     ),
     MsgKey.INV_FULL: "Your inventory is full ({current}/{max})! You couldn't keep {item_name}.",
     MsgKey.INV_EMPTY: "Inventory of {username} is empty.",
@@ -184,6 +188,10 @@ DEFAULT_MESSAGES = {
     MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg>.",
     MsgKey.SE_NOT_CONFIGURED: "StreamElements integration is not configured.",
     MsgKey.MARKET_INFO: "📈 Current Fish Market Rate: {rate} points per 1kg.",
+    MsgKey.ECONOMY_PROCESSING: "Your conversion is processing. Operation: {operation_id}.",
+    MsgKey.ECONOMY_RECONCILIATION_REQUIRED: "Your conversion needs administrator reconciliation. Operation: {operation_id}.",
+    MsgKey.ECONOMY_PROVIDER_ERROR: "The points provider rejected this conversion; no duplicate transfer was made.",
+    MsgKey.ECONOMY_CAP_EXCEEDED: "Your StreamElements balance cannot exceed {cap} points, so this conversion was rejected. Operation: {operation_id}.",
     MsgKey.TRAVEL_SUCCESS: "You traveled to {location_name}.",
     MsgKey.TRAVEL_FAIL_LEVEL: "You need Level {req_level} to enter {location_name} (Current: {level}).",
     MsgKey.TRAVEL_FAIL_NOT_FOUND: "Location '{location_id}' does not exist.",
@@ -218,11 +226,13 @@ DEFAULT_MESSAGES = {
 
 
 PLACEHOLDER_DESCRIPTIONS = {
+    "operation_id": "Economy operation correlation identifier.",
     "amount": "Amount added, removed, sold, or received.",
     "attacker": "Robbery attacker's display name.",
     "attacker_gain": "Mass gained by the robbery attacker.",
     "attacker_mass": "Attacker's mass after the robbery.",
     "balance": "User's current points balance.",
+    "cap": "The maximum points balance accepted by StreamElements.",
     "cooldown_time": "Configured fishing cooldown duration.",
     "cooldown_time_left": "Remaining fishing cooldown duration.",
     "cost": "Purchase cost in points.",
@@ -358,52 +368,38 @@ def resolve_message(channel_config: Dict[str, Any], key: MsgKey, **kwargs) -> st
         return f"{template} (Format Error: {e})"
 
 
-def format_large_number_mass(value: float) -> str:
-    abs_value = abs(value)
-    if abs_value >= 1_000_000_000_000_000:
-        value = value / 1_000_000_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "Tt"
-    elif abs_value >= 1_000_000_000_000:
-        value = value / 1_000_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "Gt"
-    elif abs_value >= 1_000_000_000:
-        value = value / 1_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "Mt"
-    elif abs_value >= 1_000_000:
-        value = value / 1_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "kt"
-    elif abs_value >= 1_000:
-        value = value / 1_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "t"
-    else:
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "kg"
+def format_large_number_mass(value: Decimal | int | str | float) -> str:
+    amount = Decimal(str(value))
+    for threshold, suffix in (
+        (Decimal("1000000000000000"), "Tt"),
+        (Decimal("1000000000000"), "Gt"),
+        (Decimal("1000000000"), "Mt"),
+        (Decimal("1000000"), "kt"),
+        (Decimal("1000"), "t"),
+    ):
+        if abs(amount) >= threshold:
+            return f"{(amount / threshold):.2f}".rstrip("0").rstrip(".") + suffix
+    return f"{amount:.2f}".rstrip("0").rstrip(".") + "kg"
 
 
-def format_large_number_mass_signed(value: float) -> str:
+def format_large_number_mass_signed(value: Decimal | int | str | float) -> str:
     sign = "+" if value >= 0 else "-"
     formatted_value = format_large_number_mass(abs(value))
     return f"{sign}{formatted_value}"
 
 
-def format_large_number_points(value) -> str:
-    abs_value = abs(value)
-    if abs_value >= 1_000_000_000_000_000:
-        value = value / 1_000_000_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "Q"
-    elif abs_value >= 1_000_000_000_000:
-        value = value / 1_000_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "T"
-    elif abs_value >= 1_000_000_000:
-        value = value / 1_000_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "B"
-    elif abs_value >= 1_000_000:
-        value = value / 1_000_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "M"
-    elif abs_value >= 1_000:
-        value = value / 1_000
-        return f"{value:.2f}".rstrip("0").rstrip(".") + "K"
-    else:
-        return f"{value:.2f}".rstrip("0").rstrip(".")
+def format_large_number_points(value: int | Decimal | str | float) -> str:
+    amount = Decimal(str(value))
+    for threshold, suffix in (
+        (Decimal("1000000000000000"), "Q"),
+        (Decimal("1000000000000"), "T"),
+        (Decimal("1000000000"), "B"),
+        (Decimal("1000000"), "M"),
+        (Decimal("1000"), "K"),
+    ):
+        if abs(amount) >= threshold:
+            return f"{(amount / threshold):.2f}".rstrip("0").rstrip(".") + suffix
+    return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 
 def format_time(seconds):

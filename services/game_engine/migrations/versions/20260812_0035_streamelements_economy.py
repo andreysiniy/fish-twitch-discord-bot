@@ -80,6 +80,9 @@ def upgrade() -> None:
         sa.Column("player_mass_after", sa.Numeric(18, 2)),
         sa.Column("provider_balance_before", sa.Integer()),
         sa.Column("provider_balance_after", sa.Integer()),
+        sa.Column("provider_points_cap", sa.Integer()),
+        sa.Column("provider_points_headroom_before", sa.Integer()),
+        sa.Column("provider_points_headroom_after", sa.Integer()),
         sa.Column("provider_status_code", sa.Integer()),
         sa.Column("provider_request_meta", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("error_code", sa.String()),
@@ -89,6 +92,7 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True)),
         sa.Column("external_applied_at", sa.DateTime(timezone=True)),
         sa.Column("internal_applied_at", sa.DateTime(timezone=True)),
+        sa.Column("completed_at", sa.DateTime(timezone=True)),
     ]
     for column in operation_cols:
         op.add_column("economy_operations", column)
@@ -135,6 +139,9 @@ def upgrade() -> None:
         sa.Column("attempt_no", sa.Integer(), nullable=False),
         sa.Column("request_kind", sa.String(), nullable=False),
         sa.Column("points_delta", sa.Integer()),
+        sa.Column("provider_balance_before", sa.Integer()),
+        sa.Column("provider_balance_after", sa.Integer()),
+        sa.Column("provider_points_cap", sa.Integer()),
         sa.Column("request_started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("request_finished_at", sa.DateTime(timezone=True)),
         sa.Column("http_status", sa.Integer()),
@@ -189,8 +196,9 @@ def downgrade() -> None:
     op.drop_index("ix_economy_operations_integration_id", table_name="economy_operations")
     op.alter_column("economy_operations", "id", type_=sa.String(), postgresql_using="id::text")
     for column in (
-        "internal_applied_at", "external_applied_at", "started_at", "requested_at",
+        "completed_at", "internal_applied_at", "external_applied_at", "started_at", "requested_at",
         "reconciliation_reason", "compensation_state", "error_code", "provider_request_meta",
+        "provider_points_headroom_after", "provider_points_headroom_before", "provider_points_cap",
         "provider_status_code", "provider_balance_after", "provider_balance_before",
         "player_mass_after", "player_mass_before", "settings_version_snapshot", "rate_used_snapshot",
         "sell_rate_snapshot", "buy_rate_snapshot", "pricing_mode_snapshot", "mass_effective",
@@ -201,4 +209,3 @@ def downgrade() -> None:
     op.drop_table("channel_economy_settings")
     op.drop_index("ix_channel_integrations_channel_id", table_name="channel_integrations")
     op.drop_table("channel_integrations")
-

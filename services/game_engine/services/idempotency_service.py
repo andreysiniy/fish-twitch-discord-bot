@@ -1,6 +1,6 @@
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -49,6 +49,54 @@ class IdempotencyService:
             return dict(record.response_json)
 
         response = callback()
+        self.db.add(
+            IdempotencyRecord(
+                actor_scope=actor_scope,
+                idempotency_key=key,
+                request_hash=request_hash,
+                response_status=200,
+                response_json=response,
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            )
+        )
+        self.db.flush()
+        return response
+
+    async def execute_async(
+        self,
+        actor_scope: str,
+        key: str | None,
+        action: str,
+        payload: dict[str, Any],
+        request_id: str,
+        callback: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        """Async counterpart used by provider-backed mutations."""
+
+        if not key:
+            raise ApiProblem(
+                400, "VALIDATION_ERROR", "Idempotency-Key is required", request_id=request_id
+            )
+        request_hash = self._hash({"action": action, "payload": payload})
+        record = (
+            self.db.query(IdempotencyRecord)
+            .filter(
+                IdempotencyRecord.actor_scope == actor_scope,
+                IdempotencyRecord.idempotency_key == key,
+                IdempotencyRecord.expires_at > datetime.now(timezone.utc),
+            )
+            .first()
+        )
+        if record:
+            if record.request_hash != request_hash:
+                raise ApiProblem(
+                    409,
+                    "IDEMPOTENCY_CONFLICT",
+                    "Idempotency key was used with a different payload",
+                    request_id=request_id,
+                )
+            return dict(record.response_json)
+        response = await callback()
         self.db.add(
             IdempotencyRecord(
                 actor_scope=actor_scope,

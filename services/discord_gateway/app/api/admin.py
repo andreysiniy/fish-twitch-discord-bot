@@ -123,6 +123,66 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "config.reset"),
         )
 
+    async def streamelements_status(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction, "GET", f"/v1/integrations/discord/channels/{channel}/streamelements"
+        )
+
+    async def streamelements_connect(self, interaction, jwt_token: str):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PUT",
+            f"/v1/integrations/discord/channels/{channel}/streamelements",
+            json={"jwt_token": jwt_token},
+            idempotency_key=interaction_key(interaction.id, "streamelements.connect"),
+        )
+
+    async def streamelements_test(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "POST",
+            f"/v1/integrations/discord/channels/{channel}/streamelements/test",
+            idempotency_key=interaction_key(interaction.id, "streamelements.test"),
+        )
+
+    async def streamelements_disconnect(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "DELETE",
+            f"/v1/integrations/discord/channels/{channel}/streamelements",
+            idempotency_key=interaction_key(interaction.id, "streamelements.disconnect"),
+        )
+
+    async def economy_settings(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/integrations/discord/channels/{channel}/economy-settings",
+        )
+
+    async def patch_economy_settings(self, interaction, payload: dict[str, Any]):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "PATCH",
+            f"/v1/integrations/discord/channels/{channel}/economy-settings",
+            json=payload,
+            idempotency_key=interaction_key(interaction.id, "economy.settings.patch"),
+        )
+
+    async def economy_operations(self, interaction, limit: int = 25):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/integrations/discord/channels/{channel}/economy-operations?limit={limit}",
+        )
+
     async def locations(self, interaction):
         channel = await self.channel_id(interaction)
         return await self.client.request(
@@ -226,9 +286,7 @@ class AdminApi:
                 "dry_run": dry_run,
             },
             idempotency_key=(
-                None
-                if dry_run
-                else interaction_key(interaction.id, "reward.import_legacy")
+                None if dry_run else interaction_key(interaction.id, "reward.import_legacy")
             ),
         )
 
@@ -333,8 +391,7 @@ class AdminApi:
         return await self.client.request(
             interaction,
             "POST",
-            f"/v1/admin/channels/{channel}/items/{item_id}/archive"
-            f"?expected_version={version}",
+            f"/v1/admin/channels/{channel}/items/{item_id}/archive?expected_version={version}",
             idempotency_key=interaction_key(interaction.id, "item.archive"),
         )
 
@@ -369,9 +426,7 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "item_drop.upsert"),
         )
 
-    async def remove_item_drop(
-        self, interaction, location_id: str, item_id: str, version: int
-    ):
+    async def remove_item_drop(self, interaction, location_id: str, item_id: str, version: int):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
@@ -411,8 +466,7 @@ class AdminApi:
         return await self.client.request(
             interaction,
             "POST",
-            f"/v1/admin/channels/{channel}/players/{viewer}/items/"
-            f"{inventory_item_id}/revoke",
+            f"/v1/admin/channels/{channel}/players/{viewer}/items/{inventory_item_id}/revoke",
             json={"quantity": quantity, "expected_version": version},
             idempotency_key=interaction_key(interaction.id, "player.item_revoke"),
         )
@@ -443,9 +497,7 @@ class AdminApi:
             f"/v1/admin/channels/{channel}/players/{viewer}/modifiers",
         )
 
-    async def set_player_modifier(
-        self, interaction, viewer: str, payload: dict[str, Any]
-    ):
+    async def set_player_modifier(self, interaction, viewer: str, payload: dict[str, Any]):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
@@ -467,8 +519,7 @@ class AdminApi:
         return await self.client.request(
             interaction,
             "PATCH",
-            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers/"
-            f"{modifier_id}/state",
+            f"/v1/admin/channels/{channel}/players/{viewer}/modifiers/{modifier_id}/state",
             json={"expected_version": version, "is_enabled": is_enabled},
             idempotency_key=interaction_key(interaction.id, "player_modifier.state"),
         )
@@ -485,15 +536,12 @@ class AdminApi:
             idempotency_key=interaction_key(interaction.id, "player_modifier.remove"),
         )
 
-    async def explain_player_stats(
-        self, interaction, viewer: str, scope: str = "fishing"
-    ):
+    async def explain_player_stats(self, interaction, viewer: str, scope: str = "fishing"):
         channel = await self.channel_id(interaction)
         return await self.client.request(
             interaction,
             "GET",
-            f"/v1/admin/channels/{channel}/players/{viewer}/stats/explain"
-            f"?scope={scope}",
+            f"/v1/admin/channels/{channel}/players/{viewer}/stats/explain?scope={scope}",
         )
 
     async def recent_casts(
