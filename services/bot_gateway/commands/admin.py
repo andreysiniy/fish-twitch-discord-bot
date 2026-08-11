@@ -14,26 +14,11 @@ INDEFINITE_DURATION_TOKENS = {"", "0", "none", "null", "indefinite", "unlimited"
 logger = logging.getLogger(__name__)
 
 
-def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
-    """Read duration only from the command text, never from a parser default."""
-    content = getattr(getattr(ctx, "message", None), "content", None)
-    if not isinstance(content, str):
+def _duration_argument(arg2: str | None) -> str:
+    """Read duration from the second command token without parser defaults."""
+    if not isinstance(arg2, str):
         return ""
-    tokens = content.split()
-    if len(tokens) < 3:
-        return ""
-    raw_token = tokens[2]
-    token = _strip_invisible_characters(raw_token)
-    logger.info(
-        "Parsed fishevent duration",
-        extra={
-            "message_content": content,
-            "parser_arg2": arg2,
-            "raw_duration_token": raw_token,
-            "duration_token": token,
-        },
-    )
-    return token
+    return _strip_invisible_characters(arg2)
 
 
 def _strip_invisible_characters(value: str) -> str:
@@ -203,14 +188,11 @@ class AdminCog(commands.Cog):
             await ctx.send("Could not retrieve cooldown")
 
     @commands.command(name="fishevent")
-    async def fishevent(
-        self,
-        ctx: commands.Context,
-        arg1: str | None = None,
-        arg2: str | None = None
-    ) -> None:
+    async def fishevent(self, ctx: commands.Context, *args: str) -> None:
         channel_id = await get_channel_id(ctx)
         actor_id = str(ctx.author.id)
+        arg1 = args[0] if args else None
+        arg2 = args[1] if len(args) > 1 else None
 
         if not arg1:
             try:
@@ -235,7 +217,7 @@ class AdminCog(commands.Cog):
             return
 
         duration_seconds: int | None = None
-        duration_token = _duration_argument(ctx, arg2)
+        duration_token = _duration_argument(arg2)
         if duration_token.casefold() not in INDEFINITE_DURATION_TOKENS:
             try:
                 duration_seconds = int(duration_token)

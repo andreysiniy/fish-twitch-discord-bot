@@ -211,7 +211,7 @@ async def test_fishevent_reads_explicit_duration_from_message_text(monkeypatch) 
         return "channel-id"
 
     monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
-    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "0")
+    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "90")
 
     api_client.admin_toggle_fishing_event.assert_awaited_once_with(
         channel_id="channel-id",
