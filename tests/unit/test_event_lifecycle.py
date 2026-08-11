@@ -57,6 +57,13 @@ def test_event_serialize_handles_null_timing() -> None:
     assert data["deactivated_at"] is None
 
 
+def test_event_serialize_prefers_active_flag_over_stale_status() -> None:
+    service = object.__new__(DiscordAdminService)
+    data = service._serialize_event(_event(is_active=True, status="ended"))
+    assert data["is_active"] is True
+    assert data["status"] == "active"
+
+
 def test_due_events_are_ended_directly_from_postgres(monkeypatch) -> None:
     """PostgreSQL is authoritative for event deadlines (plan §15)."""
     from datetime import datetime, timedelta, timezone

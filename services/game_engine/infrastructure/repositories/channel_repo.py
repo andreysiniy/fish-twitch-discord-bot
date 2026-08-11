@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 from infrastructure.models import (
     Channel,
@@ -343,12 +345,28 @@ class ChannelRepository:
 
     def set_active_fishing_event(self, channel_id: int, event_id: int | None) -> FishingEvent | None:
         events = self.list_fishing_events(channel_id)
+        if event_id is not None:
+            requested = next((event for event in events if event.id == event_id), None)
+            if requested is not None and requested.requires_review:
+                raise ValueError("Event requires review before activation")
         target: FishingEvent | None = None
+        now = datetime.now(timezone.utc)
         for event in events:
             should_be_active = event_id is not None and event.id == event_id
-            event.is_active = bool(should_be_active)
             if should_be_active:
+                # Keep the legacy Twitch admin path in sync with the durable
+                # lifecycle fields used by the Discord API and reconciler.
+                if not event.is_active or event.status != "active":
+                    event.starts_at = now
+                    event.activated_at = now
+                event.is_active = True
+                event.status = "active"
                 target = event
+            elif event.is_active:
+                event.is_active = False
+                event.status = "ended"
+                event.deactivated_at = now
+                event.ends_at = now
 
         self.db.flush()
         if target:
