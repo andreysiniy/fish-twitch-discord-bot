@@ -129,6 +129,10 @@ def test_overflow_table_columns_and_constraints() -> None:
         "created_at",
         "claimed_at",
     } <= set(columns)
+    assert any(
+        index.name == "ix_inventory_overflow_items_status_created_at"
+        for index in table.indexes
+    )
     constraints = {str(item) for item in table.constraints}
     assert any("ck_inventory_overflow_items_status" in item for item in constraints)
     assert any("fk_inventory_overflow_items_user_channel" in item for item in constraints)

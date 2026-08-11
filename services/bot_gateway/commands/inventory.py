@@ -160,8 +160,11 @@ class InventoryCog(commands.Cog):
         owner_name: str | None = None,
     ) -> None:
         items = response.get("items", [])
+        overflow_count = int(response.get("overflow_count") or 0)
         if not items:
-            message = f"{owner_name}'s inventory is empty." if owner_name else "Inventory is empty."
+            owner_prefix = f"{owner_name}'s inventory" if owner_name else "Inventory"
+            stashed = f" ({overflow_count} stashed)" if overflow_count else ""
+            message = f"{owner_prefix} is empty{stashed}."
             await ctx.send(message)
             return
 
@@ -196,10 +199,11 @@ class InventoryCog(commands.Cog):
 
         owner_prefix = f"{owner_name}'s " if owner_name else ""
         inventory_word = "inventory" if owner_name else "Inventory"
+        stashed = f" ({overflow_count} stashed)" if overflow_count else ""
         header = (
-            f"{owner_prefix}{inventory_word} {len(items)}/{max_slots} slots: "
+            f"{owner_prefix}{inventory_word} {len(items)}/{max_slots}{stashed} slots: "
             if max_slots
-            else f"{owner_prefix}{inventory_word}: "
+            else f"{owner_prefix}{inventory_word}{stashed}: "
         )
         await ctx.send(header + ", ".join(lines))
 

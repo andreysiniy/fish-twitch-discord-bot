@@ -6,11 +6,13 @@ An administrator reclaims parked rows through the Discord claim flow; rows stay
 tenant-safe because the model carries the same composite FKs as ``InventoryItem``.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from infrastructure.models import InventoryOverflowItem, UserProgress
 from sqlalchemy.orm import Session
+
+OVERFLOW_TTL = timedelta(hours=24)
 
 
 class InventoryOverflowRepository:
@@ -42,11 +44,13 @@ class InventoryOverflowRepository:
         return row
 
     def list_parked(self, user_id: int) -> list[InventoryOverflowItem]:
+        cutoff = datetime.now(timezone.utc) - OVERFLOW_TTL
         return (
             self.db.query(InventoryOverflowItem)
             .filter(
                 InventoryOverflowItem.user_id == user_id,
                 InventoryOverflowItem.status == "parked",
+                InventoryOverflowItem.created_at > cutoff,
             )
             .order_by(InventoryOverflowItem.created_at.asc())
             .all()
@@ -65,6 +69,8 @@ class InventoryOverflowRepository:
                 InventoryOverflowItem.id == overflow_id,
                 InventoryOverflowItem.user_id == user_id,
                 InventoryOverflowItem.status == "parked",
+                InventoryOverflowItem.created_at
+                > datetime.now(timezone.utc) - OVERFLOW_TTL,
             )
             .with_for_update(of=InventoryOverflowItem)
             .first()
@@ -103,3 +109,15 @@ class InventoryOverflowRepository:
             self.db.flush()
             claimed.append(row)
         return claimed
+
+    def delete_expired(self, *, now: datetime) -> int:
+        """Delete parked rows after their 24-hour mailbox retention period."""
+        cutoff = now - OVERFLOW_TTL
+        return (
+            self.db.query(InventoryOverflowItem)
+            .filter(
+                InventoryOverflowItem.status == "parked",
+                InventoryOverflowItem.created_at <= cutoff,
+            )
+            .delete(synchronize_session=False)
+        )

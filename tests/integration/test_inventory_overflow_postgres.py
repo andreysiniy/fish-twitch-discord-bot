@@ -9,7 +9,7 @@ cannot fit leaves the parked row untouched.
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from api.discord_dependencies import DiscordServiceContext
@@ -25,7 +25,10 @@ from infrastructure.models import (
     ItemDefinition,
     UserProgress,
 )
-from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
+from infrastructure.repositories.inventory_overflow_repo import (
+    OVERFLOW_TTL,
+    InventoryOverflowRepository,
+)
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from services.discord_admin_service import DiscordAdminService
 from sqlalchemy.exc import IntegrityError
@@ -140,6 +143,27 @@ def test_overflow_rows_are_parked_and_listed_for_the_owner() -> None:
             )["items"]
             == []
         )
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_expired_parked_overflow_is_hidden_and_deleted() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        _channel, player, definition = _seed(db, suffix)
+        parked = _park(db, player, definition)
+        parked_id = parked.id
+        parked.created_at = datetime.now(timezone.utc) - OVERFLOW_TTL - timedelta(seconds=1)
+        db.flush()
+        repository = InventoryOverflowRepository(db)
+
+        assert repository.list_parked(player.id) == []
+        assert repository.delete_expired(now=datetime.now(timezone.utc)) == 1
+        db.commit()
+        assert db.query(InventoryOverflowItem).filter_by(id=parked_id).one_or_none() is None
     finally:
         db.rollback()
         db.close()

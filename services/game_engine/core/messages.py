@@ -151,7 +151,8 @@ DEFAULT_MESSAGES = {
     MsgKey.FISH_BASE_MSG: "{username} is fishing... !fish",
     MsgKey.ITEM_CAUGHT: "Caught: {item_name} x{quantity}!",
     MsgKey.ITEM_OVERFLOWED: (
-        "Caught: {item_name} x{quantity}! Sent to overflow storage because your inventory is full."
+        "Caught: {item_name} x{quantity}! Sent to overflow storage because your inventory is full. "
+        "It will be deleted after 24 hours if not claimed."
     ),
     MsgKey.ROD_BROKEN: "CRACK! Your {item_name} snapped in half! It's gone forever.",
     MsgKey.NO_ROD_EQUIPPED: "You need a fishing rod to fish here! Equip one first (!fishequip).",

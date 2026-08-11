@@ -129,6 +129,24 @@ async def test_fishbag_without_limit_still_lists_items() -> None:
     assert "Inventory 1/0" not in sent
 
 
+@pytest.mark.asyncio
+async def test_fishbag_shows_stashed_overflow_count() -> None:
+    from commands.inventory import InventoryCog
+
+    ctx = SimpleNamespace(send=AsyncMock())
+    cog = InventoryCog(SimpleNamespace())
+    await cog._send_inventory(
+        ctx,
+        {
+            "items": [{"slot_id": 1, "title": "Rod", "quantity": 1}],
+            "max_slots": 20,
+            "overflow_count": 5,
+        },
+    )
+    sent = ctx.send.await_args.args[0]
+    assert "Inventory 1/20 (5 stashed) slots:" in sent
+
+
 def test_fishbag_argument_parser_supports_owner_slot_and_viewer_modes() -> None:
     from commands.inventory import InventoryCog
 

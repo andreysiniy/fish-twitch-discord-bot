@@ -9,6 +9,7 @@ from domain.schemas.rpg import (
     UseItemRequestDTO,
     UseItemResponseDTO,
 )
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
 from services.player_modifier_service import PlayerModifierService
@@ -116,6 +117,7 @@ class InventoryService:
             return InventoryResponseDTO(success=False, message="You have no inventory.", items=[])
 
         db_items = self.user_repo.get_user_inventory_items(user.id)
+        overflow_count = len(InventoryOverflowRepository(self.user_repo.db).list_parked(user.id))
         equipped = self.inventory_repo.get_equipped(user.id)
         equipped_slots = {
             row.slot: row.inventory_item.slot_id
@@ -158,6 +160,7 @@ class InventoryService:
                 + self.modifier_service.inventory_slot_bonus(user),
                 1,
             ),
+            overflow_count=overflow_count,
         )
 
     def _inventory_repository(self, user) -> InventoryRepository:
