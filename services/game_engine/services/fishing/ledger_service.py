@@ -160,6 +160,11 @@ class FishingLedgerService:
         )
         item_selected = bool(
             typed_item.selection_success
+            if typed_item is not None and typed_item.selection_success is not None
+            else (
+                typed_item is not None
+                and typed_item.status not in {"gate_failed", "no_candidates"}
+            )
             if typed_item is not None
             else item_payload is not None
         )
@@ -250,7 +255,12 @@ class FishingLedgerService:
                     else item_payload.get("grant_success") is not False
                 )
             ),
-            item_drop_count=1 if item_selected else 0,
+            item_drop_count=(
+                1
+                if item_selected
+                and (typed_item is None or typed_item.status not in {"stock_empty", "failed"})
+                else 0
+            ),
             item_drop_probability=result.item_drop_probability,
             item_drop_roll=result.item_drop_roll,
             item_drop_gate_success=(

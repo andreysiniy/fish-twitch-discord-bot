@@ -347,7 +347,7 @@ class ConsumeChargeEffect(StrictItemModel):
     """
 
     type: Literal["consume_charge"]
-    trigger: Literal["after_cast", "after_successful_cast", "after_item_drop"]
+    trigger: Literal["on_use"]
     amount: int = Field(1, ge=1, le=1000)
 
 

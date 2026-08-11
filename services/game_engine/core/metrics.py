@@ -103,11 +103,3 @@ def record_cast_duration(seconds: float) -> None:
 
 def count_item_drop(item_id: str, status: str) -> None:
     inc("fishing_item_drops_total", {"item_id": item_id, "status": status})
-
-
-def count_wizard_timeout(flow: str) -> None:
-    inc("fishing_wizard_timeouts_total", {"flow": flow})
-
-
-def set_wizard_sessions_active(value: int) -> None:
-    set_gauge("fishing_wizard_sessions_active", value)

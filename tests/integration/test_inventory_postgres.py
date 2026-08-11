@@ -321,7 +321,7 @@ def test_charge_based_consumable_decrements_charges_and_is_deleted_at_zero() -> 
             max_charges=3,
             effects=[
                 {"type": "grant_mass", "mass": "1.00"},
-                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+                {"type": "consume_charge", "trigger": "on_use", "amount": 1},
             ],
         )
         db.add_all([user, potion])
@@ -375,7 +375,7 @@ def test_charge_consumption_honors_consume_charge_amount() -> None:
             max_charges=6,
             effects=[
                 {"type": "grant_mass", "mass": "1.00"},
-                {"type": "consume_charge", "trigger": "after_cast", "amount": 2},
+                {"type": "consume_charge", "trigger": "on_use", "amount": 2},
             ],
         )
         db.add_all([user, potion])

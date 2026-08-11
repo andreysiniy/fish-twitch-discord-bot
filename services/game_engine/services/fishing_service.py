@@ -2,7 +2,7 @@ import logging
 import random
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from core import metrics as metrics_module
@@ -425,6 +425,7 @@ class FishingService:
                 )
 
         response = self.presenter.build_response(user, result)
+        cast_duration_ms = int((time.monotonic() - started_monotonic) * 1000)
         cast = self._record_resolved_cast(
             user=user,
             result=result,
@@ -443,8 +444,14 @@ class FishingService:
             item_pool=item_pool,
             pool_location_id=effective_pool_location_id,
             items_drop_rate=rate,
-            duration_ms=int((time.monotonic() - started_monotonic) * 1000),
+            duration_ms=cast_duration_ms,
         )
+        metrics_module.record_cast_duration(cast_duration_ms / 1000)
+        if result.item_drop_resolution is not None:
+            resolution = result.item_drop_resolution
+            metrics_module.count_item_drop(
+                str(resolution.item_id or "unknown"), resolution.status
+            )
         if cast is not None:
             response.cast_id = str(cast.id)
             cast.response_snapshot = response.model_dump(mode="json")
@@ -577,11 +584,10 @@ class FishingService:
                 else {}
             )
             effective_params = dict(custom_params or {})
+            cooldown_started_at = started_at or requested_at or datetime.now(timezone.utc)
             next_available = (
-                self.cooldown_repo.next_available_at(
-                    user.channel_id, user.user_twitch_id
-                )
-                if hasattr(self.cooldown_repo, "next_available_at")
+                cooldown_started_at + timedelta(seconds=cooldown_duration)
+                if not bypass_cooldown and cooldown_duration > 0
                 else None
             )
             item_loot_table_id = None
@@ -754,7 +760,14 @@ class FishingService:
 
     @staticmethod
     def _robbery_modifier_snapshot(resolved) -> dict[str, object]:
-        explanation = resolved.explain()
+        explain = getattr(resolved, "explain", None)
+        if callable(explain):
+            explanation = explain()
+        else:
+            explanation = {
+                str(stat): {"value": str(value), "contributions": []}
+                for stat, value in (getattr(resolved, "values", {}) or {}).items()
+            }
         sources = []
         for stat, details in explanation.items():
             for contribution in details.get("contributions", []):

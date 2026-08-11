@@ -457,8 +457,8 @@ class ConsumeChargeModal(TypedEffectModal):
         super().__init__("Consume Charge", on_save, on_saved)
         self.trigger = discord.ui.TextInput(
             label="Trigger",
-            placeholder="after_cast",
-            default="after_cast",
+            placeholder="on_use",
+            default="on_use",
             max_length=30,
             required=True,
         )
@@ -469,7 +469,7 @@ class ConsumeChargeModal(TypedEffectModal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         payload = {
             "type": "consume_charge",
-            "trigger": self.trigger.value.strip() or "after_cast",
+            "trigger": self.trigger.value.strip() or "on_use",
             "amount": int(self.amount.value.strip() or "1"),
         }
         await self._finish(interaction, payload)

@@ -494,3 +494,37 @@ def test_record_resolved_tracks_gate_failure_without_counting_a_drop() -> None:
     assert cast_kwargs["item_drop_gate_success"] is False
     assert cast_kwargs["item_drop_selection_success"] is False
     assert ledger.repo.add_item_drop.call_args.kwargs["grant_status"] == "gate_failed"
+
+
+def test_record_resolved_tracks_stock_empty_selection_without_delivery_count() -> None:
+    ledger = FishingLedgerService(db=MagicMock())
+    ledger.repo = MagicMock()
+    ledger._find_pool = lambda user, location_id=None: None
+    ledger.get_or_create_ruleset_snapshot = lambda **kw: ("snap-1", True)
+    result = _result(
+        item_drop=None,
+        item_drop_resolution=ItemDropResolution(
+            item_id="bait",
+            status="stock_empty",
+            gate_success=True,
+            selection_success=True,
+            stock_reserved=False,
+            failure_reason="entry stock exhausted",
+        ),
+    )
+    ledger.repo.create_cast.return_value = SimpleNamespace(id="cast-1", channel_id=3)
+
+    ledger.record_resolved(
+        user=_user(),
+        result=result,
+        channel_config_version=2,
+        event_snapshot={},
+        effective_params_snapshot={},
+        engine_version="2.1.0",
+        source_request_id="req-stock-empty",
+        loot_pool=[result.loot],
+    )
+
+    assert ledger.repo.create_cast.call_args.kwargs["item_drop_count"] == 0
+    assert ledger.repo.create_cast.call_args.kwargs["item_drop_selection_success"] is True
+    assert ledger.repo.add_item_drop.call_args.kwargs["grant_status"] == "stock_empty"
