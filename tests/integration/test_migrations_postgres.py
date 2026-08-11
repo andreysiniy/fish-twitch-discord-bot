@@ -874,12 +874,13 @@ def test_new_check_constraints_reject_invalid_state() -> None:
             channel_id = connection.execute(
                 text("SELECT id FROM channels WHERE twitch_id='ck'")
             ).scalar()
-            # Negative item value rejected.
+            # Negative nominal item value rejected.
             with pytest.raises(IntegrityError):
                 connection.execute(
                     text(
                         "INSERT INTO item_definitions (channel_id, item_id, title, type, "
-                        "slot, stack_size, value) VALUES (:cid,'neg','Neg','equipment','rod',1,-5)"
+                        "slot, stack_size, nominal_value) "
+                        "VALUES (:cid,'neg','Neg','equipment','rod',1,-5)"
                     ),
                     {"cid": channel_id},
                 )
