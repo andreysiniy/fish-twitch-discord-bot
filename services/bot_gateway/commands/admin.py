@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
-    """Read an optional duration without trusting a phantom parser argument."""
-    token = (arg2 or "").strip()
+    """Read duration only from the command text, never from a parser default."""
     content = getattr(getattr(ctx, "message", None), "content", None)
-    if isinstance(content, str) and len(content.split()) < 3:
+    if not isinstance(content, str):
         return ""
-    return token
+    tokens = content.split()
+    if len(tokens) < 3:
+        return ""
+    return tokens[2].strip()
 
 
 class AdminCog(commands.Cog):
