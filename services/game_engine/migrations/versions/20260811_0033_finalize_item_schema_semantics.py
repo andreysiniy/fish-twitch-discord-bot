@@ -44,7 +44,33 @@ def upgrade() -> None:
         op.drop_column("inventory_items", "definition_version")
 
     definition_columns = _columns("item_definitions")
-    if "value" in definition_columns and "nominal_value" not in definition_columns:
+    if {"value", "nominal_value"}.issubset(definition_columns):
+        mismatch = bind.execute(
+            sa.text(
+                "SELECT COUNT(*) FROM item_definitions "
+                "WHERE value IS NOT NULL AND nominal_value IS NOT NULL "
+                "AND value <> nominal_value"
+            )
+        ).scalar_one()
+        if mismatch:
+            raise RuntimeError(
+                "Cannot finalize item value semantics: value and nominal_value "
+                f"disagree in {mismatch} rows"
+            )
+        bind.execute(
+            sa.text(
+                "UPDATE item_definitions SET nominal_value = value "
+                "WHERE nominal_value IS NULL"
+            )
+        )
+        bind.execute(
+            sa.text(
+                "ALTER TABLE item_definitions "
+                "DROP CONSTRAINT IF EXISTS ck_item_definitions_value_nonnegative"
+            )
+        )
+        op.drop_column("item_definitions", "value")
+    elif "value" in definition_columns and "nominal_value" not in definition_columns:
         bind.execute(
             sa.text(
                 "ALTER TABLE item_definitions "
