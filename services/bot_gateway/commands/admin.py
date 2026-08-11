@@ -8,7 +8,17 @@ from heplers.context_tool import get_channel_id
 from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
+INDEFINITE_DURATION_TOKENS = {"", "none", "null", "indefinite", "unlimited"}
 logger = logging.getLogger(__name__)
+
+
+def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
+    """Read an optional duration without trusting a phantom parser argument."""
+    token = (arg2 or "").strip()
+    content = getattr(getattr(ctx, "message", None), "content", None)
+    if isinstance(content, str) and len(content.split()) < 3:
+        return ""
+    return token
 
 
 class AdminCog(commands.Cog):
@@ -202,9 +212,10 @@ class AdminCog(commands.Cog):
             return
 
         duration_seconds: int | None = None
-        if arg2 and arg2.strip():
+        duration_token = _duration_argument(ctx, arg2)
+        if duration_token.casefold() not in INDEFINITE_DURATION_TOKENS:
             try:
-                duration_seconds = int(arg2.strip())
+                duration_seconds = int(duration_token)
                 if duration_seconds <= 0:
                     raise ValueError
             except ValueError:
