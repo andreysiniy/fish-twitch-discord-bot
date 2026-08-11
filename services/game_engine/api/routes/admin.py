@@ -359,9 +359,7 @@ def grant_item_to_player(
             # ``definition_version`` is the current live definition version;
             # the grant-time audit value is exposed separately below.
             "definition_version": definition.version if definition else 1,
-            "obtained_definition_version": getattr(
-                item, "obtained_definition_version", item.definition_version
-            ),
+            "obtained_definition_version": item.obtained_definition_version,
             "quantity": item.quantity,
             "slot_id": item.slot_id,
             "current_durability": item.current_durability,

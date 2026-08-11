@@ -317,7 +317,7 @@ def _item_payload(
     description: str | None,
     schema_version: int | None = None,
     image_url: str | None = None,
-    value: str | None = None,
+    nominal_value: str | None = None,
     expected_version: int | None = None,
 ) -> dict[str, Any]:
     if item_type == "equipment" and not equipment_slot:
@@ -346,7 +346,7 @@ def _item_payload(
         "schema_version": schema_version if schema_version is not None else 1,
         "effects": effects,
         "image_url": image_url,
-        "value": value,
+        "nominal_value": nominal_value,
     }
     if expected_version is not None:
         payload["expected_version"] = expected_version

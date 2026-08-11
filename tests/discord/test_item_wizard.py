@@ -80,18 +80,18 @@ def test_payload_builder_preserves_image_url_from_draft() -> None:
     assert payload["image_url"] == "https://example.com/icon.png"
 
 
-def test_payload_builder_preserves_value_from_draft() -> None:
-    """Spec test 17: the shared builder must not drop value."""
+def test_payload_builder_preserves_nominal_value_from_draft() -> None:
+    """The shared builder emits the canonical nominal value field."""
     payload = build_item_payload(
         {
             "item_id": "x",
             "title": "X",
             "item_type": "material",
             "rarity": "rare",
-            "value": "150.5",
+            "nominal_value": "150.5",
         }
     )
-    assert payload["value"] == "150.5"
+    assert payload["nominal_value"] == "150.5"
 
 
 def test_payload_builder_carries_expected_version_from_draft() -> None:

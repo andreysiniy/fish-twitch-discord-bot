@@ -529,17 +529,21 @@ def _convert_current_schema_to_legacy_snapshot(engine) -> None:
         "DROP COLUMN modifiers_history",
         "ALTER TABLE users_progress DROP COLUMN base_inventory_slots, "
         "ADD COLUMN inventory JSONB DEFAULT '{\"equipped_rod_slot\": null, \"max_slots\": 20}'::jsonb",
-        "ALTER TABLE inventory_items DROP COLUMN definition_version, DROP COLUMN version, "
-        "DROP COLUMN current_charges, DROP COLUMN obtained_definition_version",
+        "ALTER TABLE inventory_items DROP COLUMN IF EXISTS definition_version, "
+        "DROP COLUMN IF EXISTS version, DROP COLUMN IF EXISTS current_charges, "
+        "DROP COLUMN IF EXISTS obtained_definition_version",
         "ALTER TABLE fishing_casts DROP COLUMN error_message, "
         "DROP COLUMN item_drop_gate_success, DROP COLUMN item_drop_selection_success, "
         "DROP COLUMN item_drop_stock_reserved, DROP COLUMN item_drop_grant_success",
         "ALTER TABLE outbox_events DROP COLUMN lease_expires_at, DROP COLUMN version",
         "ALTER TABLE economy_operations DROP COLUMN compensated_at, DROP COLUMN version",
-        "ALTER TABLE item_definitions DROP COLUMN max_durability, DROP COLUMN break_policy, "
-        "DROP COLUMN effects, DROP COLUMN value, DROP COLUMN schema_version, "
-        "DROP COLUMN version, DROP COLUMN is_active, DROP COLUMN archived_at, "
-        "DROP COLUMN updated_at, DROP COLUMN updated_by, DROP COLUMN max_charges",
+        "ALTER TABLE item_definitions DROP COLUMN IF EXISTS max_durability, "
+        "DROP COLUMN IF EXISTS break_policy, DROP COLUMN IF EXISTS effects, "
+        "DROP COLUMN IF EXISTS value, DROP COLUMN IF EXISTS nominal_value, "
+        "DROP COLUMN IF EXISTS schema_version, DROP COLUMN IF EXISTS version, "
+        "DROP COLUMN IF EXISTS is_active, DROP COLUMN IF EXISTS archived_at, "
+        "DROP COLUMN IF EXISTS updated_at, DROP COLUMN IF EXISTS updated_by, "
+        "DROP COLUMN IF EXISTS max_charges",
         "ALTER TABLE item_definitions ADD COLUMN sell_value NUMERIC(18, 2), "
         "ADD COLUMN is_sellable BOOLEAN NOT NULL DEFAULT TRUE, "
         "ADD COLUMN is_tradeable BOOLEAN NOT NULL DEFAULT TRUE, "

@@ -29,7 +29,7 @@ def _backend_item(**overrides):
         "description": "A powerful rod",
         "schema_version": 1,
         "image_url": None,
-        "value": None,
+        "nominal_value": None,
         "version": 4,
         "effects": [{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}],
     }
@@ -222,7 +222,7 @@ def _edit_session(store, **draft_overrides):
         "description": "A powerful rod",
         "schema_version": 1,
         "image_url": None,
-        "value": None,
+        "nominal_value": None,
         "effects": [{"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}],
         "expected_version": 4,
     }
@@ -276,7 +276,7 @@ async def test_edit_confirm_uses_edit_idempotency_key_and_success_message() -> N
                 "description": "A powerful rod",
                 "schema_version": 1,
                 "image_url": None,
-                "value": None,
+                "nominal_value": None,
                 "effects": [
                     {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.05"}
                 ],

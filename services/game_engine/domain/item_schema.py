@@ -1,8 +1,8 @@
 from decimal import Decimal
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Any, Annotated, Callable, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictItemModel(BaseModel):
@@ -408,12 +408,19 @@ class ItemDefinitionData(StrictItemModel):
     )
     effects: list[ItemEffect] = Field(default_factory=list, max_length=100)
     image_url: str | None = Field(None, max_length=2048)
-    value: Decimal | None = Field(
+    nominal_value: Decimal | None = Field(
         None,
         ge=0,
         le=1_000_000_000_000,
+        validation_alias=AliasChoices("nominal_value", "value"),
+        serialization_alias="nominal_value",
         description="Optional nominal appraisal value; it is not a wallet balance.",
     )
+
+    @property
+    def value(self) -> Decimal | None:
+        """Backward-compatible input property; use ``nominal_value`` in contracts."""
+        return self.nominal_value
 
     @model_validator(mode="after")
     def validate_item_shape(self):
@@ -456,6 +463,28 @@ class ItemDefinitionData(StrictItemModel):
                     f"{effect_type} is not compatible with {self.item_type.value}"
                 )
         return self
+
+
+def _parse_item_schema_v1(payload: dict[str, Any]) -> ItemDefinitionData:
+    return ItemDefinitionData.model_validate(payload)
+
+
+ITEM_SCHEMA_PARSERS: dict[int, Callable[[dict[str, Any]], ItemDefinitionData]] = {
+    ITEM_SCHEMA_VERSION: _parse_item_schema_v1,
+}
+
+
+def parse_item_definition_payload(payload: dict[str, Any]) -> ItemDefinitionData:
+    """Parse a versioned item payload through its explicit schema dispatcher."""
+    raw_version = payload.get("schema_version", ITEM_SCHEMA_VERSION)
+    try:
+        schema_version = int(raw_version)
+    except (TypeError, ValueError) as error:
+        raise ValueError("schema_version must be an integer") from error
+    parser = ITEM_SCHEMA_PARSERS.get(schema_version)
+    if parser is None:
+        raise ValueError(f"Unsupported item schema version: {schema_version}")
+    return parser(payload)
 
 
 def validate_stat_value(stat: StatKey, value: Decimal) -> Decimal:

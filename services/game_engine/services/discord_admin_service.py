@@ -14,6 +14,7 @@ from core.messages import message_placeholder_catalog, validate_custom_message_t
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
 from domain.item_schema import ModifierScope
+from domain.item_schema import parse_item_definition_payload
 from domain.logic.formulas import geometric_first_success_stats
 from domain.logic.mass import apply_mass_mutation
 from domain.schemas.admin import ChannelCreateDTO
@@ -627,6 +628,7 @@ class DiscordAdminService:
         data: DiscordItemUpsertRequest,
     ) -> dict:
         def mutation() -> dict:
+            validated_data = parse_item_definition_payload(data.model_dump(mode="python"))
             channel, link = self._authorize(
                 context, ChannelPermission.ITEMS_WRITE, channel_twitch_id, for_update=True
             )
@@ -642,27 +644,31 @@ class DiscordAdminService:
             validate_item_dependency_graph(
                 self.db,
                 channel.id,
-                data.item_id,
-                data.effects,
+                validated_data.item_id,
+                validated_data.effects,
             )
             before = self._serialize_item_definition(existing, channel) if existing else {}
             row = self.channel_repo.upsert_item_definition(
                 channel_twitch_id=channel.twitch_id,
-                item_id=data.item_id,
-                title=data.title,
-                item_type=data.item_type.value,
-                slot=data.equipment_slot.value if data.equipment_slot else None,
-                description=data.description,
-                rarity=data.rarity.value,
-                max_durability=data.max_durability,
-                max_charges=data.max_charges,
-                break_policy=data.break_policy.value,
-                stack_size=data.stack_size,
-                image_url=data.image_url,
-                effects=[effect.model_dump(mode="json") for effect in data.effects],
-                schema_version=data.schema_version,
-                value=data.value,
-                expected_version=data.expected_version,
+                item_id=validated_data.item_id,
+                title=validated_data.title,
+                item_type=validated_data.item_type.value,
+                slot=(
+                    validated_data.equipment_slot.value
+                    if validated_data.equipment_slot
+                    else None
+                ),
+                description=validated_data.description,
+                rarity=validated_data.rarity.value,
+                max_durability=validated_data.max_durability,
+                max_charges=validated_data.max_charges,
+                break_policy=validated_data.break_policy.value,
+                stack_size=validated_data.stack_size,
+                image_url=validated_data.image_url,
+                effects=[effect.model_dump(mode="json") for effect in validated_data.effects],
+                schema_version=validated_data.schema_version,
+                nominal_value=validated_data.nominal_value,
+                expected_version=validated_data.expected_version,
                 updated_by=link.twitch_user_id,
             )
             after = self._serialize_item_definition(row, channel)
@@ -2081,7 +2087,9 @@ class DiscordAdminService:
             "effects": row.effects or [],
             "schema_version": row.schema_version,
             "image_url": row.image_url,
-            "value": str(row.value) if row.value is not None else None,
+            "nominal_value": (
+                str(row.nominal_value) if row.nominal_value is not None else None
+            ),
             "is_active": row.is_active,
             "version": row.version,
             "archived_at": row.archived_at.isoformat() if row.archived_at else None,
@@ -2123,9 +2131,7 @@ class DiscordAdminService:
             "current_charges": row.current_charges,
             "max_charges": row.definition.max_charges,
             "definition_version": row.definition.version,
-            "obtained_definition_version": getattr(
-                row, "obtained_definition_version", row.definition_version
-            ),
+            "obtained_definition_version": row.obtained_definition_version,
             "version": row.version,
             "meta": row.meta or {},
         }
