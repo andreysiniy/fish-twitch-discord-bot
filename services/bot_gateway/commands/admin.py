@@ -202,9 +202,9 @@ class AdminCog(commands.Cog):
             return
 
         duration_seconds: int | None = None
-        if arg2 is not None:
+        if arg2 and arg2.strip():
             try:
-                duration_seconds = int(arg2)
+                duration_seconds = int(arg2.strip())
                 if duration_seconds <= 0:
                     raise ValueError
             except ValueError:
