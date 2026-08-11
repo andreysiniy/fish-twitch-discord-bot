@@ -259,6 +259,8 @@ def test_entity_list_entries_include_all_parameters_without_truncation() -> None
     assert "ID: `7`" in event_details
     assert "Status: Active" in event_details
     assert "Version: v2" in event_details
+    assert "**Modifiers**" in event_details
+    assert "---" in event_details
     assert "Loot pool: `river`" in event_details
     assert "✨ **XP**: +100% (×2.00)" in event_details
     assert "updated_at" not in event_details
