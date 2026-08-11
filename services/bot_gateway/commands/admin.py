@@ -21,6 +21,27 @@ def _duration_argument(arg2: str | None) -> str:
     return _strip_invisible_characters(arg2)
 
 
+def _optional_duration_seconds(arg2: str | None) -> int | None:
+    token = _duration_argument(arg2)
+    if token.casefold() in INDEFINITE_DURATION_TOKENS:
+        return None
+    try:
+        value = int(token)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring an invalid optional fishevent duration token",
+            extra={"duration_token": token},
+        )
+        return None
+    if value <= 0:
+        logger.warning(
+            "Ignoring a non-positive optional fishevent duration token",
+            extra={"duration_token": token},
+        )
+        return None
+    return value
+
+
 def _strip_invisible_characters(value: str) -> str:
     return "".join(
         char
@@ -216,16 +237,7 @@ class AdminCog(commands.Cog):
             await ctx.send("Usage: !fishevent <event_number> [duration_seconds]")
             return
 
-        duration_seconds: int | None = None
-        duration_token = _duration_argument(arg2)
-        if duration_token.casefold() not in INDEFINITE_DURATION_TOKENS:
-            try:
-                duration_seconds = int(duration_token)
-                if duration_seconds <= 0:
-                    raise ValueError
-            except ValueError:
-                await ctx.send("duration_seconds must be a positive integer")
-                return
+        duration_seconds = _optional_duration_seconds(arg2)
 
         try:
             response = await self.bot.api_client.admin_toggle_fishing_event(
