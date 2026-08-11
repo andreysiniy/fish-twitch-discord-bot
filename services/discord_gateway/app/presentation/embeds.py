@@ -1,13 +1,12 @@
 import json
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import discord
 
 from app.domain.item_effect_registry import describe_effect
 from app.presentation.formatting import diff_lines
-
 
 RARITY_COLORS = {
     "common": discord.Color(0x95A5A6),
@@ -142,16 +141,29 @@ def location_list_entry(item: dict[str, Any]) -> tuple[str, str]:
 
 
 def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
-    order = (
-        "id",
-        "event_title",
-        "is_active",
-        "override_loot_pool",
-        "modifiers",
-        "version",
-        "updated_at",
-    )
-    return item["event_title"], _entity_details(item, order)
+    """Render the compact event-list entry without exposing the API payload."""
+    title = item.get("event_title") or f"Event #{item.get('id', '?')}"
+    status = item.get("status")
+    if not status:
+        status = "active" if item.get("is_active") else "inactive"
+    status = str(status).replace("_", " ").title()
+
+    detail_parts = [
+        f"ID: `{item.get('id', '?')}`",
+        f"Status: {status}",
+        f"Version: v{item.get('version', '?')}",
+    ]
+    if item.get("override_loot_pool"):
+        detail_parts.append(f"Loot pool: `{item['override_loot_pool']}`")
+
+    modifier_lines = _event_modifier_lines(item.get("modifiers") or {})
+    if modifier_lines:
+        detail_parts.append("Modifiers:\n" + "\n".join(modifier_lines))
+    else:
+        detail_parts.append("Modifiers: none")
+    if item.get("requires_review"):
+        detail_parts.append("Review: required")
+    return title, "\n".join(detail_parts)
 
 
 def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
@@ -422,6 +434,34 @@ def _count_lines(counts: dict[str, Any]) -> str:
     return "\n".join(f"`{key}`: {value}" for key, value in counts.items()) or "None"
 
 
+_EVENT_MODIFIER_SEGMENTS = (
+    ("fish_luck_change_percent", "Fish Luck", "🍀"),
+    ("positive_fish_reward_change_percent", "Good Catch", "📈"),
+    ("negative_fish_reward_change_percent", "Bad Catch", "📉"),
+    ("xp_gain_change_percent", "XP", "✨"),
+    ("cooldown_change_percent", "Cooldown", "⏱"),
+)
+
+
+def _event_modifier_lines(modifiers: dict[str, Any]) -> list[str]:
+    lines = []
+    for key, label, emoji in _EVENT_MODIFIER_SEGMENTS:
+        raw = modifiers.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            pct = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            lines.append(f"{emoji} **{label}**: `{raw}`")
+            continue
+        if pct == 0:
+            continue
+        factor = Decimal(1) + (pct / 100)
+        sign = "+" if pct >= 0 else ""
+        lines.append(f"{emoji} **{label}**: {sign}{pct}% (×{factor:.2f})")
+    return lines
+
+
 def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
     """Human-readable event card with v2 modifier percentages and factors."""
     modifiers = item.get("modifiers") or {}
@@ -451,28 +491,7 @@ def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
     if item.get("requires_review"):
         embed.add_field(name="Review", value="⚠ requires review", inline=True)
 
-    segments = [
-        ("fish_luck_change_percent", "Fish Luck", "🍀"),
-        ("positive_fish_reward_change_percent", "Good Catch", "📈"),
-        ("negative_fish_reward_change_percent", "Bad Catch", "📉"),
-        ("xp_gain_change_percent", "XP", "✨"),
-        ("cooldown_change_percent", "Cooldown", "⏱"),
-    ]
-    lines = []
-    for key, label, emoji in segments:
-        raw = modifiers.get(key)
-        if raw is None or raw == "":
-            continue
-        try:
-            pct = Decimal(str(raw))
-        except Exception:
-            lines.append(f"{emoji} **{label}**: `{raw}`")
-            continue
-        if pct == 0:
-            continue
-        factor = Decimal("1") + (pct / 100)
-        sign = "+" if pct >= 0 else ""
-        lines.append(f"{emoji} **{label}**: {sign}{pct}% (×{factor:.2f})")
+    lines = _event_modifier_lines(modifiers)
     if lines:
         embed.add_field(name="Modifiers", value="\n".join(lines), inline=False)
     else:
@@ -484,7 +503,7 @@ def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
 def _epoch(value: str) -> int:
     try:
         return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
-    except Exception:
+    except (TypeError, ValueError):
         return 0
 
 
