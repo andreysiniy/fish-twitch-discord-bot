@@ -22,14 +22,25 @@ def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
     tokens = content.split()
     if len(tokens) < 3:
         return ""
-    return _strip_invisible_characters(tokens[2])
+    raw_token = tokens[2]
+    token = _strip_invisible_characters(raw_token)
+    logger.info(
+        "Parsed fishevent duration",
+        extra={
+            "message_content": content,
+            "parser_arg2": arg2,
+            "raw_duration_token": raw_token,
+            "duration_token": token,
+        },
+    )
+    return token
 
 
 def _strip_invisible_characters(value: str) -> str:
     return "".join(
         char
         for char in value
-        if not char.isspace() and unicodedata.category(char) not in {"Cc", "Cf"}
+        if not char.isspace() and unicodedata.category(char)[0] not in {"C", "Z"}
     ).strip()
 
 
