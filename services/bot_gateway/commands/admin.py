@@ -9,7 +9,8 @@ from heplers.context_tool import get_channel_id
 from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
-INDEFINITE_DURATION_TOKENS = {"", "none", "null", "indefinite", "unlimited"}
+# TwitchIO may expose the missing optional argument as the string "0".
+INDEFINITE_DURATION_TOKENS = {"", "0", "none", "null", "indefinite", "unlimited"}
 logger = logging.getLogger(__name__)
 
 
