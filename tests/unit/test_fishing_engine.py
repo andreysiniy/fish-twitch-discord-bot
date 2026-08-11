@@ -38,6 +38,29 @@ def test_large_xp_reward_can_advance_multiple_levels() -> None:
     assert result.new_level > 2
 
 
+def test_item_gate_success_without_eligible_candidates_is_recorded() -> None:
+    result = FishingEngine().calculate_result(
+        user=make_user(),
+        loot_pool=[{"type": "nothing", "weight": 1, "xp": 0}],
+        item_pool=[
+            {
+                "item_id": "sold_out",
+                "item_definition_id": 7,
+                "weight": 100,
+                "remaining_stock": 0,
+            }
+        ],
+        items_drop_rate=1,
+        custom_params={},
+    )
+
+    assert result.item_drop is None
+    assert result.item_drop_resolution is not None
+    assert result.item_drop_resolution.status == "no_candidates"
+    assert result.item_drop_resolution.gate_success is True
+    assert result.item_drop_resolution.selection_success is False
+
+
 def test_v2_luck_reduction_scales_positive_mass_down() -> None:
     result = formulas.apply_fish_reward_modifiers(
         raw_delta=Decimal("10"),

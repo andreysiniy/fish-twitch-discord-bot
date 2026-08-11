@@ -2,13 +2,8 @@ from sqlalchemy.orm import Session
 
 from infrastructure.models import (
     Channel,
-    LootTableEntry,
     LootTableEntryStock,
     RewardPool,
-)
-from infrastructure.repositories.loot_table_serializer import (
-    load_stock_by_entry,
-    serialize_loot_table_entry,
 )
 
 
@@ -51,43 +46,16 @@ class ConfigRepository:
         return rewards, items, pool_obj.items_drop_rate
 
     def _resolve_item_entries(self, pool_obj: RewardPool) -> list[dict]:
-        """Resolve drop candidates from the unified loot table, else legacy rows.
-
-        Exhausted finite-stock entries stay in the candidate list so the shared
-        selector can prove stock=0 exclusion in one place; ``remaining_stock``
-        is carried on every candidate.
-        """
+        """Resolve fishing candidates through the canonical loot-table API."""
         if pool_obj.item_loot_table_id is None:
             return []
-        entries = (
-            self.db.query(LootTableEntry)
-            .filter(
-                LootTableEntry.loot_table_id == pool_obj.item_loot_table_id,
-                LootTableEntry.item_definition_id.isnot(None),
-            )
-            .all()
+        from services.loot_table_service import LootTableRollService
+
+        return LootTableRollService(self.db).resolve_candidates(
+            pool_obj.channel_id,
+            pool_obj.item_loot_table_id,
+            allow_missing=True,
         )
-        stock_by_entry = load_stock_by_entry(self.db, entries)
-        return [
-            serialize_loot_table_entry(entry, stock_by_entry.get(entry.id))
-            for entry in entries
-            if self._matches_rarity_filter(entry, pool_obj)
-        ]
-
-    @staticmethod
-    def _matches_rarity_filter(entry: LootTableEntry, pool_obj: RewardPool) -> bool:
-        """Apply an entry rarity gate against the current player context.
-
-        ``rarity_filter`` is a comma-separated list of accepted rarities
-        (e.g. ``"epic,legendary"``). An empty or null filter accepts every
-        entry. The definition's rarity is the only stable rarity source.
-        """
-        if not entry.rarity_filter:
-            return True
-        allowed = {part.strip().lower() for part in entry.rarity_filter.split(",") if part.strip()}
-        if not allowed:
-            return True
-        return str((entry.definition.rarity or "").lower()) in allowed
 
     def consume_item_stock(self, item: dict, amount: int = 1) -> bool:
         """Consume stock for a drop candidate.

@@ -100,6 +100,7 @@ class RobberyResultDTO(BaseModel):
     absorbed: bool = False
     counter_actions: List[Dict[str, Any]] = Field(default_factory=list)
     roll: Decimal | None = None
+    modifier_snapshot: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RussianRouletteResultDTO(BaseModel):

@@ -98,7 +98,11 @@ def build_special_result(result: FishingResult) -> dict:
     """Capture robbery/roulette/other special results for the ledger."""
     special: dict[str, Any] = {}
     if result.robbery_result is not None:
-        special["robbery"] = result.robbery_result.model_dump(mode="json")
+        robbery = result.robbery_result.model_dump(mode="json")
+        modifier_snapshot = robbery.pop("modifier_snapshot", None)
+        special["robbery"] = robbery
+        if modifier_snapshot:
+            special["robbery_modifiers"] = modifier_snapshot
     if result.roulette_result is not None:
         special["roulette"] = result.roulette_result.model_dump(mode="json")
     return _jsonable(special)
