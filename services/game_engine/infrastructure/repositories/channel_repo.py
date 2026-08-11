@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
+
+from core.security import encrypt_token
+from domain.event_review import event_review_error_message
+from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
 from infrastructure.models import (
     Channel,
     ChannelAccessRole,
@@ -8,8 +12,6 @@ from infrastructure.models import (
     ItemDefinition,
     RewardPool,
 )
-from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
-from core.security import encrypt_token
 
 UNSET = object()
 
@@ -348,7 +350,7 @@ class ChannelRepository:
         if event_id is not None:
             requested = next((event for event in events if event.id == event_id), None)
             if requested is not None and requested.requires_review:
-                raise ValueError("Event requires review before activation")
+                raise ValueError(event_review_error_message(requested.modifiers))
         target: FishingEvent | None = None
         now = datetime.now(timezone.utc)
         for event in events:

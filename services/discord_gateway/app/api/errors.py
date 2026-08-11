@@ -52,11 +52,25 @@ ERROR_MESSAGES = {
     "ITEM_COMPATIBILITY": "The effect is not compatible with this item type.",
     "PLAYER_NOT_FOUND": "Viewer not found.",
     "PLAYER_MODIFIER_NOT_FOUND": "Player modifier not found.",
-    "EVENT_REQUIRES_REVIEW": "This event has unsafe inherited modifiers and must be reviewed before it can be started.",
+    "EVENT_REQUIRES_REVIEW": "Event cannot be activated because it requires review.",
 }
 
 
 def localize_error(error: EngineError) -> str:
     base = ERROR_MESSAGES.get(error.code, error.message or "The operation could not be completed.")
+    if error.code == "EVENT_REQUIRES_REVIEW":
+        issues = error.fields.get("review_issues")
+        if isinstance(issues, list):
+            rendered = [
+                str(issue.get("message"))
+                for issue in issues
+                if isinstance(issue, dict) and issue.get("message")
+            ]
+            if rendered:
+                base = (
+                    f"{base}\nReview issues:\n"
+                    + "\n".join(f"• {message}" for message in rendered)
+                    + "\nAdjust the listed modifiers and save the event before trying again."
+                )
     request_id = error.request_id or "unknown"
     return f"{base}\nRequest ID: `{request_id}`"

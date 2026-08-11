@@ -30,3 +30,24 @@ def test_localize_error_falls_back_to_backend_text() -> None:
     error = EngineError(500, "UNKNOWN_CODE", "some backend message", request_id="r1")
     message = localize_error(error)
     assert "some backend message" in message
+
+
+def test_review_error_lists_the_modifier_that_requires_review() -> None:
+    error = EngineError(
+        422,
+        "EVENT_REQUIRES_REVIEW",
+        "backend text",
+        fields={
+            "review_issues": [
+                {
+                    "message": "Good Catch is +500%, beyond the safe limit of +/- 200%."
+                }
+            ]
+        },
+        request_id="review-1",
+    )
+
+    message = localize_error(error)
+    assert "Review issues:" in message
+    assert "Good Catch is +500%" in message
+    assert "review-1" in message

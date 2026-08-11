@@ -120,7 +120,7 @@ def test_event_with_pending_review_cannot_be_activated() -> None:
         db.flush()
 
         service = AdminService(ChannelRepository(db), user_repo=None, config_repo=None)
-        with pytest.raises(ValueError, match="requires review"):
+        with pytest.raises(ValueError, match=r"Good Catch is \+500%.*\+/- 200%"):
             service.toggle_fishing_event(channel.twitch_id, channel.twitch_id, event.id)
 
         db.refresh(event)
