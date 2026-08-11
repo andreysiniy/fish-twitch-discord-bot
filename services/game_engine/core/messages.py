@@ -209,7 +209,10 @@ DEFAULT_MESSAGES = {
         "🏆 Rank: #{rank} (Total: {total_mass})"
     ),
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
-    MsgKey.HELP_TEXT: "Commands: !fish, !fishbag, !fishequip <slot>, !fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop",
+    MsgKey.HELP_TEXT: (
+        "Commands: !fish, !fishbag [viewer] [slot], !fishequip <slot>, "
+        "!fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop"
+    ),
 }
 
 
