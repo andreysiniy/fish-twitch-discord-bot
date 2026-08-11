@@ -151,6 +151,77 @@ async def test_fishevent_ignores_spurious_duration_when_message_has_one_argument
 
 
 @pytest.mark.asyncio
+async def test_fishevent_ignores_parser_default_when_message_content_is_unavailable(
+    monkeypatch,
+) -> None:
+    from commands.admin import AdminCog
+
+    api_client = SimpleNamespace(
+        admin_toggle_fishing_event=AsyncMock(
+            return_value={
+                "status": "activated",
+                "event": {"id": 1, "event_title": "Lucky Event"},
+                "chat_message": "",
+            }
+        )
+    )
+    bot = SimpleNamespace(api_client=api_client)
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="owner-id"),
+        message=SimpleNamespace(content=None),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "channel-id"
+
+    monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
+    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "0")
+
+    api_client.admin_toggle_fishing_event.assert_awaited_once_with(
+        channel_id="channel-id",
+        actor_twitch_id="owner-id",
+        event_number=1,
+        duration_seconds=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fishevent_reads_explicit_duration_from_message_text(monkeypatch) -> None:
+    from commands.admin import AdminCog
+
+    api_client = SimpleNamespace(
+        admin_toggle_fishing_event=AsyncMock(
+            return_value={
+                "status": "activated",
+                "event": {"id": 1, "event_title": "Lucky Event"},
+                "chat_message": "",
+                "scheduled_disable_at": 123,
+            }
+        )
+    )
+    bot = SimpleNamespace(api_client=api_client)
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="owner-id"),
+        message=SimpleNamespace(content="!fishevent 1 90"),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "channel-id"
+
+    monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
+    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "0")
+
+    api_client.admin_toggle_fishing_event.assert_awaited_once_with(
+        channel_id="channel-id",
+        actor_twitch_id="owner-id",
+        event_number=1,
+        duration_seconds=90,
+    )
+
+
+@pytest.mark.asyncio
 async def test_fishbag_shows_durability_and_inventory_limit() -> None:
     from commands.inventory import InventoryCog
 
