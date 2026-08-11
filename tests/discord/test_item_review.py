@@ -159,7 +159,7 @@ def test_consume_durability_on_breakable_equipment_is_valid() -> None:
 
 def test_consume_charge_on_material_blocks() -> None:
     errors, _ = compatibility_issues(
-        _material_draft(effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}])
+        _material_draft(effects=[{"type": "consume_charge", "trigger": "on_use", "amount": 1}])
     )
     assert any("only compatible with a consumable" in error for error in errors)
 
@@ -169,7 +169,7 @@ def test_consume_charge_on_equipment_blocks() -> None:
         _equipment_draft(
             break_policy="unequip_broken",
             max_durability=150,
-            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
+            effects=[{"type": "consume_charge", "trigger": "on_use", "amount": 1}],
         )
     )
     assert any("only compatible with a consumable" in error for error in errors)
@@ -178,7 +178,7 @@ def test_consume_charge_on_equipment_blocks() -> None:
 def test_consume_charge_on_consumable_without_max_charges_blocks() -> None:
     errors, _ = compatibility_issues(
         _consumable_draft(
-            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}]
+            effects=[{"type": "consume_charge", "trigger": "on_use", "amount": 1}]
         )
     )
     assert any("maximum charge count" in error for error in errors)
@@ -190,7 +190,7 @@ def test_consume_charge_on_consumable_with_max_charges_is_valid() -> None:
             stack_size=1,
             max_charges=5,
             effects=[
-                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+                {"type": "consume_charge", "trigger": "on_use", "amount": 1},
                 {"type": "grant_mass", "mass": "5"},
             ],
         )
@@ -329,7 +329,7 @@ def test_review_embed_consumable_charge_shows_charge_mechanics() -> None:
             stack_size=1,
             max_charges=5,
             effects=[
-                {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+                {"type": "consume_charge", "trigger": "on_use", "amount": 1},
                 {"type": "grant_mass", "mass": "5"},
             ],
         ),
@@ -339,7 +339,7 @@ def test_review_embed_consumable_charge_shows_charge_mechanics() -> None:
     assert fields["Use Behavior"] == "Consume Charge"
     assert fields["Maximum Charges"] == "5"
     assert "Durability" not in fields
-    assert "Consume Charge: 1 After Any Cast" in fields["Effects (2)"]
+    assert "Consume Charge: 1 When the Item Is Used" in fields["Effects (2)"]
 
 
 def test_review_embed_consumable_single_use_shows_stack_mechanics() -> None:

@@ -113,11 +113,11 @@ def test_describe_consume_effects_split_by_semantics() -> None:
         == "Consume Durability: 2 After Any Cast"
     )
     assert (
-        describe_effect({"type": "consume_charge", "trigger": "after_successful_cast", "amount": 1})
-        == "Consume Charge: 1 After a Successful Cast"
+        describe_effect({"type": "consume_charge", "trigger": "on_use", "amount": 1})
+        == "Consume Charge: 1 When the Item Is Used"
     )
     assert "Durability" not in describe_effect(
-        {"type": "consume_charge", "trigger": "after_cast", "amount": 1}
+        {"type": "consume_charge", "trigger": "on_use", "amount": 1}
     )
     assert "Charge" not in describe_effect(
         {"type": "consume_durability", "trigger": "after_cast", "amount": 1}

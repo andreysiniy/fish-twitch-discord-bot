@@ -141,7 +141,7 @@ def test_confirm_view_acks_and_reports_failed_mutation() -> None:
 
 def test_shared_item_payload_preserves_version_fields() -> None:
     """Spec §53: the shared payload builder must preserve schema_version,
-    image_url, value, and expected_version."""
+    image_url, nominal_value, and expected_version."""
     from app.commands.shared import _item_payload
 
     payload = _item_payload(
@@ -157,12 +157,12 @@ def test_shared_item_payload_preserves_version_fields() -> None:
         description="desc",
         schema_version=3,
         image_url="https://example.com/i.png",
-        value="42.5",
+        nominal_value="42.5",
         expected_version=7,
     )
     assert payload["schema_version"] == 3
     assert payload["image_url"] == "https://example.com/i.png"
-    assert payload["value"] == "42.5"
+    assert payload["nominal_value"] == "42.5"
     assert payload["expected_version"] == 7
 
 
@@ -183,5 +183,5 @@ def test_shared_item_payload_applies_create_defaults() -> None:
     )
     assert payload["schema_version"] == 1
     assert payload["image_url"] is None
-    assert payload["value"] is None
+    assert payload["nominal_value"] is None
     assert "expected_version" not in payload

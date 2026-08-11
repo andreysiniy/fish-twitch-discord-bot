@@ -318,6 +318,7 @@ def _item_payload(
     schema_version: int | None = None,
     image_url: str | None = None,
     nominal_value: str | None = None,
+    value: str | None = None,
     expected_version: int | None = None,
 ) -> dict[str, Any]:
     if item_type == "equipment" and not equipment_slot:
@@ -332,6 +333,8 @@ def _item_payload(
         raise ValueError("Maximum charges are only available for consumables")
     if max_charges is not None and stack_size != 1:
         raise ValueError("Charge-based consumables must use stack size 1")
+    if nominal_value is None:
+        nominal_value = value
     payload = {
         "item_id": item_id.strip().lower(),
         "title": title.strip(),

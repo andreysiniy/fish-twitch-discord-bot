@@ -30,3 +30,14 @@ def test_prometheus_text_exposes_counter_and_gauge() -> None:
     assert 'fishing_casts_total{status="resolved"} 1' in payload
     assert "# TYPE fishing_wizard_sessions_active gauge" in payload
     assert "fishing_wizard_sessions_active 2" in payload
+
+
+def test_cast_and_item_drop_runtime_metrics_are_available() -> None:
+    metrics.reset()
+    metrics.record_cast_duration(0.25)
+    metrics.count_item_drop("bait", "overflowed")
+
+    payload = metrics.prometheus_text()
+
+    assert "fishing_cast_duration_seconds 0.25" in payload
+    assert 'fishing_item_drops_total{item_id="bait",status="overflowed"} 1' in payload

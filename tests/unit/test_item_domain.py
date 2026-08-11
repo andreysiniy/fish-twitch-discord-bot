@@ -185,7 +185,7 @@ def test_max_charges_is_consumable_only_and_forces_single_stack() -> None:
         stack_size=1,
         max_charges=5,
         effects=[
-            {"type": "consume_charge", "trigger": "after_cast", "amount": 1},
+            {"type": "consume_charge", "trigger": "on_use", "amount": 1},
             {"type": "grant_mass", "mass": "5"},
         ],
     )
@@ -264,14 +264,14 @@ def test_consume_charge_requires_consumable_with_max_charges() -> None:
             title="Bad",
             item_type="equipment",
             equipment_slot="rod",
-            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
+            effects=[{"type": "consume_charge", "trigger": "on_use", "amount": 1}],
         )
     with pytest.raises(ValidationError, match="consume_charge requires max_charges"):
         ItemDefinitionData(
             item_id="bad_charge_without_max",
             title="Bad",
             item_type="consumable",
-            effects=[{"type": "consume_charge", "trigger": "after_cast", "amount": 1}],
+            effects=[{"type": "consume_charge", "trigger": "on_use", "amount": 1}],
         )
 
 

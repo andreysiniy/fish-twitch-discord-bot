@@ -45,8 +45,8 @@ def get_user_repo(db: Session = Depends(get_db)) -> UserRepository:
 def get_config_repo(db: Session = Depends(get_db)) -> ConfigRepository:
     return ConfigRepository(db)
 
-def get_cooldown_repo() -> CooldownRepository:
-    return CooldownRepository(redis_client=RedisClient.get_client())
+def get_cooldown_repo(db: Session = Depends(get_db)) -> CooldownRepository:
+    return CooldownRepository(redis_client=RedisClient.get_client(), db=db)
 
 def get_channel_repo(db: Session = Depends(get_db)) -> ChannelRepository:
     return ChannelRepository(db)

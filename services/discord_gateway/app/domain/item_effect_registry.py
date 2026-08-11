@@ -444,6 +444,8 @@ CONSUME_TRIGGER_OPTIONS: tuple[tuple[str, str], ...] = (
     ("After an Item Drop", "after_item_drop"),
 )
 
+CHARGE_TRIGGER_OPTIONS: tuple[tuple[str, str], ...] = (("When the Item Is Used", "on_use"),)
+
 MASS_FLOOR_SCOPE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("Robbery", "robbery"),
     ("Negative Fish Rewards", "negative_rewards"),
@@ -741,14 +743,14 @@ TRIGGERED_EFFECT_FORMS: dict[str, EffectForm] = {
     "consume_charge": EffectForm(
         type="consume_charge",
         label="Consume Charge",
-        description="Consumes a charge from a charge-based consumable after a trigger.",
+        description="Consumes a charge from a charge-based consumable when it is used.",
         defaults={},
         fields=(
             EffectField(
                 key="trigger",
                 kind="select",
                 label="Trigger",
-                options=CONSUME_TRIGGER_OPTIONS,
+                options=CHARGE_TRIGGER_OPTIONS,
             ),
             EffectField(
                 key="amount",
@@ -826,7 +828,7 @@ def describe_effect(effect: dict[str, Any]) -> str:
         trigger = _join_options([effect.get("trigger")], CONSUME_TRIGGER_OPTIONS)
         return f"Consume Durability: {effect.get('amount', 1)} {trigger}"
     if effect_type == "consume_charge":
-        trigger = _join_options([effect.get("trigger")], CONSUME_TRIGGER_OPTIONS)
+        trigger = _join_options([effect.get("trigger")], CHARGE_TRIGGER_OPTIONS)
         return f"Consume Charge: {effect.get('amount', 1)} {trigger}"
     return effect_type
 
