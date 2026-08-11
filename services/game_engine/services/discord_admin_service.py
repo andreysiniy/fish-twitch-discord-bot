@@ -13,6 +13,7 @@ from core.config import settings
 from core.messages import message_placeholder_catalog, validate_custom_message_template
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
 from domain.config_schema import GameConfig, RewardDefinition
+from domain.event_review import event_review_issues
 from domain.item_schema import ModifierScope
 from domain.item_schema import parse_item_definition_payload
 from domain.logic.formulas import geometric_first_success_stats
@@ -1891,11 +1892,12 @@ class DiscordAdminService:
             if not event:
                 raise ApiProblem(404, "EVENT_NOT_FOUND", "Event not found")
             if event.requires_review:
+                review_issues = event_review_issues(event.modifiers)
                 raise ApiProblem(
                     422,
                     "EVENT_REQUIRES_REVIEW",
-                    "This event has unsafe inherited modifiers and must be reviewed "
-                    "before it can be started again.",
+                    "Event cannot be activated because it requires review.",
+                    fields={"review_issues": review_issues},
                 )
             self._check_version(event.version, data.expected_version, context)
             before = self._serialize_event(event)

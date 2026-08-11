@@ -32,6 +32,7 @@ from infrastructure.models import (
     DiscordGuildBinding,
     EconomyOperation,
     FishingCast,
+    FishingEvent,
     OutboxEvent,
     RewardPool,
     UserProgress,
@@ -166,6 +167,28 @@ def test_versioned_discord_admin_workflow_is_atomic_and_audited() -> None:
             DiscordEventStartRequest(expected_version=event["version"]),
         )
         assert started["event"]["is_active"] is True
+
+        unsafe_event = FishingEvent(
+            channel_id=channel.id,
+            event_title="Unsafe boost",
+            modifiers={
+                "schema_version": 2,
+                "positive_fish_reward_change_percent": "500",
+            },
+            requires_review=True,
+        )
+        db.add(unsafe_event)
+        db.flush()
+        with pytest.raises(ApiProblem) as review_error:
+            service.start_event(
+                _context("unsafe-event-start"),
+                "9001",
+                unsafe_event.id,
+                DiscordEventStartRequest(expected_version=unsafe_event.version),
+            )
+        assert review_error.value.code == "EVENT_REQUIRES_REVIEW"
+        assert "Good Catch" in review_error.value.fields["review_issues"][0]["message"]
+        assert "+/- 200%" in review_error.value.fields["review_issues"][0]["message"]
 
         with pytest.raises(ApiProblem) as wrong_channel:
             service.get_config(_context("wrong-channel"), "9999")

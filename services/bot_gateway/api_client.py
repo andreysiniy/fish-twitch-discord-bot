@@ -232,7 +232,20 @@ class EngineApiClient:
             return "; ".join(messages) if messages else "Request failed"
 
         if isinstance(detail, dict):
-            return str(detail.get("msg") or detail.get("detail") or detail)
+            message = detail.get("message") or detail.get("msg") or detail.get("detail")
+            fields = detail.get("fields")
+            if isinstance(fields, dict):
+                issues = fields.get("review_issues")
+                if isinstance(issues, list):
+                    rendered = [
+                        str(issue.get("message"))
+                        for issue in issues
+                        if isinstance(issue, dict) and issue.get("message")
+                    ]
+                    if rendered:
+                        suffix = " ".join(rendered)
+                        return f"{message or 'Request failed'} {suffix}"
+            return str(message or detail)
 
         if detail is None:
             return "Request failed"
