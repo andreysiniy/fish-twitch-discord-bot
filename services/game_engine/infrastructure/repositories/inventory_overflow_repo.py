@@ -76,7 +76,9 @@ class InventoryOverflowRepository:
             .first()
         )
 
-    def claim_available(self, *, user: UserProgress, inventory_repo: Any) -> list[InventoryOverflowItem]:
+    def claim_available(
+        self, *, user: UserProgress, inventory_repo: Any
+    ) -> list[InventoryOverflowItem]:
         """Deliver the oldest parked rows that now fit in the inventory.
 
         The caller locks the user before invoking this method. Overflow rows
