@@ -10,7 +10,7 @@ review-only warnings from spec §65; the backend remains the final authority
 from decimal import Decimal
 from typing import Any
 
-from app.domain.item_effect_registry import effect_label
+from app.domain.item_effect_registry import effect_identity, effect_label
 
 # A loot box must produce at least one of these to be worth opening (spec §37).
 LOOT_PRODUCING_EFFECTS = frozenset({"loot_table_roll", "grant_item"})
@@ -116,8 +116,13 @@ def compatibility_issues(draft: dict[str, Any]) -> tuple[list[str], list[str]]:
             errors.append("A loot box must contain at least one loot table roll or grant effect.")
 
     # Effect compatibility (spec §36/§11.4 + plan §4 matrix).
+    seen_effects: set[tuple[str, str | None]] = set()
     for effect in effects:
         effect_type = str(effect.get("type") or "")
+        identity = effect_identity(effect)
+        if identity in seen_effects:
+            errors.append(f"Duplicate effect is not allowed: {effect_label(effect_type)}.")
+        seen_effects.add(identity)
         if effect_type == "consume_durability":
             if item_type not in _EQUIPMENT_TYPES:
                 errors.append("Consume Durability is only compatible with equipment.")

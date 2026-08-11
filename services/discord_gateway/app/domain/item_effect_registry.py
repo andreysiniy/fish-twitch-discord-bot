@@ -779,6 +779,24 @@ def effect_label(effect_type: str) -> str:
     return effect_type.replace("_", " ").title()
 
 
+def effect_identity(effect: dict[str, Any]) -> tuple[str, str | None]:
+    """Return the uniqueness key used by the item effect editor."""
+    effect_type = str(effect.get("type") or "")
+    if effect_type in {"stat_add", "stat_multiply"}:
+        return effect_type, str(effect.get("stat") or "")
+    if effect_type == "grant_item":
+        return effect_type, str(effect.get("item_id") or "")
+    if effect_type == "loot_table_roll":
+        return effect_type, str(effect.get("loot_table_id") or "")
+    return effect_type, None
+
+
+def has_duplicate_effect(effects: list[dict[str, Any]], candidate: dict[str, Any]) -> bool:
+    """Whether ``candidate`` conflicts with an effect already in ``effects``."""
+    candidate_key = effect_identity(candidate)
+    return any(effect_identity(effect) == candidate_key for effect in effects)
+
+
 # --- human-readable effect descriptions (spec §13) ----------------------------
 
 
@@ -945,5 +963,7 @@ __all__ = [
     "TRIGGERED_EFFECT_FORMS",
     "TRIGGERED_EFFECT_OPTIONS",
     "effect_label",
+    "effect_identity",
+    "has_duplicate_effect",
     "describe_effect",
 ]

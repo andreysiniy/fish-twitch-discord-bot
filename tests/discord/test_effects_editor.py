@@ -66,8 +66,8 @@ def test_effects_editor_selects_removes_and_reorders_effects() -> None:
     assert view.effects[0]["type"] == "grant_item"
 
     # Replacing (editing) the selected effect updates the list in place.
-    view._replace_effect(0, {"type": "grant_mass", "mass": "9"})
-    assert view.effects[0] == {"type": "grant_mass", "mass": "9"}
+    view._replace_effect(0, {"type": "grant_item", "item_id": "y"})
+    assert view.effects[0] == {"type": "grant_item", "item_id": "y"}
 
     # Removing the selected effect deletes exactly that entry.
     view._selected_index = 0
@@ -124,6 +124,29 @@ def test_standard_editor_allows_below_limit() -> None:
         on_done=lambda *_: None,
     )
     assert view.add_effect.disabled is False
+
+
+def test_standard_editor_rejects_duplicate_effect_payload() -> None:
+    view = EffectsEditorView(
+        initiator_id=1,
+        effects=[
+            {
+                "type": "stat_add",
+                "stat": "fish_luck_change_ratio",
+                "value": "0.10",
+            }
+        ],
+        on_done=lambda *_: None,
+    )
+    view._on_added(
+        {
+            "type": "stat_add",
+            "stat": "fish_luck_change_ratio",
+            "value": "0.20",
+        }
+    )
+    assert len(view.effects) == 1
+    assert "Duplicate effect" in view._validation_error
 
 
 def test_modal_save_refreshes_editor_message_when_hook_provided() -> None:
