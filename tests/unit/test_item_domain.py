@@ -100,6 +100,28 @@ def test_unknown_or_out_of_range_effect_is_rejected() -> None:
         )
 
 
+def test_duplicate_effects_are_rejected() -> None:
+    with pytest.raises(ValidationError, match="Duplicate effect is not allowed"):
+        ItemDefinitionData(
+            item_id="duplicate_effects",
+            title="Duplicate Effects",
+            item_type="equipment",
+            equipment_slot="rod",
+            effects=[
+                {
+                    "type": "stat_add",
+                    "stat": "fish_luck_change_ratio",
+                    "value": "0.10",
+                },
+                {
+                    "type": "stat_add",
+                    "stat": "fish_luck_change_ratio",
+                    "value": "0.20",
+                },
+            ],
+        )
+
+
 def test_registry_defines_caps_and_scopes_for_every_stat() -> None:
     assert set(STAT_REGISTRY) == set(StatKey)
     assert ModifierScope.ROBBERY in STAT_REGISTRY[StatKey.ROBBERY_PROTECTION_PCT].scopes

@@ -39,6 +39,7 @@ ERROR_MESSAGES = {
     "IDEMPOTENCY_CONFLICT": "This operation was already submitted with different data.",
     "ENGINE_UNAVAILABLE": "The game service is temporarily unavailable. No settings were changed.",
     "ITEM_NOT_FOUND": "Item not found in this channel.",
+    "DUPLICATE_ITEM": "An item with this ID already exists. Use item edit to modify it.",
     "ITEM_DROP_NOT_FOUND": "This item drop does not exist for the location.",
     "ITEM_VERSION_CONFLICT": "Another administrator changed this item. Open the form again.",
     "ITEM_INVALID_EFFECT": "One of the item effects is invalid.",

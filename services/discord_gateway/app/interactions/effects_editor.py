@@ -2,12 +2,13 @@
 
 import discord
 
-from app.interactions.metrics import count_wizard_timeout
+from app.domain.item_effect_registry import has_duplicate_effect
 from app.interactions.effect_builder import (
     EFFECT_SELECT_OPTIONS,
     describe_effect,
     modal_for_effect,
 )
+from app.interactions.metrics import count_wizard_timeout
 
 # Spec §12/§35: the standard editor allows at most 10 effects so the list
 # stays manageable in a Discord select. The advanced editor uses a separate
@@ -37,7 +38,10 @@ class EffectsEditorView(discord.ui.View):
         self.effects: list[dict] = list(effects)
         self.on_done = on_done
         self._selected_index: int | None = None
+        self._validation_error: str | None = None
+        self._add_options_available = True
         self._rebuild_pick_options()
+        self._rebuild_add_options()
         self._update_buttons()
 
     # --- presentation --------------------------------------------------------
@@ -68,6 +72,8 @@ class EffectsEditorView(discord.ui.View):
                 ),
                 inline=False,
             )
+        if self._validation_error:
+            embed.add_field(name="Validation", value=f"⚠ {self._validation_error}", inline=False)
         embed.set_footer(text=f"{len(self.effects)} effect(s)")
         return embed
 
@@ -104,7 +110,25 @@ class EffectsEditorView(discord.ui.View):
             or self._selected_index is None
             or self._selected_index >= len(self.effects) - 1
         )
-        self.add_effect.disabled = len(self.effects) >= STANDARD_MAX_EFFECTS
+        self.add_effect.disabled = (
+            len(self.effects) >= STANDARD_MAX_EFFECTS or not self._add_options_available
+        )
+
+    def _rebuild_add_options(self) -> None:
+        options = []
+        for option in EFFECT_SELECT_OPTIONS:
+            effect_type = str(option.value)
+            # Entity-targeted effects may still be added for another target;
+            # the final duplicate check runs after their modal is submitted.
+            if effect_type in {"grant_item", "loot_table_roll", "stat_add", "stat_multiply"}:
+                options.append(option)
+            elif not has_duplicate_effect(self.effects, {"type": effect_type}):
+                options.append(option)
+        self.add_effect.options = options or [
+            discord.SelectOption(label="No new effects available", value="-1")
+        ]
+        self._add_options_available = bool(options)
+        self.add_effect.disabled = not options
 
     @discord.ui.select(
         placeholder="Select an effect to edit/remove/move…",
@@ -151,6 +175,8 @@ class EffectsEditorView(discord.ui.View):
     )
     async def add_effect(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
         effect_type = select.values[0]
+        if effect_type == "-1":
+            return
         await interaction.response.send_modal(
             modal_for_effect(effect_type, self._on_added, self._refresh_after_save)
         )
@@ -161,14 +187,29 @@ class EffectsEditorView(discord.ui.View):
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     def _on_added(self, payload: dict) -> None:
+        if has_duplicate_effect(self.effects, payload):
+            self._validation_error = "Duplicate effect is not allowed."
+            self._rebuild_add_options()
+            self._update_buttons()
+            return
         self.effects.append(payload)
+        self._validation_error = None
         self._rebuild_pick_options()
+        self._rebuild_add_options()
         self._update_buttons()
 
     def _replace_effect(self, index: int, payload: dict) -> None:
         if 0 <= index < len(self.effects):
+            remaining = self.effects[:index] + self.effects[index + 1 :]
+            if has_duplicate_effect(remaining, payload):
+                self._validation_error = "Duplicate effect is not allowed."
+                self._rebuild_add_options()
+                self._update_buttons()
+                return
             self.effects[index] = payload
+            self._validation_error = None
         self._rebuild_pick_options()
+        self._rebuild_add_options()
         self._update_buttons()
 
     @discord.ui.button(label="Edit selected", style=discord.ButtonStyle.secondary)
@@ -196,6 +237,7 @@ class EffectsEditorView(discord.ui.View):
         del self.effects[self._selected_index]
         self._selected_index = None
         self._rebuild_pick_options()
+        self._rebuild_add_options()
         self._update_buttons()
         await interaction.response.edit_message(embed=self._embed(), view=self)
 

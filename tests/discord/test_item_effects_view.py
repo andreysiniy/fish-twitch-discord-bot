@@ -7,6 +7,8 @@ import discord
 from app.domain.item_effect_registry import (
     ADVANCED_MAX_EFFECTS,
     CATEGORY_ADVANCED,
+    CATEGORY_FISHING,
+    CATEGORY_TRIGGERED,
     STANDARD_MAX_EFFECTS,
     TRIGGERED_EFFECT_FORMS,
 )
@@ -133,6 +135,25 @@ def test_effect_category_picker_category_select_always_has_options() -> None:
     view = EffectCategoryPickerView(_editor([]))
     assert view.category_select.options
     assert all(option.value for option in view.category_select.options)
+
+
+def test_effect_category_picker_hides_duplicate_stat_and_trigger_selectors() -> None:
+    editor = _editor(
+        [
+            {
+                "type": "stat_add",
+                "stat": "fish_luck_change_ratio",
+                "value": "0.10",
+            },
+            {"type": "grant_mass", "mass": "5"},
+        ]
+    )
+    picker = EffectCategoryPickerView(editor)
+    picker._category = CATEGORY_FISHING
+    assert "fish_luck_change_ratio" not in {option.value for option in picker._effect_options()}
+
+    picker._category = CATEGORY_TRIGGERED
+    assert "grant_mass" not in {option.value for option in picker._effect_options()}
 
 
 def test_effect_category_picker_preserves_selected_category_as_default() -> None:

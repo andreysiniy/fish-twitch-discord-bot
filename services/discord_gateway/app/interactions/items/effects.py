@@ -28,6 +28,7 @@ from app.domain.item_effect_registry import (
     CATEGORY_ADVANCED,
     EFFECT_CATEGORIES,
     CATEGORY_TRIGGERED,
+    has_duplicate_effect,
     STANDARD_MAX_EFFECTS,
     TRIGGERED_EFFECT_FORMS,
     TRIGGERED_EFFECT_OPTIONS,
@@ -90,6 +91,7 @@ class ItemEffectsView(discord.ui.View):
         self._restart_text = restart_text
         self._advanced = advanced or _auto_advanced(effects)
         self._selected_index: int | None = None
+        self._validation_error: str | None = None
         self._rebuild_pick_options()
         self._update_buttons()
 
@@ -121,6 +123,8 @@ class ItemEffectsView(discord.ui.View):
                 marker = "▸" if index - 1 == self._selected_index else " "
                 lines.append(f"{marker} {index}. {describe_effect(effect)}")
             embed.add_field(name="Effects", value="\n".join(lines)[:1024], inline=False)
+        if self._validation_error:
+            embed.add_field(name="Validation", value=f"⚠ {self._validation_error}", inline=False)
         if len(self.effects) >= self._max_effects:
             embed.add_field(
                 name="Effect limit",
@@ -202,18 +206,38 @@ class ItemEffectsView(discord.ui.View):
         await interaction.response.edit_message(content=None, embed=self._embed(), view=self)
 
     def _append(self, payload: dict) -> None:
+        if has_duplicate_effect(self.effects, payload):
+            self._validation_error = (
+                f"Duplicate effect is not allowed: {describe_effect(payload)}."
+            )
+            self._rebuild_pick_options()
+            self._update_buttons()
+            return
         self.effects.append(payload)
+        self._validation_error = None
         self._rebuild_pick_options()
         self._update_buttons()
 
     def _replace(self, index: int, payload: dict) -> None:
+        if not 0 <= index < len(self.effects):
+            return
+        remaining = self.effects[:index] + self.effects[index + 1 :]
+        if has_duplicate_effect(remaining, payload):
+            self._validation_error = (
+                f"Duplicate effect is not allowed: {describe_effect(payload)}."
+            )
+            self._rebuild_pick_options()
+            self._update_buttons()
+            return
         self.effects[index] = payload
+        self._validation_error = None
         self._rebuild_pick_options()
         self._update_buttons()
 
     def _remove(self, index: int) -> None:
         del self.effects[index]
         self._selected_index = None
+        self._validation_error = None
         self._rebuild_pick_options()
         self._update_buttons()
 
@@ -417,15 +441,30 @@ class EffectCategoryPickerView(discord.ui.View):
             return [
                 discord.SelectOption(label=label, value=value)
                 for label, value in TRIGGERED_EFFECT_OPTIONS
+                if not has_duplicate_effect(self.editor.effects, {"type": value})
             ]
         if category == CATEGORY_ADVANCED:
             return [
                 discord.SelectOption(label=definition.label, value=definition.stat)
                 for definition in ADVANCED_STAT_DEFINITIONS
+                if not (
+                    has_duplicate_effect(
+                        self.editor.effects,
+                        {"type": "stat_add", "stat": definition.stat},
+                    )
+                    and has_duplicate_effect(
+                        self.editor.effects,
+                        {"type": "stat_multiply", "stat": definition.stat},
+                    )
+                )
             ]
         return [
             discord.SelectOption(label=definition.label, value=definition.stat)
             for definition in stat_options(category)
+            if not has_duplicate_effect(
+                self.editor.effects,
+                {"type": "stat_add", "stat": definition.stat},
+            )
         ]
 
     @discord.ui.select(placeholder="Choose a category…", min_values=1, max_values=1, row=0)
@@ -439,15 +478,21 @@ class EffectCategoryPickerView(discord.ui.View):
             # Continue arms advanced mode and exposes the low-level stats.
             async def open_advanced(interaction: discord.Interaction) -> None:
                 self._refresh_category_default()
-                self.effect_select.options = self._effect_options()
-                self.effect_select.disabled = False
+                options = self._effect_options()
+                self.effect_select.options = options or [
+                    discord.SelectOption(label="No new effects available", value="-1")
+                ]
+                self.effect_select.disabled = not options
                 await interaction.response.edit_message(embed=self._embed(), view=self)
 
             view = AdvancedModeWarningView(self.editor, on_continue=open_advanced)
             await interaction.response.edit_message(embed=view._embed(), view=view)
             return
-        self.effect_select.options = self._effect_options()
-        self.effect_select.disabled = False
+        options = self._effect_options()
+        self.effect_select.options = options or [
+            discord.SelectOption(label="No new effects available", value="-1")
+        ]
+        self.effect_select.disabled = not options
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     @discord.ui.select(placeholder="Choose an effect…", min_values=1, max_values=1, row=1)
@@ -455,6 +500,9 @@ class EffectCategoryPickerView(discord.ui.View):
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
         picked = select.values[0]
+        if picked == "-1":
+            await self.editor.show(interaction)
+            return
         category = self._category
         if category == CATEGORY_TRIGGERED:
             await self.editor._open_triggered_form(
@@ -555,6 +603,25 @@ class AdvancedEffectPickerView(discord.ui.View):
                 label="Multiply", value="multiply", description=f"Multiply {self._label}"
             ),
         ]
+        available = []
+        if not has_duplicate_effect(
+            self.editor.effects, {"type": "stat_add", "stat": self.stat_key}
+        ):
+            available.append(
+                discord.SelectOption(label="Add", value="add", description=f"Change {self._label}")
+            )
+        if not has_duplicate_effect(
+            self.editor.effects, {"type": "stat_multiply", "stat": self.stat_key}
+        ):
+            available.append(
+                discord.SelectOption(
+                    label="Multiply", value="multiply", description=f"Multiply {self._label}"
+                )
+            )
+        self.operation_select.options = available or [
+            discord.SelectOption(label="No operations available", value="-1")
+        ]
+        self.operation_select.disabled = not available
         self.continue_button.disabled = True
 
     def _embed(self) -> discord.Embed:
@@ -577,21 +644,33 @@ class AdvancedEffectPickerView(discord.ui.View):
         self, interaction: discord.Interaction, select: discord.ui.Select
     ) -> None:
         self._operation = select.values[0]
+        if self._operation == "-1":
+            return
         self.continue_button.disabled = False
-        self.operation_select.options = [
-            discord.SelectOption(
-                label="Add",
-                value="add",
-                description=f"Change {self._label}",
-                default=(self._operation == "add"),
-            ),
-            discord.SelectOption(
-                label="Multiply",
-                value="multiply",
-                description=f"Multiply {self._label}",
-                default=(self._operation == "multiply"),
-            ),
-        ]
+        options = []
+        if not has_duplicate_effect(
+            self.editor.effects, {"type": "stat_add", "stat": self.stat_key}
+        ):
+            options.append(
+                discord.SelectOption(
+                    label="Add",
+                    value="add",
+                    description=f"Change {self._label}",
+                    default=(self._operation == "add"),
+                )
+            )
+        if not has_duplicate_effect(
+            self.editor.effects, {"type": "stat_multiply", "stat": self.stat_key}
+        ):
+            options.append(
+                discord.SelectOption(
+                    label="Multiply",
+                    value="multiply",
+                    description=f"Multiply {self._label}",
+                    default=(self._operation == "multiply"),
+                )
+            )
+        self.operation_select.options = options
         await interaction.response.edit_message(embed=self._embed(), view=self)
 
     @discord.ui.button(label="Continue", style=discord.ButtonStyle.success, row=1)
