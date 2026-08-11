@@ -251,6 +251,32 @@ async def test_basic_info_modal_rejects_invalid_manual_id() -> None:
     assert failures and "Invalid Stable Item ID" in failures[0]
 
 
+@pytest.mark.asyncio
+async def test_item_create_rejects_existing_stable_id_before_next_step() -> None:
+    from app.interactions.items.wizard import start_item_create
+
+    class FakeApi:
+        async def items(self, interaction, include_archived=False):
+            assert include_archived is True
+            return {"items": [{"item_id": "storm_rod", "title": "Storm Rod"}]}
+
+    store = FakeSessionStore()
+    interaction = FakeInteraction()
+    await start_item_create(interaction, store, api=FakeApi(), template="fishing_rod")
+
+    modal = interaction.modal
+    modal.display_name._value = "Storm Rod"
+    modal.item_id._value = "storm_rod"
+    modal.description._value = ""
+    submit = FakeInteraction()
+    await modal.on_submit(submit)
+
+    assert submit.response.sent
+    assert "already exists" in submit._failures[0]
+    state = await store.get(interaction.user.id, "flow-1")
+    assert state["step"] == WizardStep.BASIC_INFO.value
+
+
 class FakeInteraction:
     def __init__(self, failures: list[str] | None = None):
         self._failures = failures if failures is not None else []
