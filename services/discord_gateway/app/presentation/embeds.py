@@ -153,20 +153,32 @@ def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
         f"Status: {status}",
         f"Version: v{item.get('version', '?')}",
     ]
+    lifecycle_lines = []
     for label, key in (("Activated", "activated_at"), ("Deactivated", "deactivated_at")):
         rendered_date = _event_timestamp(item.get(key))
         if rendered_date:
-            detail_parts.append(f"{label}: {rendered_date}")
+            lifecycle_lines.append(f"{label}: {rendered_date}")
+    if lifecycle_lines:
+        detail_parts.extend(("---", "**Lifecycle**", *lifecycle_lines))
     if item.get("override_loot_pool"):
-        detail_parts.append(f"Loot pool: `{item['override_loot_pool']}`")
+        detail_parts.extend(
+            (
+                "---",
+                "**Configuration**",
+                f"Loot pool: `{item['override_loot_pool']}`",
+            )
+        )
 
     modifier_lines = _event_modifier_lines(item.get("modifiers") or {})
-    if modifier_lines:
-        detail_parts.append("Modifiers:\n" + "\n".join(modifier_lines))
-    else:
-        detail_parts.append("Modifiers: none")
+    detail_parts.extend(
+        (
+            "---",
+            "**Modifiers**",
+            "\n".join(modifier_lines) if modifier_lines else "None",
+        )
+    )
     if item.get("requires_review"):
-        detail_parts.append("Review: required")
+        detail_parts.extend(("---", "**Review**", "Required before activation"))
     return title, "\n".join(detail_parts)
 
 

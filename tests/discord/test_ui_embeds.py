@@ -145,6 +145,9 @@ def test_event_list_entry_is_compact_and_human_readable() -> None:
     assert "ID: `7`" in details
     assert "Status: Ended" in details
     assert "Version: v4" in details
+    assert "**Lifecycle**" in details
+    assert "**Modifiers**" in details
+    assert "---" in details
     assert "Activated: <t:1785585600:f>" in details
     assert "Deactivated: <t:1785974400:f>" in details
     assert "🍀 **Fish Luck**: -30% (×0.70)" in details
