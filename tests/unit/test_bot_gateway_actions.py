@@ -78,6 +78,42 @@ async def test_fish_command_passes_stable_source_request_id(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_fishevent_empty_duration_starts_indefinitely(monkeypatch) -> None:
+    from commands.admin import AdminCog
+
+    api_client = SimpleNamespace(
+        admin_toggle_fishing_event=AsyncMock(
+            return_value={
+                "status": "activated",
+                "event": {"id": 1, "event_title": "Lucky Event"},
+                "chat_message": "",
+            }
+        )
+    )
+    bot = SimpleNamespace(api_client=api_client)
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="owner-id"),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "channel-id"
+
+    monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
+    callback = AdminCog.fishevent._callback
+
+    await callback(AdminCog(bot), ctx, "1", "")
+
+    api_client.admin_toggle_fishing_event.assert_awaited_once_with(
+        channel_id="channel-id",
+        actor_twitch_id="owner-id",
+        event_number=1,
+        duration_seconds=None,
+    )
+    assert "Event enabled" in ctx.send.await_args.args[0]
+
+
+@pytest.mark.asyncio
 async def test_fishbag_shows_durability_and_inventory_limit() -> None:
     from commands.inventory import InventoryCog
 
