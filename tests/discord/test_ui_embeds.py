@@ -136,6 +136,7 @@ def test_event_list_entry_is_compact_and_human_readable() -> None:
             },
             "version": 4,
             "updated_at": "2026-08-06T00:00:00+00:00",
+            "activated_at": "2026-08-01T12:00:00+00:00",
             "deactivated_at": "2026-08-06T00:00:00+00:00",
         }
     )
@@ -144,6 +145,8 @@ def test_event_list_entry_is_compact_and_human_readable() -> None:
     assert "ID: `7`" in details
     assert "Status: Ended" in details
     assert "Version: v4" in details
+    assert "Activated: <t:1785585600:f>" in details
+    assert "Deactivated: <t:1785974400:f>" in details
     assert "🍀 **Fish Luck**: -30% (×0.70)" in details
     assert "Modifiers: none" not in details
     assert "updated_at" not in details
