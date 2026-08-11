@@ -9,6 +9,7 @@ from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
 INDEFINITE_DURATION_TOKENS = {"", "none", "null", "indefinite", "unlimited"}
+ZERO_WIDTH_CHARS = frozenset({"\u200b", "\u200c", "\u200d", "\ufeff"})
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +21,7 @@ def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
     tokens = content.split()
     if len(tokens) < 3:
         return ""
-    return tokens[2].strip()
+    return "".join(char for char in tokens[2] if char not in ZERO_WIDTH_CHARS).strip()
 
 
 class AdminCog(commands.Cog):
