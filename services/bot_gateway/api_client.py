@@ -52,6 +52,19 @@ class EngineApiClient:
     async def equip_item(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/inventory/equip", json=payload)
 
+    async def trash_item(
+        self,
+        payload: Dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/inventory/trash",
+            json=payload,
+            idempotency_key=idempotency_key,
+        )
+
     async def execute_points_action(
         self,
         channel_id: str,

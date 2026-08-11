@@ -59,6 +59,40 @@ class InventoryCog(commands.Cog):
             return None
         return users[0] if users else None
 
+    @commands.command(name="fishtrash")
+    async def fishtrash(self, ctx: commands.Context, slot_id: str | None = None) -> None:
+        if slot_id is None:
+            await ctx.send("Usage: !fishtrash <slot>")
+            return
+        try:
+            parsed_slot = int(slot_id)
+        except (TypeError, ValueError):
+            await ctx.send("Usage: !fishtrash <slot>")
+            return
+        if parsed_slot <= 0:
+            await ctx.send("Slot must be a positive number.")
+            return
+
+        channel_id = await get_channel_id(ctx)
+        message_id = getattr(getattr(ctx, "message", None), "id", None)
+        request_id = str(message_id or f"{ctx.author.id}-{parsed_slot}")
+        payload = {
+            "user_id": str(ctx.author.id),
+            "channel_id": channel_id,
+            "slot_id": parsed_slot,
+        }
+        try:
+            response = await self.bot.api_client.trash_item(
+                payload,
+                idempotency_key=f"twitch-fishtrash-{request_id}",
+            )
+            await ctx.send(response.get("message", "Item discarded."))
+        except EngineApiError as error:
+            await ctx.send(f"Trash error: {error}")
+        except Exception:
+            logger.exception("Fish trash command failed")
+            await ctx.send("Could not discard the item.")
+
     @staticmethod
     def _parse_fishbag_args(args: tuple[str, ...]) -> tuple[str | None, int | None, str | None]:
         """Parse ``!fishbag`` as an optional viewer and an optional slot.

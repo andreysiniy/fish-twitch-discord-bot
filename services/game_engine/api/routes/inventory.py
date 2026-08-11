@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
-from services.inventory_service import InventoryService
 from api.dependencies import get_inventory_service, verify_security
 from domain.schemas.rpg import (
     EquipRequestDTO,
     EquipResponseDTO,
     InventoryResponseDTO,
+    TrashItemRequestDTO,
+    TrashItemResponseDTO,
     UnequipRequestDTO,
     UseItemRequestDTO,
     UseItemResponseDTO,
 )
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from services.idempotency_service import IdempotencyService
+from services.inventory_service import InventoryService
 
 router = APIRouter()
 
@@ -43,6 +46,31 @@ def use_item(
         return service.use_item(request)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/trash", response_model=TrashItemResponseDTO)
+def trash_item(
+    request: TrashItemRequestDTO,
+    http_request: Request,
+    service: InventoryService = Depends(get_inventory_service),
+    security_subject: str = Depends(verify_security),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
+    _assert_inventory_owner(security_subject, request.user_id)
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+
+    payload = request.model_dump(mode="json")
+    response = IdempotencyService(service.user_repo.db).execute(
+        actor_scope=f"twitch:{request.channel_id}:{request.user_id}",
+        key=idempotency_key,
+        action="inventory.trash",
+        payload=payload,
+        request_id=http_request.headers.get("X-Request-ID", ""),
+        callback=lambda: service.trash_item(request).model_dump(mode="json"),
+    )
+    return TrashItemResponseDTO.model_validate(response)
+
 
 @router.get("/{channel_id}/{user_id}", response_model=InventoryResponseDTO)
 def get_inventory(

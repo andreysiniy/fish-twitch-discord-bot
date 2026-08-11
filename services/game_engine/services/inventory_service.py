@@ -3,6 +3,8 @@ from domain.schemas.rpg import (
     EquipRequestDTO,
     EquipResponseDTO,
     InventoryResponseDTO,
+    TrashItemRequestDTO,
+    TrashItemResponseDTO,
     UnequipRequestDTO,
     UseItemRequestDTO,
     UseItemResponseDTO,
@@ -81,6 +83,21 @@ class InventoryService:
         return EquipResponseDTO(
             success=True,
             message=f"Unequipped {data.equipment_slot.value}.",
+        )
+
+    def trash_item(self, data: TrashItemRequestDTO) -> TrashItemResponseDTO:
+        user = self.user_repo.get_progress(data.user_id, data.channel_id)
+        if not user:
+            return TrashItemResponseDTO(success=False, message="You have no inventory.")
+        try:
+            title, quantity = self.inventory_repo.trash(user.id, data.slot_id)
+        except ValueError as error:
+            return TrashItemResponseDTO(success=False, message=str(error))
+        return TrashItemResponseDTO(
+            success=True,
+            message=f"Discarded {title} x{quantity} from slot {data.slot_id}.",
+            item_title=title,
+            quantity=quantity,
         )
 
     def use_item(self, data: UseItemRequestDTO) -> UseItemResponseDTO:

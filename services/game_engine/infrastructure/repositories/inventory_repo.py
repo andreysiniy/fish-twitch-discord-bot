@@ -142,6 +142,44 @@ class InventoryRepository:
             self.db.delete(equipped)
         self.db.flush()
 
+    def trash(self, user_id: int, inventory_slot: int) -> tuple[str, int]:
+        """Delete one inventory slot after locking its owner and item.
+
+        Equipped items are deliberately protected: discarding one without an
+        explicit unequip would leave the equipment state surprising to the
+        player and could invalidate capacity/equipment invariants.
+        """
+        locked_user = self._lock_user(user_id)
+        item = (
+            self.db.query(InventoryItem)
+            .filter(
+                InventoryItem.user_id == locked_user.id,
+                InventoryItem.slot_id == inventory_slot,
+            )
+            .with_for_update(of=InventoryItem)
+            .first()
+        )
+        if not item or not item.definition:
+            raise ValueError(f"Inventory slot {inventory_slot} is empty")
+
+        equipped = (
+            self.db.query(EquippedItem)
+            .filter(
+                EquippedItem.user_id == locked_user.id,
+                EquippedItem.inventory_item_id == item.id,
+            )
+            .with_for_update(of=EquippedItem)
+            .first()
+        )
+        if equipped:
+            raise ValueError(f"{item.definition.title} is equipped")
+
+        title = item.definition.title
+        quantity = int(item.quantity)
+        self.db.delete(item)
+        self.db.flush()
+        return title, quantity
+
     def consume_durability(self, user_id: int, equipment_slot: str, amount: int) -> str | None:
         if amount <= 0:
             return None

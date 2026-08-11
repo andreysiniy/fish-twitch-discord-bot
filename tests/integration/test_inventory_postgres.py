@@ -90,6 +90,57 @@ def test_grants_stack_reuse_holes_and_rollback_as_one_unit() -> None:
 
 
 @pytest.mark.integration
+def test_trash_removes_slot_and_protects_equipped_items() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"trash-{suffix}", name="Trash test", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="trash_user",
+            channel_id=channel.id,
+            base_inventory_slots=3,
+        )
+        bait_definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="trash_bait",
+            title="Trash Bait",
+            type="material",
+            stack_size=10,
+            effects=[],
+        )
+        rod_definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="trash_rod",
+            title="Trash Rod",
+            type="equipment",
+            slot="rod",
+            stack_size=1,
+            max_durability=10,
+            break_policy="destroy_at_zero",
+            effects=[],
+        )
+        db.add_all([user, bait_definition, rod_definition])
+        db.flush()
+        repository = InventoryRepository(db)
+
+        bait = repository.grant_many(user, [{"item_id": "trash_bait", "quantity": 2}])[0]
+        assert repository.trash(user.id, bait.slot_id) == ("Trash Bait", 2)
+        assert repository._lock_items(user.id) == []
+
+        rod = repository.grant_many(user, [{"item_id": "trash_rod"}])[0]
+        repository.equip(user.id, rod.slot_id)
+        with pytest.raises(ValueError, match="is equipped"):
+            repository.trash(user.id, rod.slot_id)
+        assert repository._lock_items(user.id)[0].slot_id == rod.slot_id
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
 def test_equipment_durability_obeys_break_policy() -> None:
     db = SessionLocal()
     try:
