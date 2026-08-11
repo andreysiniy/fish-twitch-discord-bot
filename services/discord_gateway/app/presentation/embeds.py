@@ -9,6 +9,19 @@ from app.domain.item_effect_registry import describe_effect
 from app.presentation.formatting import diff_lines
 
 
+RARITY_COLORS = {
+    "common": discord.Color(0x95A5A6),
+    "rare": discord.Color(0x3498DB),
+    "epic": discord.Color(0x9B59B6),
+    "legendary": discord.Color(0xF1C40F),
+}
+
+
+def rarity_color(rarity: Any) -> discord.Color:
+    """Return the embed accent for an item rarity."""
+    return RARITY_COLORS.get(str(rarity or "").casefold(), discord.Color.blurple())
+
+
 # Semantic palette (UI audit §7.1/§7.4): every state maps to one colour so all
 # commands present info/preview/success/warning/error consistently.
 def info_embed(title: str, **kwargs: Any) -> discord.Embed:
@@ -158,7 +171,10 @@ def item_list_entry(item: dict[str, Any]) -> tuple[str, str]:
 
 def item_detail_embed(item: dict[str, Any], *, effects_value: str | None = None) -> discord.Embed:
     archived = item.get("is_active") is False
-    embed = info_embed(item.get("title") or item.get("item_id", "Item"))
+    embed = discord.Embed(
+        title=item.get("title") or item.get("item_id", "Item"),
+        color=rarity_color(item.get("rarity")),
+    )
     embed.description = item.get("description") or None
     status = "archived" if archived else "active"
     embed.add_field(name="ID", value=f"`{item.get('item_id')}`", inline=True)
@@ -194,13 +210,7 @@ def item_detail_embed(item: dict[str, Any], *, effects_value: str | None = None)
 
 
 def _effect_one_line(effect: dict[str, Any]) -> str:
-    effect_type = str(effect.get("type") or "?")
-    details = json.dumps(
-        {key: value for key, value in effect.items() if key != "type"},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    return f"{effect_type} {details}" if details else effect_type
+    return describe_effect(effect)
 
 
 def item_drop_list_entry(item: dict[str, Any]) -> tuple[str, str]:
