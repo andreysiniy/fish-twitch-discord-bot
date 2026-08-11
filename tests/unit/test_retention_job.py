@@ -71,4 +71,5 @@ def test_run_once_executes_all_passes() -> None:
         "economy_operations",
         "outbox_events",
         "inventory_item_use_records",
+        "inventory_overflow_items",
     } <= stats.keys()

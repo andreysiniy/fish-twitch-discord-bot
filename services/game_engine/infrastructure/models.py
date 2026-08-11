@@ -1140,6 +1140,11 @@ class InventoryOverflowItem(Base):
         ),
         Index("ix_inventory_overflow_items_user", "user_id"),
         Index("ix_inventory_overflow_items_status", "status"),
+        Index(
+            "ix_inventory_overflow_items_status_created_at",
+            "status",
+            "created_at",
+        ),
     )
 
     id = Column(Integer, primary_key=True)

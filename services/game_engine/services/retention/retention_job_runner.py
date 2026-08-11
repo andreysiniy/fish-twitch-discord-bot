@@ -21,6 +21,7 @@ from infrastructure.models import (
     InventoryItemUseRecord,
     OutboxEvent,
 )
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class RetentionJobRunner:
             "economy_operations": 0,
             "outbox_events": 0,
             "inventory_item_use_records": 0,
+            "inventory_overflow_items": 0,
         }
         db = SessionLocal()
         try:
@@ -157,6 +159,12 @@ class RetentionJobRunner:
                         InventoryItemUseRecord.created_at < cutoff
                     ),
                 )
+
+            stats["inventory_overflow_items"] = InventoryOverflowRepository(db).delete_expired(
+                now=now
+            )
+            if stats["inventory_overflow_items"]:
+                db.commit()
 
             if any(stats.values()):
                 logger.info("Retention cleanup: %s", stats)

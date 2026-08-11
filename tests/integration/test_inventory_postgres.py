@@ -557,6 +557,48 @@ def test_equipped_storage_expands_effective_inventory_capacity() -> None:
 
 
 @pytest.mark.integration
+def test_inventory_response_includes_active_overflow_count() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(
+            twitch_id=f"inventory-overflow-count-{suffix}",
+            name="Overflow count",
+            config={},
+        )
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"overflow-count-user-{suffix}",
+            username="overflow_count_user",
+            channel_id=channel.id,
+            base_inventory_slots=1,
+        )
+        definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id=f"overflow-count-item-{suffix}",
+            title="Overflow count item",
+            type="material",
+            stack_size=1,
+            effects=[],
+        )
+        db.add_all([user, definition])
+        db.flush()
+        InventoryOverflowRepository(db).park(
+            user=user,
+            item_definition_id=definition.id,
+            quantity=1,
+        )
+        response = InventoryService(UserRepository(db)).get_inventory_msg(
+            user.user_twitch_id, channel.twitch_id
+        )
+        assert response.overflow_count == 1
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
 def test_equip_without_slot_returns_editable_usage_message() -> None:
     """Missing slot answers with the configurable equip_help message."""
     from domain.schemas.rpg import EquipRequestDTO

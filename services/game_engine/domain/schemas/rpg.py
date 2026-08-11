@@ -54,6 +54,11 @@ class InventoryDTO(BaseModel):
     equipped_slots: Dict[str, int] = Field(default_factory=dict)
     equipped_rod_slot: Optional[int] = None
     max_slots: int = 20
+    overflow_count: int = Field(
+        0,
+        ge=0,
+        description="Number of unclaimed items currently stashed in overflow storage.",
+    )
 
 
 class InventoryResponseDTO(InventoryDTO):
