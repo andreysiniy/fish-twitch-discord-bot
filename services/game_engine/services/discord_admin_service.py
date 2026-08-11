@@ -2361,7 +2361,9 @@ class DiscordAdminService:
             "id": event.id,
             "event_title": event.event_title,
             "is_active": event.is_active,
-            "status": event.status,
+            # ``is_active`` is the durable uniqueness-enforced flag.  Older
+            # Twitch toggles could leave a stale status after reactivation.
+            "status": "active" if event.is_active else event.status,
             "starts_at": _iso(event.starts_at),
             "ends_at": _iso(event.ends_at),
             "activated_at": _iso(event.activated_at),

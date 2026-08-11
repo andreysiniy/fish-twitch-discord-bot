@@ -154,6 +154,23 @@ def test_event_list_entry_is_compact_and_human_readable() -> None:
     assert '"fish_luck_change_percent"' not in details
 
 
+def test_event_list_entry_uses_active_flag_when_status_is_stale() -> None:
+    from app.presentation.embeds import event_list_entry
+
+    _, details = event_list_entry(
+        {
+            "id": 8,
+            "event_title": "Reactivated",
+            "is_active": True,
+            "status": "ended",
+            "version": 2,
+            "modifiers": {},
+        }
+    )
+
+    assert "Status: Active" in details
+
+
 def test_strong_event_values_detects_large_modifiers() -> None:
     from app.commands.events import _strong_event_values
 

@@ -61,6 +61,8 @@ def test_indefinite_event_activation_clears_stale_ends_at() -> None:
         assert result.status == "activated"
         db.refresh(event)
         assert event.is_active is True
+        assert event.status == "active"
+        assert event.activated_at is not None
         assert event.ends_at is None
 
         # The durable reconciler must not end the indefinite event.
@@ -73,13 +75,57 @@ def test_indefinite_event_activation_clears_stale_ends_at() -> None:
             channel.twitch_id, channel.twitch_id, event.id
         )
         assert result.status == "deactivated"
+        db.refresh(event)
+        assert event.is_active is False
+        assert event.status == "ended"
+        assert event.deactivated_at is not None
         result = service.toggle_fishing_event(
             channel.twitch_id, channel.twitch_id, event.id, duration_seconds=300
         )
         assert result.status == "activated"
         db.refresh(event)
+        assert event.is_active is True
+        assert event.status == "active"
+        assert event.activated_at is not None
         assert event.ends_at is not None
         assert event.ends_at > datetime.now(timezone.utc)
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_event_with_pending_review_cannot_be_activated() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        channel = Channel(
+            twitch_id=f"evt-review-{suffix}",
+            name="Event Review",
+            config={},
+        )
+        db.add(channel)
+        db.flush()
+        event = FishingEvent(
+            channel_id=channel.id,
+            event_title="Unsafe Boost",
+            is_active=False,
+            requires_review=True,
+            modifiers={
+                "schema_version": 2,
+                "positive_fish_reward_change_percent": "500",
+            },
+        )
+        db.add(event)
+        db.flush()
+
+        service = AdminService(ChannelRepository(db), user_repo=None, config_repo=None)
+        with pytest.raises(ValueError, match="requires review"):
+            service.toggle_fishing_event(channel.twitch_id, channel.twitch_id, event.id)
+
+        db.refresh(event)
+        assert event.is_active is False
+        assert event.status == "draft"
     finally:
         db.rollback()
         db.close()

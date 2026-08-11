@@ -143,9 +143,9 @@ def location_list_entry(item: dict[str, Any]) -> tuple[str, str]:
 def event_list_entry(item: dict[str, Any]) -> tuple[str, str]:
     """Render the compact event-list entry without exposing the API payload."""
     title = item.get("event_title") or f"Event #{item.get('id', '?')}"
-    status = item.get("status")
+    status = "active" if item.get("is_active") is True else item.get("status")
     if not status:
-        status = "active" if item.get("is_active") else "inactive"
+        status = "inactive"
     status = str(status).replace("_", " ").title()
 
     detail_parts = [
@@ -473,7 +473,7 @@ def event_detail_embed(item: dict[str, Any]) -> discord.Embed:
         title=item.get("event_title") or f"Event #{item.get('id')}",
         color=discord.Color.green() if item.get("is_active") else discord.Color.blurple(),
     )
-    status = item.get("status", "?")
+    status = "active" if item.get("is_active") is True else item.get("status", "?")
     embed.add_field(name="Status", value=f"`{status}`", inline=True)
     embed.add_field(name="Version", value=f"v{item.get('version', '?')}", inline=True)
     if item.get("modifier_schema_version"):
