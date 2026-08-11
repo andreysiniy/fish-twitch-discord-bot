@@ -1,4 +1,5 @@
 import discord
+import pytest
 
 from app.presentation.embeds import (
     danger_embed,
@@ -9,6 +10,7 @@ from app.presentation.embeds import (
     preview_embed,
     success_embed,
     warning_embed,
+    rarity_color,
 )
 
 
@@ -66,8 +68,23 @@ def test_item_detail_embed_renders_sections() -> None:
     assert fields["Slot"] == "rod"
     assert fields["Type"] == "equipment"
     assert "Мощная удочка" == embed.description
-    assert "stat_add" in fields["Effects (1)"]
+    assert "Fish Luck: +5%" in fields["Effects (1)"]
+    assert "stat_add" not in fields["Effects (1)"]
+    assert embed.color == discord.Color(0x9B59B6)
     assert "schema 1" in embed.footer.text
+
+
+@pytest.mark.parametrize(
+    ("rarity", "expected"),
+    [
+        ("common", 0x95A5A6),
+        ("rare", 0x3498DB),
+        ("epic", 0x9B59B6),
+        ("legendary", 0xF1C40F),
+    ],
+)
+def test_rarity_color_palette(rarity: str, expected: int) -> None:
+    assert rarity_color(rarity) == discord.Color(expected)
 
 
 def test_event_detail_embed_renders_human_percentages_and_factors() -> None:
