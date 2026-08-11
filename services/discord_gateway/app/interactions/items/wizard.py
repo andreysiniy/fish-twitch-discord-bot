@@ -12,11 +12,12 @@ lock rejects stale saves, and the final button reads "Save Changes". A
 the latest version instead of silently overwriting a newer definition.
 """
 
+import logging
 from typing import Any
 
 import discord
 
-from app.api.errors import EngineError
+from app.api.errors import EngineError, localize_error
 from app.domain.item_ui_registry import (
     ITEM_TEMPLATES,
     TEMPLATES_BY_VALUE,
@@ -32,6 +33,7 @@ from app.interactions.items.session import ItemWizardSession, WizardStep
 from app.interactions.items.template_select import TemplateSelectView, template_embed
 
 CONFIRM_TIMEOUT_SECONDS = 180
+logger = logging.getLogger("discord.item_wizard")
 
 
 def template_choices() -> list[discord.app_commands.Choice[str]]:
@@ -252,6 +254,30 @@ async def _render_basic_info(
     interaction: discord.Interaction, session: ItemWizardSession, api
 ) -> None:
     async def on_submit(done: discord.Interaction, values: dict[str, Any]) -> None:
+        if session.flow_type == "item_create" and api is not None:
+            try:
+                existing_items = await api.items(done, include_archived=True)
+            except EngineError as error:
+                await done.response.send_message(localize_error(error), ephemeral=True)
+                return
+            except Exception:
+                logger.exception("Stable ID availability check failed")
+                await done.response.send_message(
+                    "Could not verify the Stable ID. Try again.", ephemeral=True
+                )
+                return
+            existing_ids = {
+                str(item.get("item_id") or "").casefold()
+                for item in existing_items.get("items", [])
+                if isinstance(item, dict)
+            }
+            if values["item_id"].casefold() in existing_ids:
+                await done.response.send_message(
+                    f"Stable ID `{values['item_id']}` already exists. "
+                    "Use `/fish item edit` to modify that item or choose another ID.",
+                    ephemeral=True,
+                )
+                return
         session.draft.update(values)
         await session.transition(WizardStep.RARITY)
         await _render_rarity(done, session, api)

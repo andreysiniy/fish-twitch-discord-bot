@@ -676,7 +676,7 @@ class DiscordAdminService:
                 effects=[effect.model_dump(mode="json") for effect in validated_data.effects],
                 schema_version=validated_data.schema_version,
                 nominal_value=validated_data.nominal_value,
-                expected_version=validated_data.expected_version,
+                expected_version=data.expected_version,
                 updated_by=link.twitch_user_id,
             )
             after = self._serialize_item_definition(row, channel)
