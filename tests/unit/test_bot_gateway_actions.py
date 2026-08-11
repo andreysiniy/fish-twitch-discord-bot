@@ -129,6 +129,92 @@ async def test_fishbag_without_limit_still_lists_items() -> None:
     assert "Inventory 1/0" not in sent
 
 
+def test_fishbag_argument_parser_supports_owner_slot_and_viewer_modes() -> None:
+    from commands.inventory import InventoryCog
+
+    assert InventoryCog._parse_fishbag_args(()) == (None, None, None)
+    assert InventoryCog._parse_fishbag_args(("1",)) == (None, 1, None)
+    assert InventoryCog._parse_fishbag_args(("@viewer",)) == ("viewer", None, None)
+    assert InventoryCog._parse_fishbag_args(("viewer", "2")) == ("viewer", 2, None)
+    assert InventoryCog._parse_fishbag_args(("viewer", "0"))[2]
+    assert InventoryCog._parse_fishbag_args(("viewer", "slot"))[2]
+
+
+@pytest.mark.asyncio
+async def test_fishbag_resolves_viewer_and_requests_selected_slot(monkeypatch) -> None:
+    from commands.inventory import InventoryCog
+
+    api_client = SimpleNamespace(
+        get_inventory=AsyncMock(
+            return_value={
+                "items": [
+                    {
+                        "slot_id": 2,
+                        "title": "Lucky Rod",
+                        "quantity": 1,
+                        "item_type": "equipment",
+                        "rarity": "rare",
+                        "effects": [
+                            {"type": "stat_add", "stat": "fish_luck_change_ratio", "value": "0.10"},
+                            {"type": "stat_add", "stat": "xp_gain_change_ratio", "value": "-0.20"},
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    bot = SimpleNamespace(
+        api_client=api_client,
+        fetch_users=AsyncMock(return_value=[SimpleNamespace(id="target-id", name="Viewer")]),
+    )
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="author-id", name="Author"),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "channel-id"
+
+    monkeypatch.setattr("commands.inventory.get_channel_id", channel_id)
+    callback = InventoryCog.fishbag._callback
+    await callback(InventoryCog(bot), ctx, "@viewer", "2")
+
+    bot.fetch_users.assert_awaited_once_with(names=["viewer"])
+    api_client.get_inventory.assert_awaited_once_with(
+        channel_id="channel-id", user_id="target-id"
+    )
+    sent = ctx.send.await_args.args[0]
+    assert "Viewer's item [2] Lucky Rod" in sent
+    assert "Fish Luck +10%" in sent
+    assert "XP -20%" in sent
+
+
+@pytest.mark.asyncio
+async def test_fishbag_skips_empty_effect_section() -> None:
+    from commands.inventory import InventoryCog
+
+    ctx = SimpleNamespace(send=AsyncMock())
+    await InventoryCog(SimpleNamespace())._send_item_details(
+        ctx,
+        {
+            "items": [
+                {
+                    "slot_id": 1,
+                    "title": "Plain Bait",
+                    "item_type": "consumable",
+                    "rarity": "common",
+                    "effects": [],
+                }
+            ]
+        },
+        slot_id=1,
+    )
+
+    sent = ctx.send.await_args.args[0]
+    assert "Plain Bait" in sent
+    assert "Effects:" not in sent
+
+
 @pytest.mark.asyncio
 async def test_timeout_action_without_target_user_raises_clear_error(monkeypatch) -> None:
     """A timeout action must name its target; missing target_user fails fast."""
