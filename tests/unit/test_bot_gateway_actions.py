@@ -93,6 +93,7 @@ async def test_fishevent_empty_duration_starts_indefinitely(monkeypatch) -> None
     bot = SimpleNamespace(api_client=api_client)
     ctx = SimpleNamespace(
         author=SimpleNamespace(id="owner-id"),
+        message=SimpleNamespace(content="!fishevent 1"),
         send=AsyncMock(),
     )
 
@@ -111,6 +112,42 @@ async def test_fishevent_empty_duration_starts_indefinitely(monkeypatch) -> None
         duration_seconds=None,
     )
     assert "Event enabled" in ctx.send.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_fishevent_ignores_spurious_duration_when_message_has_one_argument(
+    monkeypatch,
+) -> None:
+    from commands.admin import AdminCog
+
+    api_client = SimpleNamespace(
+        admin_toggle_fishing_event=AsyncMock(
+            return_value={
+                "status": "activated",
+                "event": {"id": 1, "event_title": "Lucky Event"},
+                "chat_message": "",
+            }
+        )
+    )
+    bot = SimpleNamespace(api_client=api_client)
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id="owner-id"),
+        message=SimpleNamespace(content="!fishevent 1"),
+        send=AsyncMock(),
+    )
+
+    async def channel_id(_ctx):  # noqa: ANN001
+        return "channel-id"
+
+    monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
+    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "0")
+
+    api_client.admin_toggle_fishing_event.assert_awaited_once_with(
+        channel_id="channel-id",
+        actor_twitch_id="owner-id",
+        event_number=1,
+        duration_seconds=None,
+    )
 
 
 @pytest.mark.asyncio
