@@ -25,6 +25,8 @@ from domain.logic import rng
 MIN_SAFE_LUCK = Decimal("0.05")
 
 SELECTED = "selected"
+GATE_FAILED = "gate_failed"
+NO_CANDIDATES = "no_candidates"
 
 
 class ItemDropResolution(BaseModel):
@@ -52,6 +54,9 @@ class ItemDropResolution(BaseModel):
     inventory_grants: list[dict[str, Any]] = Field(default_factory=list)
     delivery_target: str | None = None
     status: str = SELECTED
+    gate_success: bool | None = None
+    selection_success: bool | None = None
+    stock_reserved: bool | None = None
     failure_reason: str | None = None
     message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -152,6 +157,8 @@ def select_item_drop(
         quantity_rolled=quantity,
         quantity_requested=quantity,
         status=SELECTED,
+        gate_success=True,
+        selection_success=True,
         message=entry.get("message"),
         metadata=dict(entry),
     )

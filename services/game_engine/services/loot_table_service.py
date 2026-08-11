@@ -46,31 +46,42 @@ class LootTableRollService:
             random_source=random_source,
         )
 
-    def resolve_candidates(self, channel_id: int, loot_table_id: str) -> list[dict[str, Any]]:
+    def resolve_candidates(
+        self,
+        channel_id: int,
+        loot_table_id: str | int,
+        *,
+        allow_missing: bool = False,
+    ) -> list[dict[str, Any]]:
         """Load eligible entries with their stock; stock=0 stays for the selector."""
         from infrastructure.repositories.loot_table_serializer import (
             load_stock_by_entry,
             serialize_loot_table_entry,
         )
 
-        table = (
-            self.db.query(LootTable)
-            .filter(
-                LootTable.channel_id == channel_id,
-                LootTable.table_id == loot_table_id,
-                LootTable.is_active.is_(True),
-            )
-            .first()
-        )
+        table_query = self.db.query(LootTable).filter(LootTable.channel_id == channel_id)
+        if isinstance(loot_table_id, int):
+            table_query = table_query.filter(LootTable.id == loot_table_id)
+        else:
+            table_query = table_query.filter(LootTable.table_id == str(loot_table_id))
+        table_query = table_query.filter(LootTable.is_active.is_(True))
+        table = table_query.first()
         if not table:
+            if allow_missing:
+                return []
             raise ValueError(f"Active loot table '{loot_table_id}' not found")
         entries = (
             self.db.query(LootTableEntry)
-            .filter(LootTableEntry.loot_table_id == table.id)
+            .filter(
+                LootTableEntry.loot_table_id == table.id,
+                LootTableEntry.item_definition_id.isnot(None),
+            )
             .order_by(LootTableEntry.id.asc())
             .all()
         )
         if not entries:
+            if allow_missing:
+                return []
             raise ValueError(f"Loot table '{loot_table_id}' is empty")
         stock_by_entry = load_stock_by_entry(self.db, entries)
         return [
@@ -117,6 +128,7 @@ class LootTableRollService:
         if not ok:
             resolution.status = "stock_empty"
             resolution.failure_reason = "entry stock exhausted"
+        resolution.stock_reserved = ok
         resolution.stock_before = before
         resolution.stock_after = after
         resolution.quantity_requested = resolution.quantity_rolled
@@ -158,6 +170,7 @@ class LootTableRollService:
                 resolution.status = "failed"
                 resolution.failure_reason = "item definition is unavailable"
                 resolution.quantity_granted = 0
+                resolution.stock_reserved = False
                 return resolution, []
             overflow_repo.park(
                 user=user,

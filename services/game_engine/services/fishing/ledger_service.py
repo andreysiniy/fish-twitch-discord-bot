@@ -158,7 +158,11 @@ class FishingLedgerService:
             if result.item_drop is not None
             else typed_item.model_dump(mode="json") if typed_item is not None else None
         )
-        item_present = item_payload is not None
+        item_selected = bool(
+            typed_item.selection_success
+            if typed_item is not None
+            else item_payload is not None
+        )
         pool = self._find_pool(user, pool_location_id)
         reward_id = loot.get("reward_id") or loot.get("identifier") or loot.get("id")
         reward_type = loot.get("type")
@@ -226,42 +230,50 @@ class FishingLedgerService:
             was_level_up=result.is_level_up,
             reward_id=reward_id,
             reward_type=reward_type,
-            reward_weight=_decimal_or_none(_trace_value(result.reward_roll_trace, "selected_weight")),
-            reward_total_weight=_decimal_or_none(_trace_value(result.reward_roll_trace, "total_weight")),
-            reward_probability=_decimal_or_none(_trace_value(result.reward_roll_trace, "selected_probability")),
+            reward_weight=_decimal_or_none(
+                _trace_value(result.reward_roll_trace, "selected_weight")
+            ),
+            reward_total_weight=_decimal_or_none(
+                _trace_value(result.reward_roll_trace, "total_weight")
+            ),
+            reward_probability=_decimal_or_none(
+                _trace_value(result.reward_roll_trace, "selected_probability")
+            ),
             reward_roll=_decimal_or_none(_trace_value(result.reward_roll_trace, "roll")),
             reward_snapshot=loot,
             item_drop_succeeded=bool(
-                item_payload is not None
+                item_selected
                 and (item_payload.get("grant_success") is not False)
-                and (typed_item is None or typed_item.status not in {"failed", "stock_empty"})
+                and (
+                    typed_item.status in {"granted", "overflowed"}
+                    if typed_item is not None
+                    else item_payload.get("grant_success") is not False
+                )
             ),
-            item_drop_count=1 if item_present else 0,
+            item_drop_count=1 if item_selected else 0,
             item_drop_probability=result.item_drop_probability,
             item_drop_roll=result.item_drop_roll,
-            item_drop_gate_success=bool(
-                _trace_value(
-                    _stage_by_name(result, "item_drop_gate"), "success"
-                )
-            )
-            if item_present
-            else None,
-            item_drop_selection_success=item_present,
+            item_drop_gate_success=(
+                typed_item.gate_success
+                if typed_item is not None and typed_item.gate_success is not None
+                else _trace_value(_stage_by_name(result, "item_drop_gate"), "success")
+            ),
+            item_drop_selection_success=(
+                typed_item.selection_success if typed_item is not None else item_selected
+            ),
             item_drop_stock_reserved=(
-                bool(item_payload.get("stock_reserved"))
-                if "stock_reserved" in item_payload
-                else typed_item is not None and typed_item.status != "stock_empty"
-            )
-            if item_present
-            else None,
+                typed_item.stock_reserved
+                if typed_item is not None and typed_item.stock_reserved is not None
+                else bool(item_payload.get("stock_reserved"))
+                if item_payload is not None and "stock_reserved" in item_payload
+                else None
+            ),
             item_drop_grant_success=(
                 bool(item_payload.get("grant_success"))
-                if "grant_success" in item_payload
+                if item_payload is not None and "grant_success" in item_payload
                 else typed_item is not None
                 and typed_item.status in {"granted", "overflowed"}
-            )
-            if item_present
-            else None,
+            ),
             resolved_modifiers=json.loads(trace_builder.compact_json(resolved_modifiers)),
             modifier_sources=json.loads(trace_builder.compact_json(explanation)),
             equipped_items_snapshot=trace_builder.build_equipped_items_snapshot(user),
@@ -362,12 +374,23 @@ class FishingLedgerService:
             item.get("quantity") or 1
         )
         grant_status = "granted"
-        if resolution is not None and resolution.status in {"failed", "stock_empty"}:
+        if resolution is not None:
             grant_status = resolution.status
         elif item.get("grant_success") is False:
             grant_status = "failed"
         elif item.get("stock_reserved") is False:
             grant_status = "stock_empty"
+        if resolution is not None and resolution.status in {"selected", "granted"}:
+            grant_status = "granted"
+        elif resolution is not None and resolution.status == "overflowed":
+            grant_status = "overflowed"
+        elif resolution is not None and resolution.status in {
+            "failed",
+            "stock_empty",
+            "gate_failed",
+            "no_candidates",
+        }:
+            grant_status = resolution.status
         quantity_granted = int(item.get("quantity_granted") or 0)
         if quantity_granted <= 0:
             quantity_granted = quantity_requested if grant_status == "granted" else 0
@@ -407,6 +430,16 @@ class FishingLedgerService:
                 key: item[key]
                 for key in ("obtained_at", "message", "weight", "overflowed")
                 if key in item
+            }
+            | {
+                key: getattr(resolution, key)
+                for key in (
+                    "gate_success",
+                    "selection_success",
+                    "stock_reserved",
+                    "failure_reason",
+                )
+                if resolution is not None and getattr(resolution, key) is not None
             },
         )
 

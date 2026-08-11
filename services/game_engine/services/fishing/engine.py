@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
-from domain.logic.loot_selection import ItemDropResolution
+from domain.logic.loot_selection import GATE_FAILED, NO_CANDIDATES, ItemDropResolution
 from services.loot_table_service import LootTableRollService
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
@@ -227,7 +227,7 @@ class FishingEngine:
             resolved_mods.get("item_rarity_luck_pct", 0)
         )
         item_resolution = None
-        item_gate_succeeded = False
+        item_gate_succeeded: bool | None = None
         item_drop_probability: Decimal | None = None
         item_drop_roll: Decimal | None = None
         if item_pool:
@@ -249,7 +249,36 @@ class FishingEngine:
                     rarity_luck=rarity_luck,
                     random_source=random.random,
                 )
-        if item_pool and item_gate_succeeded and item_resolution is not None:
+                if item_resolution is None:
+                    item_resolution = ItemDropResolution(
+                        status=NO_CANDIDATES,
+                        gate_success=True,
+                        selection_success=False,
+                        failure_reason="no eligible item candidates",
+                    )
+            else:
+                item_resolution = ItemDropResolution(
+                    status=GATE_FAILED,
+                    gate_success=False,
+                    selection_success=False,
+                    failure_reason="item drop gate failed",
+                )
+        elif to_decimal(items_drop_rate) > 0:
+            # Keep a normalized outcome when the configured gate is positive
+            # but its loot table has no candidates. No gate RNG is consumed
+            # because there is no table that could produce a selection.
+            item_resolution = ItemDropResolution(
+                status=NO_CANDIDATES,
+                gate_success=None,
+                selection_success=False,
+                failure_reason="item loot table has no candidates",
+            )
+        if (
+            item_pool
+            and item_gate_succeeded
+            and item_resolution is not None
+            and item_resolution.selection_success is True
+        ):
             item_catch = _as_catch(item_resolution.metadata)
             rng_stages.append(
                 {
@@ -290,6 +319,9 @@ class FishingEngine:
                     "stock_before": item_resolution.stock_before,
                     "stock_after": item_resolution.stock_after,
                     "quantity_granted": item_resolution.quantity_granted,
+                    "gate_success": item_resolution.gate_success,
+                    "selection_success": item_resolution.selection_success,
+                    "stock_reserved": item_resolution.stock_reserved,
                 }
             )
             rng_stages.append(

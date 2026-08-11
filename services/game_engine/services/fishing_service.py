@@ -255,7 +255,9 @@ class FishingService:
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
-            result.robbery_result = self._handle_robbery(result.loot, user, rng_stages=result.rng_stages)
+            result.robbery_result = self._handle_robbery(
+                result.loot, user, rng_stages=result.rng_stages
+            )
             if result.robbery_result.roll is not None:
                 result.rng_stages.append(
                     {
@@ -653,24 +655,33 @@ class FishingService:
     ) -> RobberyResultDTO:
         lookup_range = loot.get("range", 3)
         channel_config = user.channel.config or {}
+        attacker_modifiers = self.modifier_service.resolve(user, ModifierScope.ROBBERY)
 
         victim = self.user_repo.get_rich_victim(
             channel_id=user.channel.id, attacker_id=user.id, lookup_range=lookup_range
         )
 
         if victim is None:
-            return self.engine.calculate_mass_robbery(
+            robbery_result = self.engine.calculate_mass_robbery(
                 attacker=user,
                 victim=None,
                 channel_config=channel_config,
                 catch=loot,
             )
+            robbery_result.modifier_snapshot = {
+                "attacker": self._robbery_modifier_snapshot(attacker_modifiers),
+                "victim": self._empty_robbery_modifier_snapshot(),
+            }
+            return robbery_result
 
         locked = self.user_repo.lock_users([user.id, victim.id])
         user = locked[user.id]
         victim = locked[victim.id]
-        attacker_modifiers = self.modifier_service.resolve(user, ModifierScope.ROBBERY)
         victim_modifiers = self.modifier_service.resolve(victim, ModifierScope.ROBBERY)
+        modifier_snapshot = {
+            "attacker": self._robbery_modifier_snapshot(attacker_modifiers),
+            "victim": self._robbery_modifier_snapshot(victim_modifiers),
+        }
 
         counter_actions, absorbed = self._apply_robbery_defenses(
             rng_stages=rng_stages,
@@ -692,6 +703,7 @@ class FishingService:
                 victim_new_mass=quantize_mass(victim.current_mass),
                 chance_used=0.0,
                 counter_actions=counter_actions,
+                modifier_snapshot=modifier_snapshot,
             )
 
         robbery_result = self.engine.calculate_mass_robbery(
@@ -704,6 +716,7 @@ class FishingService:
             protected_mass_floor=victim_modifiers.mass_floor("robbery"),
         )
         robbery_result.counter_actions = counter_actions
+        robbery_result.modifier_snapshot = modifier_snapshot
 
         if robbery_result.is_success:
             success_actions, _absorbed = self._apply_robbery_defenses(
@@ -734,6 +747,23 @@ class FishingService:
             self.user_repo.save_progress(victim)
 
         return robbery_result
+
+    @staticmethod
+    def _empty_robbery_modifier_snapshot() -> dict[str, object]:
+        return {"resolved": {}, "sources": [], "explanation": {}}
+
+    @staticmethod
+    def _robbery_modifier_snapshot(resolved) -> dict[str, object]:
+        explanation = resolved.explain()
+        sources = []
+        for stat, details in explanation.items():
+            for contribution in details.get("contributions", []):
+                sources.append({"stat": stat, **contribution})
+        return {
+            "resolved": {stat: details.get("value") for stat, details in explanation.items()},
+            "sources": sources,
+            "explanation": explanation,
+        }
 
     def _apply_robbery_defenses(
         self,
@@ -1009,7 +1039,13 @@ class FishingService:
                 else ZERO_MASS
             )
             cooldown_duration = max(
-                int(round(to_decimal(cooldown_duration) * max(Decimal("1") + change_ratio, Decimal("0")))), 0
+                int(
+                    round(
+                        to_decimal(cooldown_duration)
+                        * max(Decimal("1") + change_ratio, Decimal("0"))
+                    )
+                ),
+                0,
             )
         is_active, seconds_left = self.cooldown_repo.check_cooldown(channel_id, twitch_id)
         return self.presenter.build_cooldown_status_response(
