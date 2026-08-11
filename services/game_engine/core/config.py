@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str
     ENCRYPTION_KEY: str | None = None
+    # Dedicated key for provider credentials.  It may be omitted during a
+    # read-only rollout; connecting a provider requires it (or the explicit
+    # legacy fallback configured below).
+    INTEGRATIONS_ENCRYPTION_KEY: str | None = None
+    INTEGRATIONS_ENCRYPTION_KEY_VERSION: int = 1
     BOT_API_KEY: str
     DISCORD_BOT_API_KEY: str
     ALGORITHM: str = "HS256"

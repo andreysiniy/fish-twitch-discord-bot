@@ -10,6 +10,7 @@ from core.config import settings
 
 
 _fernet_instance: Fernet | None = None
+_integration_fernet_instance: Fernet | None = None
 
 
 def create_access_token(subject: str | Any) -> str:
@@ -54,6 +55,34 @@ def decrypt_token(encrypted_token: str) -> str:
         raise ValueError("Failed to decrypt token") from error
 
 
+def encrypt_integration_token(plain_token: str) -> str:
+    """Encrypt a provider credential with the dedicated integration key."""
+
+    if not str(plain_token or "").strip():
+        raise ValueError("Token cannot be empty")
+    return _get_integration_fernet().encrypt(str(plain_token).strip().encode("utf-8")).decode("utf-8")
+
+
+def decrypt_integration_token(encrypted_token: str, *, key_version: int = 1) -> str:
+    """Decrypt a provider credential, rejecting unknown key versions."""
+
+    if key_version != settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION:
+        raise ValueError("Unsupported integration credential key version")
+    try:
+        return _get_integration_fernet().decrypt(str(encrypted_token).encode("utf-8")).decode("utf-8")
+    except (InvalidToken, ValueError) as error:
+        raise ValueError("Failed to decrypt integration token") from error
+
+
+def integration_key_fingerprint() -> str:
+    """Return a non-secret fingerprint useful for readiness diagnostics."""
+
+    key = settings.INTEGRATIONS_ENCRYPTION_KEY or settings.ENCRYPTION_KEY
+    if not key:
+        return "unconfigured"
+    return hashlib.sha256(key.strip().encode("utf-8")).hexdigest()[:12]
+
+
 def _get_fernet() -> Fernet:
     global _fernet_instance
     if _fernet_instance is not None:
@@ -70,6 +99,20 @@ def _get_fernet() -> Fernet:
 
     _fernet_instance = Fernet(_derive_fernet_key(settings.SECRET_KEY))
     return _fernet_instance
+
+
+def _get_integration_fernet() -> Fernet:
+    global _integration_fernet_instance
+    if _integration_fernet_instance is not None:
+        return _integration_fernet_instance
+    key = settings.INTEGRATIONS_ENCRYPTION_KEY or settings.ENCRYPTION_KEY
+    if not key:
+        raise ValueError("INTEGRATIONS_ENCRYPTION_KEY is not configured")
+    try:
+        _integration_fernet_instance = Fernet(key.strip().encode("utf-8"))
+    except (TypeError, ValueError) as error:
+        raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEY") from error
+    return _integration_fernet_instance
 
 
 def _derive_fernet_key(secret: str) -> bytes:
