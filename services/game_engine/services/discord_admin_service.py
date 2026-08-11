@@ -1106,6 +1106,12 @@ class DiscordAdminService:
                 context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
             )
             user = self._find_player_viewer(channel.id, viewer)
+            user = (
+                self.db.query(UserProgress)
+                .filter(UserProgress.id == user.id)
+                .with_for_update(of=UserProgress)
+                .one()
+            )
             row = (
                 self.db.query(InventoryItem)
                 .filter(
@@ -1121,6 +1127,7 @@ class DiscordAdminService:
             before = self._serialize_inventory_item(row)
             if data.quantity > row.quantity:
                 raise ApiProblem(422, "VALIDATION_ERROR", "Revoke quantity exceeds inventory")
+            slot_freed = data.quantity == row.quantity
             row.quantity -= data.quantity
             if row.quantity == 0:
                 self.db.delete(row)
@@ -1129,6 +1136,12 @@ class DiscordAdminService:
                 row.version += 1
                 after = self._serialize_inventory_item(row)
             self.db.flush()
+            if slot_freed:
+                slot_bonus = PlayerModifierService(self.db).inventory_slot_bonus(user)
+                InventoryOverflowRepository(self.db).claim_available(
+                    user=user,
+                    inventory_repo=InventoryRepository(self.db, max_slots_add=slot_bonus),
+                )
             self._audit(
                 context,
                 link.twitch_user_id,
@@ -1172,6 +1185,14 @@ class DiscordAdminService:
                 context, ChannelPermission.PLAYER_ITEMS_GRANT, channel_twitch_id
             )
             user = self._find_player_viewer(channel.id, viewer)
+            # Keep the lock order aligned with automatic overflow delivery:
+            # user first, then the individual parked row.
+            user = (
+                self.db.query(UserProgress)
+                .filter(UserProgress.id == user.id)
+                .with_for_update(of=UserProgress)
+                .one()
+            )
             overflow = InventoryOverflowRepository(self.db)
             slot_bonus = PlayerModifierService(self.db).inventory_slot_bonus(user)
             inventory = InventoryRepository(self.db, max_slots_add=slot_bonus)

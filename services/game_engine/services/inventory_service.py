@@ -90,7 +90,7 @@ class InventoryService:
         if not user:
             return TrashItemResponseDTO(success=False, message="You have no inventory.")
         try:
-            title, quantity = self.inventory_repo.trash(user.id, data.slot_id)
+            title, quantity = self._inventory_repository(user).trash(user.id, data.slot_id)
         except ValueError as error:
             return TrashItemResponseDTO(success=False, message=str(error))
         return TrashItemResponseDTO(

@@ -143,7 +143,7 @@ class InventoryRepository:
         self.db.flush()
 
     def trash(self, user_id: int, inventory_slot: int) -> tuple[str, int]:
-        """Delete one inventory slot after locking its owner and item.
+        """Delete one inventory slot and reclaim parked overflow if possible.
 
         Equipped items are deliberately protected: discarding one without an
         explicit unequip would leave the equipment state surprising to the
@@ -178,6 +178,10 @@ class InventoryRepository:
         quantity = int(item.quantity)
         self.db.delete(item)
         self.db.flush()
+        InventoryOverflowRepository(self.db).claim_available(
+            user=locked_user,
+            inventory_repo=self,
+        )
         return title, quantity
 
     def consume_durability(self, user_id: int, equipment_slot: str, amount: int) -> str | None:
@@ -218,6 +222,11 @@ class InventoryRepository:
         elif policy == "unequip_broken":
             self.db.delete(equipped)
         self.db.flush()
+        if policy == "destroy_at_zero":
+            InventoryOverflowRepository(self.db).claim_available(
+                user=user,
+                inventory_repo=self,
+            )
         return title
 
     def use_item(
@@ -276,6 +285,7 @@ class InventoryRepository:
         self.db.add(use_record)
         self.db.flush()
 
+        slot_freed = False
         if definition.max_charges is not None:
             # Charge-based consumable (spec 11.4): a use consumes the amount
             # declared by the consume_charge effect instead of a stack quantity;
@@ -288,6 +298,7 @@ class InventoryRepository:
             item.current_charges = int(item.current_charges or 0) - charge_amount
             if item.current_charges <= 0:
                 self.db.delete(item)
+                slot_freed = True
             else:
                 item.version += 1
         else:
@@ -295,6 +306,7 @@ class InventoryRepository:
             item.quantity -= 1
             if item.quantity == 0:
                 self.db.delete(item)
+                slot_freed = True
             else:
                 item.version += 1
         self.db.flush()
@@ -333,6 +345,11 @@ class InventoryRepository:
 
         if grants:
             granted.extend(self.grant_many(locked_user, grants))
+        if slot_freed:
+            InventoryOverflowRepository(self.db).claim_available(
+                user=locked_user,
+                inventory_repo=self,
+            )
         apply_mass_mutation(locked_user, mass_delta, track_total=True)
         for index, action in enumerate(actions):
             self.db.add(

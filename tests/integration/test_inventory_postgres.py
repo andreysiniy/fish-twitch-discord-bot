@@ -3,17 +3,24 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from infrastructure.database import SessionLocal
-from infrastructure.models import Channel, InventoryItem, ItemDefinition, UserProgress
+from infrastructure.models import (
+    Channel,
+    InventoryItem,
+    InventoryOverflowItem,
+    ItemDefinition,
+    UserProgress,
+)
 from infrastructure.repositories.inventory_repo import (
     InventoryCapacityError,
     InventoryRepository,
 )
+from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
 from infrastructure.repositories.user_repo import UserRepository
 from services.inventory_service import InventoryService
 from services.player_modifier_service import PlayerModifierService
+from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_INTEGRATION_TESTS") != "1",
@@ -135,6 +142,62 @@ def test_trash_removes_slot_and_protects_equipped_items() -> None:
         with pytest.raises(ValueError, match="is equipped"):
             repository.trash(user.id, rod.slot_id)
         assert repository._lock_items(user.id)[0].slot_id == rod.slot_id
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_trash_claims_oldest_overflow_into_freed_slot() -> None:
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex
+        channel = Channel(twitch_id=f"trash-overflow-{suffix}", name="Trash overflow", config={})
+        db.add(channel)
+        db.flush()
+        user = UserProgress(
+            user_twitch_id=f"user-{suffix}",
+            username="trash_overflow_user",
+            channel_id=channel.id,
+            base_inventory_slots=1,
+        )
+        filler_definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="trash_filler",
+            title="Trash Filler",
+            type="material",
+            stack_size=1,
+            effects=[],
+        )
+        overflow_definition = ItemDefinition(
+            channel_id=channel.id,
+            item_id="parked_bait",
+            title="Parked Bait",
+            type="material",
+            stack_size=1,
+            effects=[],
+        )
+        db.add_all([user, filler_definition, overflow_definition])
+        db.flush()
+        repository = InventoryRepository(db)
+        filler = repository.grant_many(user, [{"item_id": "trash_filler"}])[0]
+        parked = InventoryOverflowRepository(db).park(
+            user=user,
+            item_definition_id=overflow_definition.id,
+            quantity=1,
+        )
+
+        repository.trash(user.id, filler.slot_id)
+
+        item = repository._lock_items(user.id)[0]
+        assert item.item_id == overflow_definition.id
+        refreshed = (
+            db.query(InventoryOverflowItem)
+            .filter(InventoryOverflowItem.id == parked.id)
+            .one()
+        )
+        assert refreshed.status == "claimed"
+        assert refreshed.claimed_at is not None
     finally:
         db.rollback()
         db.close()
