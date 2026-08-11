@@ -237,7 +237,7 @@ async def test_fishevent_ignores_zero_width_placeholder_duration(monkeypatch) ->
     bot = SimpleNamespace(api_client=api_client)
     ctx = SimpleNamespace(
         author=SimpleNamespace(id="owner-id"),
-        message=SimpleNamespace(content="!fishevent 1 \u200b"),
+        message=SimpleNamespace(content="!fishevent 1 \u2060"),
         send=AsyncMock(),
     )
 
@@ -245,7 +245,7 @@ async def test_fishevent_ignores_zero_width_placeholder_duration(monkeypatch) ->
         return "channel-id"
 
     monkeypatch.setattr("commands.admin.get_channel_id", channel_id)
-    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "\u200b")
+    await AdminCog.fishevent._callback(AdminCog(bot), ctx, "1", "\u2060")
 
     api_client.admin_toggle_fishing_event.assert_awaited_once_with(
         channel_id="channel-id",

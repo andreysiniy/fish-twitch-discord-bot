@@ -1,4 +1,5 @@
 import logging
+import unicodedata
 
 from twitchio.ext import commands
 from twitchio import User
@@ -9,7 +10,6 @@ from api_client import EngineApiError
 
 ALLOWED_ROLES = {"editor", "moderator"}
 INDEFINITE_DURATION_TOKENS = {"", "none", "null", "indefinite", "unlimited"}
-ZERO_WIDTH_CHARS = frozenset({"\u200b", "\u200c", "\u200d", "\ufeff"})
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +21,15 @@ def _duration_argument(ctx: commands.Context, arg2: str | None) -> str:
     tokens = content.split()
     if len(tokens) < 3:
         return ""
-    return "".join(char for char in tokens[2] if char not in ZERO_WIDTH_CHARS).strip()
+    return _strip_invisible_characters(tokens[2])
+
+
+def _strip_invisible_characters(value: str) -> str:
+    return "".join(
+        char
+        for char in value
+        if not char.isspace() and unicodedata.category(char) not in {"Cc", "Cf"}
+    ).strip()
 
 
 class AdminCog(commands.Cog):
