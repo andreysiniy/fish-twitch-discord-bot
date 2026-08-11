@@ -1,6 +1,5 @@
 import discord
 import pytest
-
 from app.presentation.embeds import (
     danger_embed,
     error_embed,
@@ -8,9 +7,9 @@ from app.presentation.embeds import (
     item_detail_embed,
     item_list_entry,
     preview_embed,
+    rarity_color,
     success_embed,
     warning_embed,
-    rarity_color,
 )
 
 
@@ -43,7 +42,6 @@ def test_item_list_entry_is_compact() -> None:
     assert "2 effect(s)" in value
     # Full effects JSON must not spill into the list card.
     assert '"type"' not in value
-    assert "Storm Rod" == "Storm Rod"
 
 
 def test_item_detail_embed_renders_sections() -> None:
@@ -120,6 +118,37 @@ def test_event_detail_embed_renders_human_percentages_and_factors() -> None:
     assert "×0.50" in text
     assert "Cooldown" not in text  # zero-valued modifiers are hidden
     assert "river" in text
+
+
+def test_event_list_entry_is_compact_and_human_readable() -> None:
+    from app.presentation.embeds import event_list_entry
+
+    title, details = event_list_entry(
+        {
+            "id": 7,
+            "event_title": "Storm",
+            "status": "ended",
+            "is_active": False,
+            "override_loot_pool": None,
+            "modifiers": {
+                "fish_luck_change_percent": "-30",
+                "cooldown_change_percent": "0",
+            },
+            "version": 4,
+            "updated_at": "2026-08-06T00:00:00+00:00",
+            "deactivated_at": "2026-08-06T00:00:00+00:00",
+        }
+    )
+
+    assert title == "Storm"
+    assert "ID: `7`" in details
+    assert "Status: Ended" in details
+    assert "Version: v4" in details
+    assert "🍀 **Fish Luck**: -30% (×0.70)" in details
+    assert "Modifiers: none" not in details
+    assert "updated_at" not in details
+    assert "deactivated_at" not in details
+    assert '"fish_luck_change_percent"' not in details
 
 
 def test_strong_event_values_detects_large_modifiers() -> None:

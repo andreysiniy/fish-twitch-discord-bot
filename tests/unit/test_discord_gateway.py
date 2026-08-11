@@ -6,8 +6,8 @@ from app.api.client import EngineClient
 from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
-from app.config import DiscordSettings
 from app.commands.register import _json_confirmation
+from app.config import DiscordSettings
 from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
     DupeRewardModal,
@@ -247,13 +247,22 @@ def test_entity_list_entries_include_all_parameters_without_truncation() -> None
         "id": 7,
         "event_title": "Double XP",
         "is_active": True,
+        "status": "active",
         "override_loot_pool": "river",
-        "modifiers": {"xp_mult": "2", "bonus_mass": "0.15"},
+        "modifiers": {"xp_gain_change_percent": "100"},
         "version": 2,
         "updated_at": "2026-08-02T00:00:00+00:00",
     }
     assert all(f"{key}:" in location_list_entry(location)[1] for key in location)
-    assert all(f"{key}:" in event_list_entry(event)[1] for key in event)
+    event_title, event_details = event_list_entry(event)
+    assert event_title == "Double XP"
+    assert "ID: `7`" in event_details
+    assert "Status: Active" in event_details
+    assert "Version: v2" in event_details
+    assert "Loot pool: `river`" in event_details
+    assert "✨ **XP**: +100% (×2.00)" in event_details
+    assert "updated_at" not in event_details
+    assert '"modifiers"' not in event_details
 
 
 def test_legacy_import_preview_lists_source_and_converted_types() -> None:
