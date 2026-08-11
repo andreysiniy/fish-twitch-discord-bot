@@ -6,9 +6,11 @@ An administrator reclaims parked rows through the Discord claim flow; rows stay
 tenant-safe because the model carries the same composite FKs as ``InventoryItem``.
 """
 
-from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+from typing import Any
 
 from infrastructure.models import InventoryOverflowItem, UserProgress
+from sqlalchemy.orm import Session
 
 
 class InventoryOverflowRepository:
@@ -67,3 +69,37 @@ class InventoryOverflowRepository:
             .with_for_update(of=InventoryOverflowItem)
             .first()
         )
+
+    def claim_available(self, *, user: UserProgress, inventory_repo: Any) -> list[InventoryOverflowItem]:
+        """Deliver the oldest parked rows that now fit in the inventory.
+
+        The caller locks the user before invoking this method. Overflow rows
+        are then locked in creation order, matching the administrator claim
+        flow and preventing concurrent delivery of the same row.
+        """
+        from infrastructure.repositories.inventory_repo import InventoryCapacityError
+
+        claimed: list[InventoryOverflowItem] = []
+        for pending in self.list_parked(user.id):
+            row = self.get_parked_for_update(user.id, pending.id)
+            if row is None:
+                continue
+            if row.definition is None:
+                continue
+            try:
+                inventory_repo.grant_many(
+                    user,
+                    [{"item_id": row.definition.item_id, "quantity": row.quantity, "meta": {}}],
+                )
+            except InventoryCapacityError:
+                break
+            except ValueError:
+                # Keep malformed or archived rows parked for an administrator
+                # to inspect; a later valid row may still fit.
+                continue
+            row.status = "claimed"
+            row.version += 1
+            row.claimed_at = datetime.now(timezone.utc)
+            self.db.flush()
+            claimed.append(row)
+        return claimed
