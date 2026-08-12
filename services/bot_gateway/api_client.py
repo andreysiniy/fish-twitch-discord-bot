@@ -8,7 +8,9 @@ API_KEY = os.getenv("BOT_API_KEY", "")
 
 
 class EngineApiError(Exception):
-    pass
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
 
 
 class EngineApiClient:
@@ -204,7 +206,8 @@ class EngineApiClient:
                 data, text = await self._read_payload(response)
                 if response.status >= 400:
                     detail = data.get("detail") if isinstance(data, dict) else text
-                    raise EngineApiError(self._format_error_detail(detail))
+                    code = detail.get("code") if isinstance(detail, dict) else None
+                    raise EngineApiError(self._format_error_detail(detail), code=code)
 
                 if isinstance(data, dict):
                     return data
