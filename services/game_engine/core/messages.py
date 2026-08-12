@@ -188,7 +188,7 @@ DEFAULT_MESSAGES = {
     MsgKey.SELL_MASS_FAILED: "The sale failed. Your catch mass was restored.",
     MsgKey.BUY_SUCCESS: (
         "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg). "
-        "New balance: {balance} points."
+        "New balance: {balance} points. New catch mass: {new_mass}."
     ),
     MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
     MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg> or !fishbuy all.",
