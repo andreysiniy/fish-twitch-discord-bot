@@ -38,7 +38,12 @@ class StreamElementsConnectModal(discord.ui.Modal, title="Connect StreamElements
 
 
 class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
-    points_per_kg = discord.ui.TextInput(label="Points per kg", required=True, max_length=18)
+    buy_points_per_kg = discord.ui.TextInput(
+        label="Buy rate (points per kg)", required=True, max_length=18
+    )
+    sell_points_per_kg = discord.ui.TextInput(
+        label="Sell rate (points per kg)", required=True, max_length=18
+    )
     minimum = discord.ui.TextInput(label="Minimum mass (kg)", required=True, max_length=18)
     maximum = discord.ui.TextInput(label="Maximum mass (kg)", required=True, max_length=18)
 
@@ -46,9 +51,10 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
         super().__init__(timeout=600)
         self.api = api
         self.current = current
-        self.points_per_kg.default = str(current.get("buy_points_per_kg", "1000"))
+        self.buy_points_per_kg.default = str(current.get("buy_points_per_kg", "120"))
+        self.sell_points_per_kg.default = str(current.get("sell_points_per_kg", "100"))
         self.minimum.default = str(current.get("min_transaction_mass", "0.01"))
-        self.maximum.default = str(current.get("max_transaction_mass", "1000"))
+        self.maximum.default = str(current.get("max_transaction_mass", "2147483647"))
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -57,8 +63,9 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
                 interaction,
                 {
                     "expected_version": int(self.current["version"]),
-                    "pricing_mode": "single_rate",
-                    "points_per_kg": str(self.points_per_kg.value),
+                    "pricing_mode": "spread",
+                    "buy_points_per_kg": str(self.buy_points_per_kg.value),
+                    "sell_points_per_kg": str(self.sell_points_per_kg.value),
                     "min_transaction_mass": str(self.minimum.value),
                     "max_transaction_mass": str(self.maximum.value),
                 },

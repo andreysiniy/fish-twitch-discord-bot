@@ -2,7 +2,12 @@ import asyncio
 
 import pytest
 from api_client import EngineApiClient, EngineApiError
-from commands.economy import _user_economy_error
+from commands.economy import _format_rate, _user_economy_error
+
+
+def test_fish_rate_formatter_removes_insignificant_zeroes() -> None:
+    assert _format_rate("120.0000") == "120"
+    assert _format_rate("12.5000") == "12.5"
 
 
 def test_economy_operation_in_progress_error_is_safe_for_chat() -> None:

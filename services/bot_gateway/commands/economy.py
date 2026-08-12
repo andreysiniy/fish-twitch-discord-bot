@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, InvalidOperation
 
 from api_client import EngineApiError
 from heplers.context_tool import get_channel_id
@@ -15,6 +16,15 @@ def _user_economy_error(error: EngineApiError) -> str:
     ):
         return "The fish market is temporarily unavailable. Please try again later."
     return str(error)
+
+
+def _format_rate(value: object) -> str:
+    """Render a points rate without insignificant trailing zeroes."""
+
+    try:
+        return format(Decimal(str(value)).normalize(), "f")
+    except (InvalidOperation, ValueError):
+        return str(value)
 
 
 class EconomyCog(commands.Cog):
@@ -69,8 +79,8 @@ class EconomyCog(commands.Cog):
         try:
             result = await self.bot.api_client.fish_rate(channel_id)
             await ctx.send(
-                f"Fish rate: buy {result.get('buy_points_per_kg')} points/kg, "
-                f"sell {result.get('sell_points_per_kg')} points/kg."
+                f"Fish rate: buy {_format_rate(result.get('buy_points_per_kg'))} points/kg, "
+                f"sell {_format_rate(result.get('sell_points_per_kg'))} points/kg."
             )
         except EngineApiError as error:
             await ctx.send(_user_economy_error(error))
