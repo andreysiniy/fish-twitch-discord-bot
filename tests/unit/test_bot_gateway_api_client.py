@@ -1,8 +1,24 @@
 import asyncio
 
 import pytest
-
 from api_client import EngineApiClient, EngineApiError
+from commands.economy import _user_economy_error
+
+
+def test_economy_operation_in_progress_error_is_safe_for_chat() -> None:
+    error = EngineApiError(
+        "Another fish sale is already processing. Please wait.",
+        code="ECONOMY_OPERATION_IN_PROGRESS",
+    )
+
+    assert _user_economy_error(error) == "Another fish sale is already processing. Please wait."
+    assert "Economy error" not in _user_economy_error(error)
+
+
+def test_provider_error_does_not_expose_provider_name() -> None:
+    error = EngineApiError("StreamElements credentials are invalid.", code="STREAM_ELEMENTS_INVALID_CREDENTIALS")
+
+    assert _user_economy_error(error) == "The fish market is temporarily unavailable. Please try again later."
 
 
 def test_review_error_formatter_includes_concrete_modifier_issue() -> None:
