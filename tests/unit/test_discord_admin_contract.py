@@ -2,7 +2,11 @@ import pytest
 from api.discord_dependencies import DiscordServiceContext, get_discord_service_context
 from core.api_errors import ApiProblem
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
-from domain.schemas.discord_admin import ConfigPatchRequest, LocationCreateRequest
+from domain.schemas.discord_admin import (
+    ConfigPatchRequest,
+    EconomySettingsPatchRequest,
+    LocationCreateRequest,
+)
 from main import app
 from pydantic import ValidationError
 
@@ -76,6 +80,17 @@ def test_admin_dtos_are_strict_and_bounded() -> None:
         LocationCreateRequest(location_id="Invalid ID", location_name="Lake")
     with pytest.raises(ValidationError):
         LocationCreateRequest(location_id="lake", location_name="Lake", unexpected=True)
+
+
+def test_economy_max_number_alias_is_normalized() -> None:
+    request = EconomySettingsPatchRequest(
+        expected_version=1,
+        pricing_mode="spread",
+        buy_points_per_kg="120",
+        sell_points_per_kg="100",
+        max_transaction_mass="MAX_NUMBER",
+    )
+    assert request.max_transaction_mass == 2147483647
 
 
 def test_openapi_exposes_versioned_discord_admin_contract() -> None:

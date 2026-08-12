@@ -46,7 +46,12 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
         label="Sell rate (points per kg)", required=True, max_length=18
     )
     minimum = discord.ui.TextInput(label="Minimum mass (kg)", required=True, max_length=18)
-    maximum = discord.ui.TextInput(label="Maximum mass (kg)", required=True, max_length=18)
+    maximum = discord.ui.TextInput(
+        label="Maximum mass (kg)",
+        placeholder="Enter a number or MAX_NUMBER",
+        required=True,
+        max_length=18,
+    )
 
     def __init__(self, api, current: dict):
         super().__init__(timeout=600)
@@ -59,9 +64,11 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
             current.get("sell_points_per_kg", "100")
         )
         self.minimum.default = format_compact_number(current.get("min_transaction_mass", "0.01"))
-        self.maximum.default = format_compact_number(
-            current.get("max_transaction_mass", "2147483647")
-        )
+        current_maximum = current.get("max_transaction_mass", "2147483647")
+        if format_compact_number(current_maximum) == "2147483647":
+            self.maximum.default = "MAX_NUMBER"
+        else:
+            self.maximum.default = format_compact_number(current_maximum)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)

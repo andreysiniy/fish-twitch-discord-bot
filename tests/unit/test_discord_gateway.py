@@ -7,7 +7,7 @@ from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.commands.register import _json_confirmation
-from app.commands.streamelements import StreamElementsConnectModal
+from app.commands.streamelements import EconomySettingsModal, StreamElementsConnectModal
 from app.config import DiscordSettings
 from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
@@ -82,6 +82,17 @@ def test_compact_number_formatting_removes_insignificant_zeroes() -> None:
     assert format_compact_number("120.0000") == "120"
     assert format_compact_number("2147483647.00") == "2147483647"
     assert format_compact_number("12.5000") == "12.5"
+
+
+def test_economy_modal_uses_max_number_alias() -> None:
+    modal = EconomySettingsModal(object(), {
+        "buy_points_per_kg": "120.0000",
+        "sell_points_per_kg": "105.0000",
+        "min_transaction_mass": "0.01",
+        "max_transaction_mass": "2147483647.00",
+        "version": 1,
+    })
+    assert modal.maximum.default == "MAX_NUMBER"
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,8 @@ from domain.item_schema import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MAX_TRANSACTION_MASS = Decimal(2147483647)
+
 
 class StrictDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -255,6 +257,13 @@ class EconomySettingsPatchRequest(StrictDTO):
     enabled: bool | None = None
     min_transaction_mass: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
     max_transaction_mass: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
+
+    @field_validator("max_transaction_mass", mode="before")
+    @classmethod
+    def normalize_max_transaction_mass(cls, value):
+        if isinstance(value, str) and value.strip().upper() == "MAX_NUMBER":
+            return MAX_TRANSACTION_MASS
+        return value
 
     @model_validator(mode="after")
     def validate_rate_mode(self):
