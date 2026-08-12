@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_FLOOR, Decimal
+from functools import wraps
+from typing import Callable, Coroutine, TypeVar
+from uuid import uuid4
 
 from core.config import settings as engine_settings
 from core.messages import (
@@ -37,6 +41,7 @@ from infrastructure.models import (
 )
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
+from infrastructure.redis_client import RedisClient
 from infrastructure.se_client import (
     ProviderAmbiguousWriteError,
     ProviderAuthenticationError,
@@ -56,6 +61,20 @@ from integrations.streamelements.constants import (
     validate_provider_balance,
 )
 from services.player_modifier_service import PlayerModifierService
+
+
+_BuyCallable = TypeVar("_BuyCallable", bound=Callable[..., Coroutine[object, object, FishResponse]])
+
+
+def _serialize_buy_requests(func: _BuyCallable) -> _BuyCallable:
+    """Serialize purchases per viewer before any provider balance is read."""
+
+    @wraps(func)
+    async def wrapped(self, twitch_id: str, channel_id: str, *args, **kwargs):
+        with self._buy_request_lock(channel_id, twitch_id):
+            return await func(self, twitch_id, channel_id, *args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]
 
 
 class EconomyService:
@@ -90,7 +109,7 @@ class EconomyService:
         )
         if previous:
             return self._stored_response(previous)
-        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=False)
+        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=True)
         if user is None:
             return self._message(channel, MsgKey.ERR_NO_PROFILE, username=twitch_id)
         if not settings.enabled or not settings.sell_enabled:
@@ -214,6 +233,7 @@ class EconomyService:
         self.db.commit()
         return await self._execute_sell(operation, channel, integration, token, settings)
 
+    @_serialize_buy_requests
     async def buy_fish(
         self,
         twitch_id: str,
@@ -242,8 +262,8 @@ class EconomyService:
         parsed = parse_mass_argument(amount_str, allow_all=True)
         token = self._decrypt_integration(integration, channel)
         username = (user.username or "").strip() or twitch_id
-        # Do not hold the user row lock while the provider balance is read.
-        self.db.commit()
+        # The Redis request lock serializes concurrent purchases for one viewer
+        # without holding a PostgreSQL row lock across the provider call.
         try:
             balance = await self.se_client.get_balance(
                 str(integration.provider_channel_id), token, username
@@ -314,9 +334,6 @@ class EconomyService:
                 cost=format_large_number_points(cost),
             )
         validate_debit(balance, cost)
-        # Re-read the mass under a short lock for the operation snapshot.  The
-        # lock is released by the commit below before the external write.
-        user = self._lock_user(user.id)
         operation = self._create_operation(
             idempotency_key=idempotency_key,
             operation_type="buy",
@@ -377,11 +394,15 @@ class EconomyService:
             )
             operation.external_applied = True
             operation.external_applied_at = datetime.now(timezone.utc)
-            operation.provider_balance_after = result.balance_after
+            balance_after = result.balance_after
+            if balance_after is None:
+                balance_after = await self.se_client.get_balance(
+                    str(integration.provider_channel_id), token, operation.twitch_username
+                )
+            balance_after = validate_provider_balance(balance_after)
+            operation.provider_balance_after = balance_after
             operation.provider_status_code = result.status_code
-            if result.balance_after is not None:
-                validate_provider_balance(result.balance_after)
-                operation.provider_points_headroom_after = provider_headroom(result.balance_after)
+            operation.provider_points_headroom_after = provider_headroom(balance_after)
             self._finish_attempt(operation, "confirmed", result=result)
             operation.state = "completed"
             operation.completed_at = datetime.now(timezone.utc)
@@ -436,11 +457,15 @@ class EconomyService:
             )
             operation.external_applied = True
             operation.external_applied_at = datetime.now(timezone.utc)
-            operation.provider_balance_after = result.balance_after
+            balance_after = result.balance_after
+            if balance_after is None:
+                balance_after = await self.se_client.get_balance(
+                    str(integration.provider_channel_id), token, operation.twitch_username
+                )
+            balance_after = validate_provider_balance(balance_after)
+            operation.provider_balance_after = balance_after
             operation.provider_status_code = result.status_code
-            if result.balance_after is not None:
-                validate_provider_balance(result.balance_after)
-                operation.provider_points_headroom_after = provider_headroom(result.balance_after)
+            operation.provider_points_headroom_after = provider_headroom(balance_after)
             self._finish_attempt(operation, "confirmed", result=result)
             operation.state = "external_applied"
             user = (
@@ -465,6 +490,7 @@ class EconomyService:
                 mass=format_large_number_mass(operation.mass_effective),
                 cost=format_large_number_points(-operation.points_delta),
                 rate=self._format_rate(operation.rate_used_snapshot),
+                balance=format_large_number_points(operation.provider_balance_after),
                 operation_id=str(operation.id),
             )
             operation.response_payload = response.model_dump(mode="json")
@@ -674,6 +700,27 @@ class EconomyService:
             )
         settings = self._settings(channel)
         return user, channel, integration, settings
+
+    @contextmanager
+    def _buy_request_lock(self, channel_id: str, twitch_id: str):
+        redis = RedisClient.get_client()
+        key = f"economy:buy:{channel_id}:{twitch_id}"
+        token = uuid4().hex
+        if not redis.set(key, token, nx=True, ex=120):
+            raise EconomyDomainError(
+                "ECONOMY_OPERATION_IN_PROGRESS",
+                "Another fish purchase is already processing. Please wait.",
+            )
+        try:
+            yield
+        finally:
+            redis.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] "
+                "then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                token,
+            )
 
     def _lock_user(self, user_id: int) -> UserProgress:
         """Lock one player only for the local state transition."""

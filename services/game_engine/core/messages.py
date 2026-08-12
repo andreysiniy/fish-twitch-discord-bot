@@ -183,7 +183,10 @@ DEFAULT_MESSAGES = {
     MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",
     MsgKey.SELL_MASS_INVALID_AMOUNT: "Invalid amount. Use !fishsell <kg> or !fishsell all.",
     MsgKey.SELL_MASS_FAILED: "The sale failed. Your catch mass was restored.",
-    MsgKey.BUY_SUCCESS: "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg).",
+    MsgKey.BUY_SUCCESS: (
+        "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg). "
+        "New balance: {balance} points."
+    ),
     MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
     MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg> or !fishbuy all.",
     MsgKey.SE_NOT_CONFIGURED: "StreamElements integration is not configured.",
