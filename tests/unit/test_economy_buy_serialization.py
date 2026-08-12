@@ -35,9 +35,34 @@ async def test_buy_request_lock_rejects_overlapping_viewer_request(monkeypatch):
 
     task = asyncio.create_task(first())
     await entered.wait()
-    with pytest.raises(EconomyDomainError) as error:
-        with service._buy_request_lock("channel", "viewer"):
-            pass
+    with pytest.raises(EconomyDomainError) as error, service._buy_request_lock(
+        "channel", "viewer"
+    ):
+        pass
+    assert error.value.code == "ECONOMY_OPERATION_IN_PROGRESS"
+    release.set()
+    await task
+
+
+@pytest.mark.asyncio
+async def test_sell_request_lock_rejects_overlapping_viewer_request(monkeypatch):
+    redis = _Redis()
+    monkeypatch.setattr("services.economy_service.RedisClient.get_client", lambda: redis)
+    service = EconomyService.__new__(EconomyService)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def first():
+        with service._sell_request_lock("channel", "viewer"):
+            entered.set()
+            await release.wait()
+
+    task = asyncio.create_task(first())
+    await entered.wait()
+    with pytest.raises(EconomyDomainError, match="fish sale") as error, service._sell_request_lock(
+        "channel", "viewer"
+    ):
+        pass
     assert error.value.code == "ECONOMY_OPERATION_IN_PROGRESS"
     release.set()
     await task

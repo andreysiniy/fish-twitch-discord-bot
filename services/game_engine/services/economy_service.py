@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_FLOOR, Decimal
 from functools import wraps
-from typing import Callable, Coroutine, TypeVar
+from typing import TypeVar
 from uuid import uuid4
 
 from core.config import settings as engine_settings
@@ -39,9 +40,9 @@ from infrastructure.models import (
     OutboxEvent,
     UserProgress,
 )
+from infrastructure.redis_client import RedisClient
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
-from infrastructure.redis_client import RedisClient
 from infrastructure.se_client import (
     ProviderAmbiguousWriteError,
     ProviderAuthenticationError,
@@ -62,8 +63,10 @@ from integrations.streamelements.constants import (
 )
 from services.player_modifier_service import PlayerModifierService
 
-
 _BuyCallable = TypeVar("_BuyCallable", bound=Callable[..., Coroutine[object, object, FishResponse]])
+_SellCallable = TypeVar(
+    "_SellCallable", bound=Callable[..., Coroutine[object, object, FishResponse]]
+)
 
 
 def _serialize_buy_requests(func: _BuyCallable) -> _BuyCallable:
@@ -72,6 +75,17 @@ def _serialize_buy_requests(func: _BuyCallable) -> _BuyCallable:
     @wraps(func)
     async def wrapped(self, twitch_id: str, channel_id: str, *args, **kwargs):
         with self._buy_request_lock(channel_id, twitch_id):
+            return await func(self, twitch_id, channel_id, *args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]
+
+
+def _serialize_sell_requests(func: _SellCallable) -> _SellCallable:
+    """Serialize sales per viewer before the provider balance is read."""
+
+    @wraps(func)
+    async def wrapped(self, twitch_id: str, channel_id: str, *args, **kwargs):
+        with self._sell_request_lock(channel_id, twitch_id):
             return await func(self, twitch_id, channel_id, *args, **kwargs)
 
     return wrapped  # type: ignore[return-value]
@@ -89,6 +103,7 @@ class EconomyService:
         self.db = user_repo.db
         self.modifier_service = PlayerModifierService(self.db)
 
+    @_serialize_sell_requests
     async def sell_fish(
         self,
         twitch_id: str,
@@ -416,6 +431,8 @@ class EconomyService:
                 mass=format_large_number_mass(operation.mass_effective),
                 amount=format_large_number_points(operation.points_delta),
                 rate=self._format_rate(operation.rate_used_snapshot),
+                balance=format_large_number_points(operation.provider_balance_after),
+                remaining_mass=format_large_number_mass(operation.player_mass_after),
                 operation_id=str(operation.id),
             )
             operation.response_payload = response.model_dump(mode="json")
@@ -710,6 +727,27 @@ class EconomyService:
             raise EconomyDomainError(
                 "ECONOMY_OPERATION_IN_PROGRESS",
                 "Another fish purchase is already processing. Please wait.",
+            )
+        try:
+            yield
+        finally:
+            redis.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] "
+                "then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                token,
+            )
+
+    @contextmanager
+    def _sell_request_lock(self, channel_id: str, twitch_id: str):
+        redis = RedisClient.get_client()
+        key = f"economy:sell:{channel_id}:{twitch_id}"
+        token = uuid4().hex
+        if not redis.set(key, token, nx=True, ex=120):
+            raise EconomyDomainError(
+                "ECONOMY_OPERATION_IN_PROGRESS",
+                "Another fish sale is already processing. Please wait.",
             )
         try:
             yield
