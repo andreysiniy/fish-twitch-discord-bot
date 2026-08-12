@@ -1,7 +1,8 @@
+import asyncio
+import os
 from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
-import os
 
 API_KEY = os.getenv("BOT_API_KEY", "")
 
@@ -17,7 +18,9 @@ class EngineApiClient:
 
     async def start(self) -> None:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15, connect=3, sock_read=12)
+            )
 
     async def close(self) -> None:
         if self._session is not None and not self._session.closed:
@@ -191,22 +194,27 @@ class EngineApiClient:
         headers = self._get_headers()
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
-        async with self._session.request(
-            method,
-            url,
-            json=json,
-            headers=headers,
-        ) as response:
-            data, text = await self._read_payload(response)
-            if response.status >= 400:
-                detail = data.get("detail") if isinstance(data, dict) else text
-                raise EngineApiError(self._format_error_detail(detail))
+        try:
+            async with self._session.request(
+                method,
+                url,
+                json=json,
+                headers=headers,
+            ) as response:
+                data, text = await self._read_payload(response)
+                if response.status >= 400:
+                    detail = data.get("detail") if isinstance(data, dict) else text
+                    raise EngineApiError(self._format_error_detail(detail))
 
-            if isinstance(data, dict):
-                return data
-            if isinstance(data, list):
-                return {"items": data}
-            return {"raw": text}
+                if isinstance(data, dict):
+                    return data
+                if isinstance(data, list):
+                    return {"items": data}
+                return {"raw": text}
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as error:
+            raise EngineApiError(
+                "The game engine did not respond in time. Please try again."
+            ) from error
 
     async def _read_payload(self, response: aiohttp.ClientResponse) -> Tuple[Any, str]:
         text = await response.text()

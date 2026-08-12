@@ -88,7 +88,7 @@ class EconomyService:
         )
         if previous:
             return self._stored_response(previous)
-        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=True)
+        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=False)
         if user is None:
             return self._message(channel, MsgKey.ERR_NO_PROFILE, username=twitch_id)
         if not settings.enabled or not settings.sell_enabled:
@@ -98,6 +98,10 @@ class EconomyService:
             return self._message(channel, MsgKey.SELL_MASS_EMPTY)
         parsed = parse_mass_argument(amount_str, allow_all=True)
         token = self._decrypt_integration(integration, channel)
+        # End the read-only transaction before waiting on StreamElements.  A
+        # provider timeout must not retain a PostgreSQL connection or a row
+        # lock needed by the next chat command.
+        self.db.commit()
         try:
             provider_balance = validate_provider_balance(
                 await self.se_client.get_balance(
@@ -110,6 +114,10 @@ class EconomyService:
             raise EconomyDomainError(
                 error.code, "StreamElements is temporarily unavailable."
             ) from error
+        user = self._lock_user(user.id)
+        current_mass = self._decimal(user.current_mass)
+        if current_mass <= 0:
+            return self._message(channel, MsgKey.SELL_MASS_EMPTY)
         mass = self._resolve_sell_mass(parsed, current_mass, settings, provider_balance)
         rate = Decimal(str(settings.sell_points_per_kg))
         points = calculate_sell_points(mass, rate)
@@ -223,7 +231,7 @@ class EconomyService:
         )
         if previous:
             return self._stored_response(previous)
-        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=True)
+        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=False)
         if user is None:
             return self._message(channel, MsgKey.ERR_NO_PROFILE, username=twitch_id)
         if not settings.enabled or not settings.buy_enabled:
@@ -231,6 +239,8 @@ class EconomyService:
         parsed = parse_mass_argument(amount_str, allow_all=True)
         token = self._decrypt_integration(integration, channel)
         username = (user.username or "").strip() or twitch_id
+        # Do not hold the user row lock while the provider balance is read.
+        self.db.commit()
         try:
             balance = await self.se_client.get_balance(
                 str(integration.provider_channel_id), token, username
@@ -301,6 +311,9 @@ class EconomyService:
                 cost=format_large_number_points(cost),
             )
         validate_debit(balance, cost)
+        # Re-read the mass under a short lock for the operation snapshot.  The
+        # lock is released by the commit below before the external write.
+        user = self._lock_user(user.id)
         operation = self._create_operation(
             idempotency_key=idempotency_key,
             operation_type="buy",
@@ -652,6 +665,16 @@ class EconomyService:
             )
         settings = self._settings(channel)
         return user, channel, integration, settings
+
+    def _lock_user(self, user_id: int) -> UserProgress:
+        """Lock one player only for the local state transition."""
+
+        return (
+            self.db.query(UserProgress)
+            .filter(UserProgress.id == user_id)
+            .with_for_update()
+            .one()
+        )
 
     def _settings(self, channel: Channel) -> ChannelEconomySettings:
         row = (
