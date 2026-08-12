@@ -27,6 +27,18 @@ def parse_decimal(value: str) -> str:
     return format(decimal, "f")
 
 
+def format_compact_number(value: Any) -> str:
+    """Render a numeric value without insignificant trailing zeroes."""
+
+    try:
+        decimal = Decimal(str(value))
+    except InvalidOperation:
+        return str(value)
+    if not decimal.is_finite():
+        return str(value)
+    return format(decimal.normalize(), "f")
+
+
 def format_percent(value: Any) -> str:
     return f"{Decimal(str(value)) * 100:g}%"
 

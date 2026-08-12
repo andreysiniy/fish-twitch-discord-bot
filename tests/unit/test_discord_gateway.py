@@ -31,7 +31,12 @@ from app.presentation.embeds import (
     location_list_entry,
     reward_list_entry,
 )
-from app.presentation.formatting import diff_lines, parse_decimal, parse_duration
+from app.presentation.formatting import (
+    diff_lines,
+    format_compact_number,
+    parse_decimal,
+    parse_duration,
+)
 from app.presentation.pagination import PagedEmbedView
 
 
@@ -71,6 +76,12 @@ def test_numeric_parsing_and_diff_are_stable() -> None:
     assert diff_lines({"a": 1}, {"a": 2}) == ["- `a`: `1` -> `2`"]
     with pytest.raises(ValueError):
         parse_decimal("NaN")
+
+
+def test_compact_number_formatting_removes_insignificant_zeroes() -> None:
+    assert format_compact_number("120.0000") == "120"
+    assert format_compact_number("2147483647.00") == "2147483647"
+    assert format_compact_number("12.5000") == "12.5"
 
 
 @pytest.mark.parametrize(
