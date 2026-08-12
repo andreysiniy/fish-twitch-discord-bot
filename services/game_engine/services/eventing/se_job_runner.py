@@ -259,16 +259,21 @@ class SEJobRunner:
         db.commit()
 
     def _append_event(self, db, operation, event_type, from_state, to_state) -> None:
-        last = (
-            db.query(EconomyOperationEvent.sequence_no)
-            .filter(EconomyOperationEvent.operation_id == operation.id)
-            .order_by(EconomyOperationEvent.sequence_no.desc())
-            .first()
-        )
+        sequence = getattr(operation, "_event_sequence", None)
+        if sequence is None:
+            last = (
+                db.query(EconomyOperationEvent.sequence_no)
+                .filter(EconomyOperationEvent.operation_id == operation.id)
+                .order_by(EconomyOperationEvent.sequence_no.desc())
+                .first()
+            )
+            sequence = last[0] if last else 0
+        sequence += 1
+        operation._event_sequence = sequence
         db.add(
             EconomyOperationEvent(
                 operation_id=operation.id,
-                sequence_no=(last[0] if last else 0) + 1,
+                sequence_no=sequence,
                 event_type=event_type,
                 from_state=from_state,
                 to_state=to_state,

@@ -405,7 +405,6 @@ class EconomyService:
             self.db.commit()
             return response
         except Exception as error:  # noqa: BLE001
-            self._finish_attempt(operation, "ambiguous", error=error)
             self.db.rollback()
             return self._reconcile_sell_after_failure(operation.id, channel, error)
 
@@ -480,7 +479,6 @@ class EconomyService:
         # Any local mutation failure after provider debit requires the same
         # full-refund-or-reconciliation boundary, including database errors.
         except Exception as error:  # noqa: BLE001
-            self._finish_attempt(operation, "ambiguous", error=error)
             self.db.rollback()
             return await self._compensate_buy(operation.id, channel, integration, token, error)
 
@@ -728,13 +726,17 @@ class EconomyService:
             )
 
     def _append_event(self, operation, event_type, from_state, to_state, metadata=None):
-        last = (
-            self.db.query(EconomyOperationEvent.sequence_no)
-            .filter(EconomyOperationEvent.operation_id == operation.id)
-            .order_by(EconomyOperationEvent.sequence_no.desc())
-            .first()
-        )
-        sequence = (last[0] if last else 0) + 1
+        sequence = getattr(operation, "_event_sequence", None)
+        if sequence is None:
+            last = (
+                self.db.query(EconomyOperationEvent.sequence_no)
+                .filter(EconomyOperationEvent.operation_id == operation.id)
+                .order_by(EconomyOperationEvent.sequence_no.desc())
+                .first()
+            )
+            sequence = last[0] if last else 0
+        sequence += 1
+        operation._event_sequence = sequence
         self.db.add(
             EconomyOperationEvent(
                 operation_id=operation.id,
