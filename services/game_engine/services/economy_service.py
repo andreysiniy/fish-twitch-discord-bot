@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_FLOOR, Decimal
 
 from core.config import settings as engine_settings
@@ -59,6 +59,8 @@ from services.player_modifier_service import PlayerModifierService
 
 
 class EconomyService:
+    EXTERNAL_OPERATION_LEASE_SECONDS = 60
+
     def __init__(
         self, user_repo: UserRepository, channel_repo: ChannelRepository, se_client: SEApiClient
     ):
@@ -208,6 +210,7 @@ class EconomyService:
                 "cap": STREAMELEMENTS_POINTS_MAX,
             },
         )
+        self._mark_outbox(operation, "processing")
         self.db.commit()
         return await self._execute_sell(operation, channel, integration, token, settings)
 
@@ -345,6 +348,7 @@ class EconomyService:
                 "cap": STREAMELEMENTS_POINTS_MAX,
             },
         )
+        self._mark_outbox(operation, "processing")
         self.db.commit()
         return await self._execute_buy(operation, channel, integration, token, settings)
 
@@ -483,6 +487,7 @@ class EconomyService:
             operation.state = "failed"
             operation.error_code = error.code
             operation.last_error = error.code
+            self._mark_outbox(operation, "dead_letter")
             response = self._message(
                 channel, MsgKey.BUY_INVALID_AMOUNT, operation_id=str(operation.id)
             )
@@ -532,6 +537,7 @@ class EconomyService:
             response = self._message(
                 channel, MsgKey.BUY_INVALID_AMOUNT, operation_id=str(operation.id)
             )
+            self._mark_outbox(operation, "reconciliation_required")
         except EconomyDomainError as compensation_error:
             operation.state = "reconciliation_required"
             operation.reconciliation_reason = "provider_cap_blocks_full_compensation"
@@ -541,6 +547,7 @@ class EconomyService:
             response = self._message(
                 channel, MsgKey.ECONOMY_RECONCILIATION_REQUIRED, operation_id=str(operation.id)
             )
+            self._mark_outbox(operation, "reconciliation_required")
         else:
             operation.state = "compensated"
             operation.compensation_state = "confirmed"
@@ -548,6 +555,7 @@ class EconomyService:
             response = self._message(
                 channel, MsgKey.BUY_INVALID_AMOUNT, operation_id=str(operation.id)
             )
+            self._mark_outbox(operation, "compensated")
         operation.response_payload = response.model_dump(mode="json")
         self.db.commit()
         return response
@@ -557,6 +565,7 @@ class EconomyService:
         operation.last_error = error.code
         operation.error_code = error.code
         self._append_event(operation, "provider_write_started", "processing", "queued")
+        self._mark_outbox(operation, "pending")
         self.db.commit()
         return self._message(channel, MsgKey.ECONOMY_PROCESSING, operation_id=str(operation.id))
 
@@ -865,7 +874,14 @@ class EconomyService:
         )
         if event:
             event.state = state
-            event.lease_expires_at = None
+            if state == "processing":
+                event.lease_expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=self.EXTERNAL_OPERATION_LEASE_SECONDS
+                )
+            else:
+                event.lease_expires_at = None
+            if state == "pending":
+                event.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=1)
             if state == "processed":
                 event.processed_at = datetime.now(timezone.utc)
 

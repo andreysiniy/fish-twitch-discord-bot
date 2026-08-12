@@ -125,7 +125,9 @@ class ChannelEconomySettings(Base):
     buy_enabled = Column(Boolean, nullable=False, default=True)
     sell_enabled = Column(Boolean, nullable=False, default=True)
     min_transaction_mass = Column(Numeric(18, 2), nullable=False, default=Decimal("0.01"))
-    max_transaction_mass = Column(Numeric(18, 2), nullable=False, default=Decimal("1000"))
+    max_transaction_mass = Column(
+        Numeric(18, 2), nullable=False, default=Decimal("2147483647")
+    )
     enabled = Column(Boolean, nullable=False, default=True)
     version = Column(Integer, nullable=False, default=1)
     created_at = Column(
