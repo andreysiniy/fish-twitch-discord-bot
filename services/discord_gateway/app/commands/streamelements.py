@@ -7,6 +7,7 @@ from discord import app_commands
 
 from app.api.errors import EngineError
 from app.commands.shared import _confirmation, _deferred, _send_error
+from app.presentation.formatting import format_compact_number
 
 
 class StreamElementsConnectModal(discord.ui.Modal, title="Connect StreamElements"):
@@ -51,10 +52,16 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
         super().__init__(timeout=600)
         self.api = api
         self.current = current
-        self.buy_points_per_kg.default = str(current.get("buy_points_per_kg", "120"))
-        self.sell_points_per_kg.default = str(current.get("sell_points_per_kg", "100"))
-        self.minimum.default = str(current.get("min_transaction_mass", "0.01"))
-        self.maximum.default = str(current.get("max_transaction_mass", "2147483647"))
+        self.buy_points_per_kg.default = format_compact_number(
+            current.get("buy_points_per_kg", "120")
+        )
+        self.sell_points_per_kg.default = format_compact_number(
+            current.get("sell_points_per_kg", "100")
+        )
+        self.minimum.default = format_compact_number(current.get("min_transaction_mass", "0.01"))
+        self.maximum.default = format_compact_number(
+            current.get("max_transaction_mass", "2147483647")
+        )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
