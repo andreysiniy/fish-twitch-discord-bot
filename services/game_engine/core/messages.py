@@ -178,7 +178,10 @@ DEFAULT_MESSAGES = {
     MsgKey.FISHEVENT_DISABLED: "Event disabled: [{event_id}] {event_title}.",
     MsgKey.SELL_SUCCESS: "Sold {item_name} x{quantity} for {amount} points.",
     MsgKey.SELL_NOTHING: "You have nothing to sell.",
-    MsgKey.SELL_MASS_SUCCESS: "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg).",
+    MsgKey.SELL_MASS_SUCCESS: (
+        "🐟 You sold {mass} of catch for {amount} points! (Rate: {rate}/kg). "
+        "New balance: {balance} points. Remaining catch: {remaining_mass}."
+    ),
     MsgKey.SELL_MASS_EMPTY: "Your net is empty (0kg). Catch some fish first!",
     MsgKey.SELL_MASS_DISABLED: "The Fish Market is currently closed.",
     MsgKey.SELL_MASS_INVALID_AMOUNT: "Invalid amount. Use !fishsell <kg> or !fishsell all.",
@@ -264,6 +267,7 @@ PLACEHOLDER_DESCRIPTIONS = {
     "new_amount": "New points balance.",
     "new_level": "User's level after leveling up.",
     "new_mass": "User's mass after the operation.",
+    "remaining_mass": "Fish mass remaining after the operation.",
     "quantity": "Item quantity.",
     "rank": "User's leaderboard rank.",
     "rate": "Current fish market rate.",
