@@ -508,6 +508,7 @@ class EconomyService:
                 cost=format_large_number_points(-operation.points_delta),
                 rate=self._format_rate(operation.rate_used_snapshot),
                 balance=format_large_number_points(operation.provider_balance_after),
+                new_mass=format_large_number_mass(operation.player_mass_after),
                 operation_id=str(operation.id),
             )
             operation.response_payload = response.model_dump(mode="json")
