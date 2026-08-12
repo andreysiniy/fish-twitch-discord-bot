@@ -38,6 +38,12 @@ def test_large_suffix_remains_mass_parser_concern() -> None:
     assert parsed.mass_kg == Decimal("5000000.00")
 
 
+def test_all_is_an_explicit_mass_argument_mode() -> None:
+    parsed = parse_mass_argument("all")
+    assert parsed.mode == "all"
+    assert parsed.mass_kg is None
+
+
 def test_buy_all_returns_no_mass_when_balance_cannot_buy_one_quantum() -> None:
     assert max_buy_mass(9, Decimal(1000), Decimal(1000)) == Decimal("0.00")
 

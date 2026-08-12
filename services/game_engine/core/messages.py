@@ -185,7 +185,7 @@ DEFAULT_MESSAGES = {
     MsgKey.SELL_MASS_FAILED: "The sale failed. Your catch mass was restored.",
     MsgKey.BUY_SUCCESS: "You bought {mass} of fish for {cost} points! (Rate: {rate}/kg).",
     MsgKey.BUY_FAIL_FUNDS: "Not enough points. Balance: {balance}, required: {cost}.",
-    MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg>.",
+    MsgKey.BUY_INVALID_AMOUNT: "Invalid amount. Use !fishbuy <kg> or !fishbuy all.",
     MsgKey.SE_NOT_CONFIGURED: "StreamElements integration is not configured.",
     MsgKey.MARKET_INFO: "📈 Current Fish Market Rate: {rate} points per 1kg.",
     MsgKey.ECONOMY_PROCESSING: "Your conversion is processing. Operation: {operation_id}.",
@@ -220,7 +220,7 @@ DEFAULT_MESSAGES = {
     MsgKey.PROFILE_TOP: "🏆 Top 10 ({mode}): {top_lines}",
     MsgKey.HELP_TEXT: (
         "Commands: !fish, !fishbag [viewer] [slot], !fishtrash <slot>, !fishequip <slot>, "
-        "!fishsell <kg|all>, !fishbuy <kg>, !fishstats, !fishtop"
+        "!fishsell <kg|all>, !fishbuy <kg|all>, !fishstats, !fishtop"
     ),
 }
 
