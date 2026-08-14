@@ -81,12 +81,9 @@ from sqlalchemy.orm.attributes import flag_modified
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
 CONFIG_SECTIONS = {
     "xp": {"xp_base", "xp_exponent"},
-    "economy": {"sell_max_bonus", "sell_mid_level", "sell_rate", "buy_rate"},
     "robbery": {
         "rob_min_chance",
         "rob_max_chance",
-        "rob_resist_divisor",
-        "rob_loss_divisor",
         "rob_base_chance",
     },
     "cooldown": {"fishing_cooldown", "subs_fishing_cooldown"},
@@ -1287,7 +1284,19 @@ class DiscordAdminService:
 
     def get_config(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
-        overrides = dict((channel.config or {}).get("custom_params", {}))
+        raw_overrides = dict((channel.config or {}).get("custom_params", {}))
+        # Legacy economy/robbery values remain readable by the one-time
+        # ChannelEconomySettings seed adapter, but are no longer part of the
+        # public GameConfig contract.
+        legacy_keys = {
+            "sell_max_bonus",
+            "sell_mid_level",
+            "sell_rate",
+            "buy_rate",
+            "rob_resist_divisor",
+            "rob_loss_divisor",
+        }
+        overrides = {key: value for key, value in raw_overrides.items() if key not in legacy_keys}
         effective = GameConfig.model_validate(overrides).model_dump(mode="json")
         defaults = GameConfig().model_dump(mode="json")
         return {
@@ -1400,7 +1409,16 @@ class DiscordAdminService:
             config = dict(channel.config or {})
             before = dict(config.get("custom_params", {}))
             changes = data.changes.model_dump(mode="json", exclude_none=True)
-            merged = {**before, **changes}
+            legacy_keys = {
+                "sell_max_bonus",
+                "sell_mid_level",
+                "sell_rate",
+                "buy_rate",
+                "rob_resist_divisor",
+                "rob_loss_divisor",
+            }
+            merged = {key: value for key, value in before.items() if key not in legacy_keys}
+            merged.update(changes)
             effective = GameConfig.model_validate(merged).model_dump(mode="json")
             if not changes or all(before.get(key) == value for key, value in changes.items()):
                 return {
@@ -2024,6 +2042,13 @@ class DiscordAdminService:
             self._check_version(pool.version, data.expected_version, context)
             rewards = self._normalized_rewards(pool)
             normalized = data.reward.model_dump(mode="json")
+            if normalized.get("type") == "points":
+                raise ApiProblem(
+                    422,
+                    "POINTS_REWARD_DISABLED",
+                    "Points rewards are reserved for the economy integration and cannot be added to fishing rewards.",
+                    request_id=context.request_id,
+                )
             before = {}
             if mode == "create":
                 if len(rewards) >= 100:

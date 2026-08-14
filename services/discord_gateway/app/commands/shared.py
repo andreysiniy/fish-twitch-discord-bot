@@ -32,7 +32,7 @@ __all__ = [
 
 SECTION_CHOICES = [
     app_commands.Choice(name=value.title(), value=value)
-    for value in ("xp", "economy", "robbery", "cooldown")
+    for value in ("xp", "robbery", "cooldown")
 ]
 REWARD_CHOICES = [
     app_commands.Choice(name=value.replace("_", " ").title(), value=value)
@@ -68,7 +68,7 @@ MODIFIER_OPERATION_CHOICES = [
 ]
 MODIFIER_SCOPE_CHOICES = [
     app_commands.Choice(name=value.title(), value=value)
-    for value in ("fishing", "robbery", "economy", "inventory", "all")
+    for value in ("fishing", "robbery", "inventory", "all")
 ]
 STAT_KEY_CHOICES = [
     app_commands.Choice(name=value.replace("_", " ").title(), value=value)
@@ -77,7 +77,6 @@ STAT_KEY_CHOICES = [
         "positive_fish_reward_change_ratio",
         "negative_fish_reward_change_ratio",
         "xp_gain_change_ratio",
-        "points_flat_bonus",
         "item_drop_chance_add",
         "item_rarity_luck_pct",
         "cooldown_change_ratio",
@@ -85,12 +84,9 @@ STAT_KEY_CHOICES = [
         "robbery_protection_pct",
         "robbery_evasion_pct",
         "protected_mass_flat",
-        "robbery_counter_chance_pct",
         "robbery_attack_chance_add",
         "robbery_amount_bonus_pct",
         "inventory_slots_add",
-        "sell_rate_bonus_pct",
-        "buy_discount_pct",
     )
 ]
 
