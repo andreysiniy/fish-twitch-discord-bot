@@ -15,6 +15,26 @@ RARITY_COLORS = {
     "legendary": discord.Color(0xF1C40F),
 }
 
+_CONFIG_SECTION_LABELS = {
+    "xp": "XP",
+    "robbery": "Robbery",
+    "cooldown": "Fishing cooldowns",
+}
+_CONFIG_GROUPS = (
+    ("XP", ("xp_base", "xp_exponent")),
+    ("Robbery", ("rob_min_chance", "rob_base_chance", "rob_max_chance")),
+    ("Fishing cooldowns", ("fishing_cooldown", "subs_fishing_cooldown")),
+)
+_CONFIG_FIELD_LABELS = {
+    "xp_base": "Base XP",
+    "xp_exponent": "XP exponent",
+    "rob_min_chance": "Minimum chance",
+    "rob_base_chance": "Base chance",
+    "rob_max_chance": "Maximum chance",
+    "fishing_cooldown": "Regular fishing",
+    "subs_fishing_cooldown": "Subscriber fishing",
+}
+
 
 def rarity_color(rarity: Any) -> discord.Color:
     """Return the embed accent for an item rarity."""
@@ -69,12 +89,58 @@ def status_embed(status: dict[str, Any]) -> discord.Embed:
 
 
 def config_embed(config: dict[str, Any], section: str | None = None) -> discord.Embed:
-    embed = info_embed(f"Configuration{f' — {section}' if section else ''}")
-    embed.description = f"Version: `{config['version']}`"
+    section_label = _CONFIG_SECTION_LABELS.get(section or "", section)
+    title = f"Configuration: {section_label}" if section_label else "Configuration"
+    embed = info_embed(title)
+    embed.description = f"Version: `v{config.get('version', '?')}`"
     values = config.get("effective", {})
-    for key, value in values.items():
-        embed.add_field(name=key, value=f"`{value}`", inline=True)
+
+    rendered_keys: set[str] = set()
+    for group_name, keys in _CONFIG_GROUPS:
+        lines = []
+        for key in keys:
+            if key not in values:
+                continue
+            rendered_keys.add(key)
+            lines.append(
+                f"**{_CONFIG_FIELD_LABELS[key]}**\n`{_format_config_value(key, values[key])}`"
+            )
+        if lines:
+            embed.add_field(name=group_name, value="\n\n".join(lines), inline=False)
+
+    unknown = [key for key in values if key not in rendered_keys]
+    if unknown:
+        lines = [
+            f"**{_config_field_label(key)}**\n`{_format_config_value(key, values[key])}`"
+            for key in unknown
+        ]
+        embed.add_field(name="Other settings", value="\n\n".join(lines), inline=False)
+    if not embed.fields:
+        embed.add_field(name="Settings", value="No configuration values found.", inline=False)
     return embed
+
+
+def _config_field_label(key: str) -> str:
+    return str(key).replace("_", " ").strip().title()
+
+
+def _format_config_value(key: str, value: Any) -> str:
+    if value is None:
+        return "Not set"
+    if key.startswith("rob_") and key.endswith("_chance"):
+        try:
+            return f"{_compact_decimal(Decimal(str(value)) * 100)}%"
+        except (InvalidOperation, TypeError, ValueError):
+            return f"{value}%"
+    if key.endswith("_cooldown"):
+        return _duration_label(value)
+    if key == "xp_base":
+        return f"{_compact_decimal(value)} XP"
+    if key == "xp_exponent":
+        return f"{_compact_decimal(value)}x"
+    if isinstance(value, bool):
+        return "On" if value else "Off"
+    return _compact_decimal(value)
 
 
 def diff_embed(title: str, before: dict[str, Any], after: dict[str, Any]) -> discord.Embed:

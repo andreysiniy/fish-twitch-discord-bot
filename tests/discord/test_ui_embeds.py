@@ -1,6 +1,7 @@
 import discord
 import pytest
 from app.presentation.embeds import (
+    config_embed,
     danger_embed,
     error_embed,
     info_embed,
@@ -13,6 +14,45 @@ from app.presentation.embeds import (
     success_embed,
     warning_embed,
 )
+
+
+def test_config_embed_groups_and_formats_values() -> None:
+    embed = config_embed(
+        {
+            "version": 4,
+            "effective": {
+                "xp_base": 100,
+                "xp_exponent": "1.5",
+                "rob_min_chance": "0.05",
+                "rob_base_chance": "0.8",
+                "rob_max_chance": "0.95",
+                "fishing_cooldown": 600,
+                "subs_fishing_cooldown": 300,
+            },
+        }
+    )
+
+    fields = {field.name: field.value for field in embed.fields}
+    assert embed.title == "Configuration"
+    assert embed.description == "Version: `v4`"
+    assert fields["XP"] == "**Base XP**\n`100 XP`\n\n**XP exponent**\n`1.5x`"
+    assert "Minimum chance**\n`5%`" in fields["Robbery"]
+    assert "Base chance**\n`80%`" in fields["Robbery"]
+    assert "Maximum chance**\n`95%`" in fields["Robbery"]
+    assert "Regular fishing**\n`10 minutes`" in fields["Fishing cooldowns"]
+    assert "Subscriber fishing**\n`5 minutes`" in fields["Fishing cooldowns"]
+    assert "rob_min_chance" not in "\n".join(fields.values())
+
+
+def test_config_embed_filters_to_readable_section() -> None:
+    embed = config_embed(
+        {"version": 4, "effective": {"rob_min_chance": "0.05", "rob_max_chance": "0.95"}},
+        "robbery",
+    )
+
+    assert embed.title == "Configuration: Robbery"
+    assert [field.name for field in embed.fields] == ["Robbery"]
+    assert "5%" in embed.fields[0].value
 
 
 def test_semantic_palette_colours() -> None:
