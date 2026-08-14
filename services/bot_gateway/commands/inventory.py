@@ -276,7 +276,7 @@ class InventoryCog(commands.Cog):
         except (InvalidOperation, TypeError, ValueError):
             return f"{label}: unavailable"
 
-        flat_stats = {"points_flat_bonus", "protected_mass_flat", "inventory_slots_add"}
+        flat_stats = {"protected_mass_flat", "inventory_slots_add"}
         if stat in flat_stats:
             value = raw_value
             suffix = ""
@@ -330,19 +330,15 @@ class InventoryCog(commands.Cog):
             "negative_fish_reward_change_ratio": "Negative Fish Reward",
             "xp_gain_change_ratio": "XP",
             "cooldown_change_ratio": "Cooldown",
-            "points_flat_bonus": "Points",
             "item_drop_chance_add": "Item Drop Chance",
             "item_rarity_luck_pct": "Item Rarity",
             "empty_catch_reroll_chance_pct": "Empty Catch Reroll",
             "robbery_protection_pct": "Robbery Protection",
             "robbery_evasion_pct": "Robbery Evasion",
             "protected_mass_flat": "Protected Mass",
-            "robbery_counter_chance_pct": "Robbery Counter Chance",
             "robbery_attack_chance_add": "Robbery Attack Chance",
             "robbery_amount_bonus_pct": "Robbery Amount",
             "inventory_slots_add": "Inventory Slots",
-            "sell_rate_bonus_pct": "Sell Rate",
-            "buy_discount_pct": "Buy Discount",
         }
         return labels.get(stat, InventoryCog._title_case(stat))
 

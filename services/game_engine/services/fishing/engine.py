@@ -8,9 +8,10 @@ from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
 from domain.logic.loot_selection import GATE_FAILED, NO_CANDIDATES, ItemDropResolution
+from domain.logic.outcome_classifier import classify_outcome, normalize_outcome_target
+from domain.logic.stats_calculator import calculate_player_stats
 from services.loot_table_service import LootTableRollService
 from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
-from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
 from infrastructure.models import UserProgress
 
@@ -209,11 +210,6 @@ class FishingEngine:
             behavioral_effects or [],
             rng_stages=rng_stages,
         )
-        if catch.get("type") == ActionType.POINTS:
-            catch = dict(catch)
-            catch["value"] = int(catch.get("value", 0) or 0) + int(
-                modifiers.get("points_flat_bonus", player_stats.get("points_bonus", 0)) or 0
-            )
         item_catch = None
         item_drop_chance = min(
             max(
@@ -453,88 +449,33 @@ class FishingEngine:
         custom_params = channel_config.get("custom_params", {})
         min_chance = resolve_param(custom_params, GParam.ROB_MIN_CHANCE)
         max_chance = resolve_param(custom_params, GParam.ROB_MAX_CHANCE)
-        resist_divisor = resolve_param(custom_params, GParam.ROB_RESIST_DIVISOR)
-        loss_divisor = resolve_param(custom_params, GParam.ROB_LOSS_DIVISOR)
         base_rob_chance = resolve_param(custom_params, GParam.ROB_BASE_CHANCE)
-
-        if attacker_modifiers is not None and victim_modifiers is not None:
-            victim_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
-            protected_mass = max(
-                to_decimal(victim_modifiers.get("protected_mass_flat", 0)),
-                to_decimal(protected_mass_floor),
-            )
-            stealable = max(victim_mass - protected_mass, ZERO_MASS)
-            steal_percent = max(to_decimal(catch.get("percentage", 0)), ZERO_MASS)
-            steal_value = max(to_decimal(catch.get("mass", 0)), ZERO_MASS)
-            base_amount = stealable * steal_percent + steal_value
-            final_chance, _, final_amount = formulas.calculate_typed_robbery(
-                base_chance=to_decimal(base_rob_chance),
-                attacker_chance_add=to_decimal(
-                    attacker_modifiers.get("robbery_attack_chance_add", 0)
-                ),
-                victim_evasion=to_decimal(victim_modifiers.get("robbery_evasion_pct", 0)),
-                victim_mass=victim_mass,
-                protected_mass=protected_mass,
-                base_amount=base_amount,
-                attacker_amount_bonus=to_decimal(
-                    attacker_modifiers.get("robbery_amount_bonus_pct", 0)
-                ),
-                victim_protection=to_decimal(
-                    victim_modifiers.get("robbery_protection_pct", 0)
-                ),
-                min_chance=to_decimal(min_chance),
-                max_chance=to_decimal(max_chance),
-            )
-            is_success, roll = rng.calculate_chance_traced(float(final_chance))
-            if not is_success:
-                final_amount = ZERO_MASS
-            return RobberyResultDTO(
-                is_success=is_success,
-                amount_stolen=final_amount,
-                victim_name=victim.username,
-                victim_twitch_id=victim.user_twitch_id,
-                victim_new_mass=quantize_mass(victim_mass - final_amount),
-                chance_used=round(float(final_chance), 3),
-                roll=roll,
-            )
-
-        attacker_stats = calculate_player_stats(attacker)
-        attacker_luck = 1.0 + attacker_stats.get("luck_bonus", 0.0)
-
-        victim_stats = calculate_player_stats(victim)
-        victim_resistance = float(victim.level * 5) + (
-            float(victim_stats.get("resist_bonus", 0.0) or 0.0) * 100
-        )
-
-        final_chance = formulas.calculate_robbery_chance(
-            base_chance=base_rob_chance,
-            attacker_luck=attacker_luck,
-            victim_resistance=victim_resistance,
-            resist_divisor=resist_divisor,
-            min_chance=min_chance,
-            max_chance=max_chance,
-        )
-
-        is_success, roll = rng.calculate_chance_traced(float(final_chance))
+        attacker_modifiers = attacker_modifiers or {}
+        victim_modifiers = victim_modifiers or {}
         victim_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
-        final_amount = ZERO_MASS
-
-        if is_success:
-            potential_loss = ZERO_MASS
-            steal_percent = max(to_decimal(catch.get("percentage", 0)), ZERO_MASS)
-            if steal_percent > 0:
-                potential_loss = victim_mass * steal_percent
-            steal_value = max(to_decimal(catch.get("mass", 0)), ZERO_MASS)
-            if steal_value > 0:
-                potential_loss += steal_value
-
-            final_amount = formulas.calculate_robbery_loss(
-                potential_loss=potential_loss,
-                victim_resistance=victim_resistance,
-                loss_divisor=loss_divisor,
-            )
-
-            final_amount = quantize_mass(min(final_amount, victim_mass))
+        protected_mass = max(
+            to_decimal(victim_modifiers.get("protected_mass_flat", 0)),
+            to_decimal(protected_mass_floor),
+        )
+        stealable = max(victim_mass - protected_mass, ZERO_MASS)
+        steal_percent = max(to_decimal(catch.get("percentage", 0)), ZERO_MASS)
+        steal_value = max(to_decimal(catch.get("mass", 0)), ZERO_MASS)
+        base_amount = stealable * steal_percent + steal_value
+        final_chance, _, final_amount = formulas.calculate_typed_robbery(
+            base_chance=to_decimal(base_rob_chance),
+            attacker_chance_add=to_decimal(attacker_modifiers.get("robbery_attack_chance_add", 0)),
+            victim_evasion=to_decimal(victim_modifiers.get("robbery_evasion_pct", 0)),
+            victim_mass=victim_mass,
+            protected_mass=protected_mass,
+            base_amount=base_amount,
+            attacker_amount_bonus=to_decimal(attacker_modifiers.get("robbery_amount_bonus_pct", 0)),
+            victim_protection=to_decimal(victim_modifiers.get("robbery_protection_pct", 0)),
+            min_chance=to_decimal(min_chance),
+            max_chance=to_decimal(max_chance),
+        )
+        is_success, roll = rng.calculate_chance_traced(float(final_chance))
+        if not is_success:
+            final_amount = ZERO_MASS
 
         return RobberyResultDTO(
             is_success=is_success,
@@ -744,11 +685,14 @@ class FishingEngine:
                 and effect.get("trigger") != "after_reward_roll"
             ):
                 continue
-            targets = set(effect.get("target_action_types") or [])
+            targets = {
+                normalize_outcome_target(value)
+                for value in (effect.get("target_action_types") or [])
+            }
             triggered = 0
             max_rerolls = int(effect.get("max_rerolls", 1))
             for _ in range(max_rerolls):
-                if str(current.get("type")) not in targets:
+                if classify_outcome(current) not in targets:
                     break
                 if effect_type == "block_action":
                     gate_roll = Decimal(str(random.random()))

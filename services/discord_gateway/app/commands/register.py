@@ -54,7 +54,7 @@ def register_commands(tree, api, sessions) -> None:
             "Use `/fish account link` first, then `/fish setup bind` in the server you manage.\n\n"
             "`account` — Twitch identity link\n"
             "`setup` — server-to-channel binding\n"
-            "`config` — XP, economy, robbery, and cooldown settings\n"
+            "`config` — XP, robbery, and cooldown settings\n"
             "`location` — fishing locations\n"
             "`reward` — weighted channel rewards\n"
             "`event` — channel events\n"

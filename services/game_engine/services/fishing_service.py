@@ -278,7 +278,10 @@ class FishingService:
 
         if result.mass_gained != 0:
             result.mass_gained = apply_mass_mutation(
-                user, result.mass_gained, track_total=True
+                user,
+                result.mass_gained,
+                mass_floor=fishing_modifiers.mass_floor("negative_rewards"),
+                track_total=True,
             )
 
         if result.item_drop:
@@ -694,9 +697,7 @@ class FishingService:
             attacker=user,
             victim=victim,
             effects=list(victim_modifiers.effects),
-            counter_chance_bonus=victim_modifiers.value(
-                StatKey.ROBBERY_COUNTER_CHANCE_PCT
-            ),
+            attacker_mass_floor=attacker_modifiers.mass_floor("robbery"),
         )
 
         if absorbed:
@@ -730,9 +731,7 @@ class FishingService:
                 attacker=user,
                 victim=victim,
                 effects=list(victim_modifiers.effects),
-                counter_chance_bonus=victim_modifiers.value(
-                    StatKey.ROBBERY_COUNTER_CHANCE_PCT
-                ),
+                attacker_mass_floor=attacker_modifiers.mass_floor("robbery"),
                 trigger="on_robbery_success",
             )
             counter_actions.extend(success_actions)
@@ -742,11 +741,15 @@ class FishingService:
                 quantize_mass(robbery_result.amount_stolen),
                 ZERO_MASS,
             )
-            victim_previous_mass = max(quantize_mass(victim.current_mass), ZERO_MASS)
-            applied_stolen = quantize_mass(min(requested_stolen, victim_previous_mass))
-
+            protected_mass = victim_modifiers.mass_floor("robbery")
+            victim_delta = apply_mass_mutation(
+                victim,
+                -requested_stolen,
+                mass_floor=protected_mass,
+                track_total=False,
+            )
+            applied_stolen = quantize_mass(-victim_delta)
             apply_mass_mutation(user, applied_stolen, track_total=True)
-            apply_mass_mutation(victim, -applied_stolen, track_total=False)
 
             robbery_result.amount_stolen = applied_stolen
             robbery_result.victim_new_mass = victim.current_mass
@@ -783,7 +786,7 @@ class FishingService:
         attacker: UserProgress,
         victim: UserProgress,
         effects: list[dict],
-        counter_chance_bonus=ZERO_MASS,
+        attacker_mass_floor=ZERO_MASS,
         rng_stages: list | None = None,
         trigger: str = "on_robbery_attempt",
     ) -> tuple[list[dict], bool]:
@@ -814,11 +817,6 @@ class FishingService:
             ):
                 continue
             chance = Decimal(str(effect.get("chance", 1)))
-            if effect_type == "robbery_counter":
-                chance = min(
-                    max(chance + Decimal(str(counter_chance_bonus)), Decimal("0")),
-                    Decimal("1"),
-                )
             defense_roll = Decimal(str(random.random()))
             if rng_stages is not None:
                 rng_stages.append(
@@ -845,6 +843,7 @@ class FishingService:
                 applied = apply_mass_mutation(
                     attacker,
                     effect.get("attacker_mass_delta", 0),
+                    mass_floor=attacker_mass_floor,
                     track_total=False,
                 )
                 if applied:
@@ -869,7 +868,10 @@ class FishingService:
                 )
             elif action.get("type") == "add_mass":
                 applied = apply_mass_mutation(
-                    attacker, action.get("mass", 0), track_total=False
+                    attacker,
+                    action.get("mass", 0),
+                    mass_floor=attacker_mass_floor,
+                    track_total=False,
                 )
                 actions.append(
                     {

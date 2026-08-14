@@ -6,6 +6,7 @@ from typing import Any
 import discord
 
 from app.api.errors import EngineError, localize_error
+from app.domain.percent_helpers import ratio_to_percent
 from app.interactions.confirms import ConfirmView
 from app.interactions.launchers import ModalLauncherView
 from app.interactions.reward_payloads import (
@@ -130,8 +131,8 @@ class LocationModal(discord.ui.Modal):
         )
         self.items_drop_rate = discord.ui.TextInput(
             label="Item drop chance",
-            default=str(defaults.get("items_drop_rate", "0.1")),
-            placeholder="Decimal from 0 to 1, for example: 0.1",
+            default=str(Decimal(str(defaults.get("items_drop_rate", "0.1"))) * 100),
+            placeholder="Human percentage from 0 to 100, for example: 10",
             max_length=32,
         )
         self.level = discord.ui.TextInput(
@@ -141,11 +142,19 @@ class LocationModal(discord.ui.Modal):
             required=False,
             max_length=16,
         )
+        self.total_fish_stat = discord.ui.TextInput(
+            label="Minimum total fish",
+            default=str((defaults.get("requirements") or {}).get("total_fish_stat") or ""),
+            placeholder="Optional integer from 0 to 1000000000",
+            required=False,
+            max_length=20,
+        )
         for item in (
             self.location_id,
             self.location_name,
             self.items_drop_rate,
             self.level,
+            self.total_fish_stat,
         ):
             self.add_item(item)
 
@@ -154,14 +163,50 @@ class LocationModal(discord.ui.Modal):
             payload = {
                 "location_id": self.location_id.value.strip(),
                 "location_name": self.location_name.value.strip(),
-                "items_drop_rate": parse_decimal(self.items_drop_rate.value),
-                "requirements": (
-                    {"level": int(self.level.value)} if self.level.value.strip() else {}
+                "items_drop_rate": parse_decimal(
+                    str(Decimal(self.items_drop_rate.value.strip()) / 100)
                 ),
+                "requirements": {},
             }
+            if self.level.value.strip():
+                payload["requirements"]["level"] = int(self.level.value)
+            if self.total_fish_stat.value.strip():
+                payload["requirements"]["total_fish_stat"] = int(self.total_fish_stat.value)
             if self.expected_version is not None:
                 payload["expected_version"] = self.expected_version
                 payload.pop("location_id")
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        await interaction.response.send_modal(
+            LocationMassRequirementModal(payload, self.on_save, self.defaults)
+        )
+
+
+class LocationMassRequirementModal(discord.ui.Modal):
+    def __init__(self, payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Location mass requirement")
+        self.payload = payload
+        self.on_save = on_save
+        self.total_mass_stat = discord.ui.TextInput(
+            label="Minimum total mass (kg)",
+            default=str((defaults.get("requirements") or {}).get("total_mass_stat") or ""),
+            placeholder="Optional mass in kg; leave empty for no requirement",
+            required=False,
+            max_length=32,
+        )
+        self.add_item(self.total_mass_stat)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = {**self.payload, "requirements": dict(self.payload["requirements"])}
+            if self.total_mass_stat.value.strip():
+                payload["requirements"]["total_mass_stat"] = parse_decimal(
+                    self.total_mass_stat.value
+                )
+            else:
+                payload["requirements"]["total_mass_stat"] = None
         except ValueError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -181,6 +226,7 @@ class ItemDropModal(discord.ui.Modal):
         item_id: str,
         *,
         action: str,
+        stackable: bool = False,
         defaults: dict[str, Any] | None = None,
     ):
         defaults = defaults or {}
@@ -190,6 +236,7 @@ class ItemDropModal(discord.ui.Modal):
         self.location_id = location_id
         self.item_id = item_id
         self.action = action
+        self.stackable = stackable
         self.current = defaults or None
         self.weight = discord.ui.TextInput(
             label="Weight",
@@ -226,6 +273,19 @@ class ItemDropModal(discord.ui.Modal):
             payload = self._parse_payload()
         except ValueError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
+            return
+        if self.stackable:
+            await interaction.response.send_modal(
+                ItemDropQuantityModal(
+                    on_save=self.on_save,
+                    previewer=self.previewer,
+                    location_id=self.location_id,
+                    item_id=self.item_id,
+                    action=self.action,
+                    payload=payload,
+                    defaults=self.current or {},
+                )
+            )
             return
         try:
             preview = await self.previewer(interaction, payload)
@@ -267,6 +327,8 @@ class ItemDropModal(discord.ui.Modal):
             "weight": weight,
             "xp_gain": xp_gain,
             "quantity": quantity,
+            "min_quantity": 1,
+            "max_quantity": 1,
             "message": self.message.value.strip() or None,
         }
 
@@ -291,6 +353,77 @@ class ItemDropModal(discord.ui.Modal):
         if not minimum <= parsed <= maximum:
             raise ValueError(f"{label} must be between {minimum} and {maximum}")
         return parsed
+
+
+class ItemDropQuantityModal(discord.ui.Modal):
+    def __init__(
+        self,
+        *,
+        on_save,
+        previewer,
+        location_id: str,
+        item_id: str,
+        action: str,
+        payload: dict[str, Any],
+        defaults: dict[str, Any],
+    ):
+        super().__init__(title="Item drop quantity range")
+        self.on_save = on_save
+        self.previewer = previewer
+        self.location_id = location_id
+        self.item_id = item_id
+        self.action = action
+        self.payload = payload
+        self.defaults = defaults
+        self.min_quantity = discord.ui.TextInput(
+            label="Minimum quantity",
+            default=str(defaults.get("min_quantity", 1)),
+            placeholder="Integer from 1 to 1000000000",
+            max_length=16,
+        )
+        self.max_quantity = discord.ui.TextInput(
+            label="Maximum quantity",
+            default=str(defaults.get("max_quantity", 1)),
+            placeholder="Must be at least the minimum quantity",
+            max_length=16,
+        )
+        self.add_item(self.min_quantity)
+        self.add_item(self.max_quantity)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            minimum = ItemDropModal._parse_int(
+                self.min_quantity.value, "Minimum quantity", 1, 1_000_000_000, required=True
+            )
+            maximum = ItemDropModal._parse_int(
+                self.max_quantity.value, "Maximum quantity", 1, 1_000_000_000, required=True
+            )
+            if maximum < minimum:
+                raise ValueError("Maximum quantity must not be below minimum quantity")
+            payload = {**self.payload, "min_quantity": minimum, "max_quantity": maximum}
+            preview = await self.previewer(interaction, payload)
+        except (EngineError, ValueError) as error:
+            await interaction.response.send_message(
+                localize_error(error) if isinstance(error, EngineError) else str(error),
+                ephemeral=True,
+            )
+            return
+
+        async def confirm(confirm_interaction: discord.Interaction) -> None:
+            await self.on_save(confirm_interaction, payload)
+
+        embed = item_drop_preview_embed(
+            action=self.action,
+            location_id=self.location_id,
+            preview=preview,
+            payload=payload,
+            current=self.defaults,
+        )
+        await interaction.response.send_message(
+            embed=embed,
+            view=ConfirmView(interaction.user.id, confirm),
+            ephemeral=True,
+        )
 
 
 def create_reward_modal(
@@ -395,8 +528,8 @@ class FishRewardModal(discord.ui.Modal):
         )
         self.percentage = _optional_input(
             "Percentage",
-            defaults.get("percentage"),
-            "Decimal from -1 to 1, for example: -0.15",
+            _display_human_percentage(defaults.get("percentage")),
+            "Human percentage from -100 to 100, for example: -15",
         )
         for item in (self.fixed_mass, self.min_mass, self.max_mass, self.percentage):
             self.add_item(item)
@@ -488,8 +621,8 @@ class RobberyRewardModal(discord.ui.Modal):
         )
         self.percentage = _optional_input(
             "Percentage",
-            defaults.get("percentage"),
-            "Decimal from 0 to 1; leave mass empty",
+            _display_human_percentage(defaults.get("percentage")),
+            "Human percentage from 0 to 100; leave mass empty",
         )
         self.search_range = discord.ui.TextInput(
             label="Victim search range",
@@ -611,8 +744,8 @@ class RouletteOutcomeModal(discord.ui.Modal):
         )
         self.percentage = _optional_input(
             "Percentage",
-            outcome_defaults.get("percentage"),
-            "Decimal from -1 to 1 for add_percentage_mass",
+            _display_human_percentage(outcome_defaults.get("percentage")),
+            "Human percentage from -100 to 100 for add_percentage_mass",
         )
         self.duration = _optional_input(
             "Timeout duration",
@@ -787,6 +920,76 @@ class EventModifiersModal(discord.ui.Modal):
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
+        view = ModalLauncherView(
+            interaction.user.id,
+            lambda: EventRiskModifiersModal(payload, self.on_save, self.defaults),
+            label="Set item-drop and robbery modifiers",
+        )
+        await interaction.response.send_message(
+            "Event draft updated. Continue with item-drop and robbery modifiers.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class EventRiskModifiersModal(discord.ui.Modal):
+    def __init__(self, payload: dict[str, Any], on_save, defaults: dict[str, Any]):
+        super().__init__(title="Event item-drop and robbery")
+        self.payload = payload
+        self.on_save = on_save
+        modifiers = defaults.get("modifiers") or {}
+        self.item_drop = _percent_input(
+            "Item drop chance (pp)",
+            modifiers.get("item_drop_chance_add_pp"),
+            "Percentage points; 5 means +5 percentage points",
+        )
+        self.item_rarity = _percent_input(
+            "Item rarity luck",
+            modifiers.get("item_rarity_luck_change_percent"),
+            "Ordinary percentage; 10 = +10%",
+        )
+        self.robbery_protection = _percent_input(
+            "Robbery protection",
+            modifiers.get("robbery_protection_percent"),
+            "Ordinary percentage from 0 to 100",
+        )
+        self.robbery_evasion = _percent_input(
+            "Robbery evasion",
+            modifiers.get("robbery_evasion_percent"),
+            "Ordinary percentage from 0 to 100",
+        )
+        for item in (
+            self.item_drop,
+            self.item_rarity,
+            self.robbery_protection,
+            self.robbery_evasion,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            payload = {
+                **self.payload,
+                "modifiers": {
+                    **self.payload["modifiers"],
+                    "item_drop_chance_add_pp": _bounded_decimal(
+                        self.item_drop.value, "Item drop chance", -100, 100
+                    ),
+                    "item_rarity_luck_change_percent": _bounded_decimal(
+                        self.item_rarity.value, "Item rarity luck", -100, 200
+                    ),
+                    "robbery_protection_percent": _bounded_decimal(
+                        self.robbery_protection.value, "Robbery protection", 0, 100
+                    ),
+                    "robbery_evasion_percent": _bounded_decimal(
+                        self.robbery_evasion.value, "Robbery evasion", 0, 100
+                    ),
+                },
+            }
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
         async def confirm(confirm_interaction: discord.Interaction) -> None:
             await self.on_save(confirm_interaction, payload)
 
@@ -905,6 +1108,16 @@ def _optional_input(
     )
 
 
+def _display_human_percentage(value: Any) -> str | None:
+    """Convert a stored ratio to the percentage shown in Discord forms."""
+    if value is None or not str(value).strip():
+        return None
+    number = ratio_to_percent(Decimal(str(value)))
+    if number == number.to_integral_value():
+        return str(int(number))
+    return format(number, "f").rstrip("0").rstrip(".")
+
+
 def _percent_input(
     label: str,
     default: Any,
@@ -912,7 +1125,7 @@ def _percent_input(
 ) -> discord.ui.TextInput:
     return discord.ui.TextInput(
         label=label,
-        default="" if default is None else str(default),
+        default="0" if default is None else str(default),
         placeholder=placeholder,
         style=discord.TextStyle.short,
         required=True,

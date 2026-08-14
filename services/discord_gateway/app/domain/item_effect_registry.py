@@ -43,7 +43,6 @@ CATEGORY_FISHING = "fishing"
 CATEGORY_ITEM_DROP = "item_drop"
 CATEGORY_ROBBERY = "robbery"
 CATEGORY_INVENTORY = "inventory"
-CATEGORY_ECONOMY = "economy"
 CATEGORY_TRIGGERED = "triggered"
 CATEGORY_ADVANCED = "advanced"
 
@@ -52,7 +51,6 @@ EFFECT_CATEGORIES: tuple[tuple[str, str], ...] = (
     ("Item Drop Bonus", CATEGORY_ITEM_DROP),
     ("Robbery Bonus", CATEGORY_ROBBERY),
     ("Inventory Bonus", CATEGORY_INVENTORY),
-    ("Economy Bonus", CATEGORY_ECONOMY),
     ("Triggered Effect", CATEGORY_TRIGGERED),
     ("Advanced Effect", CATEGORY_ADVANCED),
 )
@@ -262,15 +260,6 @@ UI_STAT_DEFINITIONS: dict[str, UIStatDefinition] = {
         "1000000000000",
         scope="robbery",
     ),
-    "robbery_counter_chance_pct": _percent_stat(
-        "robbery_counter_chance_pct",
-        "Robbery Counter Chance",
-        CATEGORY_ROBBERY,
-        "Chance to counter an incoming robbery.",
-        "0",
-        "1",
-        scope="robbery",
-    ),
     "robbery_attack_chance_add": _percent_stat(
         "robbery_attack_chance_add",
         "Robbery Attack Chance",
@@ -301,50 +290,17 @@ UI_STAT_DEFINITIONS: dict[str, UIStatDefinition] = {
         scope="inventory",
         value_type="integer",
     ),
-    # Economy Bonus (spec §20)
-    "sell_rate_bonus_pct": _percent_stat(
-        "sell_rate_bonus_pct",
-        "Sell Rate",
-        CATEGORY_ECONOMY,
-        "Increases or reduces the price fish are sold for.",
-        "-0.95",
-        "10",
-        scope="economy",
-    ),
-    "buy_discount_pct": _percent_stat(
-        "buy_discount_pct",
-        "Buy Discount",
-        CATEGORY_ECONOMY,
-        "Discount applied when buying.",
-        "0",
-        "0.95",
-        scope="economy",
-    ),
-    # Advanced-only stats (spec §33): reachable only through the advanced
-    # editor, never through the standard category selects.
-    "points_flat_bonus": _flat_stat(
-        "points_flat_bonus",
-        "Points",
-        CATEGORY_ADVANCED,
-        "Points, flat",
-        "Flat points reward adjustment.",
-        "-1000000",
-        "1000000",
-        scope="fishing",
-        value_type="integer",
-    ),
 }
 
 # Stats that exist in the backend but are only reachable through the advanced
 # effect editor (spec §33 keeps risky/rarely-used stats out of the standard UI).
-ADVANCED_ONLY_STATS: tuple[str, ...] = ("points_flat_bonus",)
+ADVANCED_ONLY_STATS: tuple[str, ...] = ()
 
 STAT_DEFINITIONS_BY_CATEGORY: dict[str, list[UIStatDefinition]] = {
     CATEGORY_FISHING: [],
     CATEGORY_ITEM_DROP: [],
     CATEGORY_ROBBERY: [],
     CATEGORY_INVENTORY: [],
-    CATEGORY_ECONOMY: [],
     CATEGORY_ADVANCED: [],
 }
 for _definition in UI_STAT_DEFINITIONS.values():
@@ -417,8 +373,9 @@ class EffectForm:
 
 REROLL_TARGET_OPTIONS: tuple[tuple[str, str], ...] = (
     ("Empty Catch", "nothing"),
-    ("Negative Mass Reward", "negative_mass"),
-    ("Negative Percentage Reward", "negative_percentage"),
+    ("Negative Fish Reward", "fish_negative"),
+    ("Positive Fish Reward", "fish_positive"),
+    ("Zero Fish Reward", "fish_zero"),
     ("Robbery", "robbery"),
     ("Timeout", "timeout"),
 )
@@ -942,7 +899,6 @@ __all__ = [
     "CATEGORY_ITEM_DROP",
     "CATEGORY_ROBBERY",
     "CATEGORY_INVENTORY",
-    "CATEGORY_ECONOMY",
     "CATEGORY_TRIGGERED",
     "CATEGORY_ADVANCED",
     "EFFECT_CATEGORIES",

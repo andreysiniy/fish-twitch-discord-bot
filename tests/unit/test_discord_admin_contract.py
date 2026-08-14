@@ -85,7 +85,6 @@ def test_admin_dtos_are_strict_and_bounded() -> None:
 def test_economy_max_number_alias_is_normalized() -> None:
     request = EconomySettingsPatchRequest(
         expected_version=1,
-        pricing_mode="spread",
         buy_points_per_kg="120",
         sell_points_per_kg="100",
         max_transaction_mass="MAX_NUMBER",

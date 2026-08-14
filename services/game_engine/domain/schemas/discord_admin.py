@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 from domain.config_schema import (
     EventModifiers,
@@ -28,14 +28,8 @@ class StrictDTO(BaseModel):
 class ConfigChanges(StrictDTO):
     xp_base: int | None = Field(None, ge=0, le=10_000)
     xp_exponent: Decimal | None = Field(None, ge=1, le=5)
-    sell_max_bonus: Decimal | None = Field(None, ge=0, le=100)
-    sell_mid_level: int | None = Field(None, ge=0, le=1_000_000)
-    sell_rate: Decimal | None = Field(None, ge=1, le=100_000)
-    buy_rate: Decimal | None = Field(None, ge=1, le=100_000)
     rob_min_chance: Decimal | None = Field(None, ge=0, le=1)
     rob_max_chance: Decimal | None = Field(None, ge=0, le=1)
-    rob_resist_divisor: Decimal | None = Field(None, ge=1, le=1_000_000)
-    rob_loss_divisor: Decimal | None = Field(None, ge=1, le=1_000_000)
     rob_base_chance: Decimal | None = Field(None, ge=0, le=1)
     fishing_cooldown: int | None = Field(None, ge=0, le=86_400)
     subs_fishing_cooldown: int | None = Field(None, ge=0, le=86_400)
@@ -67,7 +61,7 @@ class LocationPatchRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
     location_name: str | None = Field(None, min_length=1, max_length=80)
     items_drop_rate: Decimal | None = Field(None, ge=0, le=1)
-    requirements: LocationRequirements | None = None
+    requirements: dict[str, Any] | LocationRequirements | None = None
 
 
 class RewardCreateRequest(StrictDTO):
@@ -153,7 +147,18 @@ class DiscordEventPatchRequest(StrictDTO):
     @field_validator("modifiers", mode="before")
     @classmethod
     def validate_modifiers(cls, value: Any) -> Any:
-        return _coerce_event_modifiers(value)
+        if value is None or isinstance(value, EventModifiersV2):
+            return value
+        if isinstance(value, EventModifiers):
+            raise ValueError(
+                "Legacy v1 event modifiers are no longer accepted; use human-percent v2 fields"
+            )
+        data = dict(value or {})
+        if data.get("schema_version") != 2:
+            raise ValueError("Event modifier patches must set schema_version=2")
+        # Keep omitted fields omitted so the service can merge the patch with
+        # the stored v2 document instead of resetting hidden values to zero.
+        return data
 
     override_loot_pool: str | None = Field(
         None,
@@ -182,6 +187,8 @@ class PlayerModifierSetRequest(StrictDTO):
         definition = STAT_REGISTRY[self.stat_key]
         if self.scope != ModifierScope.ALL and self.scope not in definition.scopes:
             raise ValueError(f"{self.stat_key.value} is not available in {self.scope.value}")
+        if self.operation not in definition.allowed_operations:
+            raise ValueError(f"{self.operation.value} is not allowed for {self.stat_key.value}")
         if self.operation == ModifierOperation.MULTIPLY:
             if self.value < 0 or self.value > 100:
                 raise ValueError("Multiplier must be between 0 and 100")
@@ -215,8 +222,16 @@ class ItemDropUpsertRequest(StrictDTO):
     weight: int = Field(100, ge=1, le=1_000_000)
     xp_gain: int = Field(0, ge=0, le=1_000_000)
     quantity: int | None = Field(None, ge=0, le=1_000_000_000)
+    min_quantity: int = Field(1, ge=1, le=1_000_000_000)
+    max_quantity: int = Field(1, ge=1, le=1_000_000_000)
     message: str = Field("You caught {name}!", max_length=300)
     expected_version: int | None = Field(None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_quantity_range(self):
+        if self.max_quantity < self.min_quantity:
+            raise ValueError("max_quantity must not be below min_quantity")
+        return self
 
 
 class PlayerItemGrantRequest(StrictDTO):
@@ -248,8 +263,6 @@ class StreamElementsConnectRequest(StrictDTO):
 
 class EconomySettingsPatchRequest(StrictDTO):
     expected_version: int = Field(..., ge=1)
-    pricing_mode: Literal["single_rate", "spread"] = "single_rate"
-    points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
     buy_points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
     sell_points_per_kg: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
     buy_enabled: bool | None = None
@@ -266,13 +279,9 @@ class EconomySettingsPatchRequest(StrictDTO):
         return value
 
     @model_validator(mode="after")
-    def validate_rate_mode(self):
-        if self.pricing_mode == "single_rate" and self.points_per_kg is None:
-            raise ValueError("points_per_kg is required for single_rate pricing")
-        if self.pricing_mode == "spread" and (
-            self.buy_points_per_kg is None or self.sell_points_per_kg is None
-        ):
-            raise ValueError("buy_points_per_kg and sell_points_per_kg are required for spread pricing")
+    def validate_rate_pair(self):
+        if (self.buy_points_per_kg is None) != (self.sell_points_per_kg is None):
+            raise ValueError("buy_points_per_kg and sell_points_per_kg must be provided together")
         if (
             self.min_transaction_mass is not None
             and self.max_transaction_mass is not None

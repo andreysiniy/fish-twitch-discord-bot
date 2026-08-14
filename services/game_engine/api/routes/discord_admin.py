@@ -88,10 +88,11 @@ def list_item_drops(
     service: DiscordAdminService = Depends(get_discord_admin_service),
     item_weight: int | None = Query(default=None, ge=1, le=1_000_000),
     item_id: str | None = Query(default=None),
+    viewer: str | None = Query(default=None),
 ):
     if item_weight is not None:
         return service.preview_item_drop(
-            context, channel_twitch_id, location_id, item_weight, item_id=item_id
+            context, channel_twitch_id, location_id, item_weight, item_id=item_id, viewer=viewer
         )
     return service.list_item_drops(context, channel_twitch_id, location_id)
 
@@ -253,6 +254,15 @@ def explain_player_stats(
     return service.explain_player_stats(
         context, channel_twitch_id, viewer, scope
     )
+
+
+@router.get("/channels/{channel_twitch_id}/stat-metadata")
+def stat_metadata(
+    channel_twitch_id: str,
+    context: DiscordServiceContext = Depends(get_discord_service_context),
+    service: DiscordAdminService = Depends(get_discord_admin_service),
+):
+    return service.get_stat_metadata(context, channel_twitch_id)
 
 
 @router.get("/channels/{channel_twitch_id}/config/schema")

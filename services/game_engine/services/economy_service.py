@@ -27,7 +27,6 @@ from domain.economy import (
     calculate_sell_points,
     parse_mass_argument,
 )
-from domain.item_schema import ModifierScope, StatKey
 from domain.logic.mass import apply_mass_mutation
 from domain.schemas.fishing import FishResponse
 from infrastructure.models import (
@@ -390,7 +389,6 @@ class EconomyService:
             raise EconomyDomainError("ECONOMY_SETTINGS_NOT_FOUND", "Channel not found.")
         settings = self._settings(channel)
         return {
-            "pricing_mode": settings.pricing_mode,
             "buy_points_per_kg": str(settings.buy_points_per_kg),
             "sell_points_per_kg": str(settings.sell_points_per_kg),
             "buy_enabled": settings.buy_enabled,
@@ -667,7 +665,6 @@ class EconomyService:
             argument_unit=parsed.unit,
             argument_multiplier_kg=parsed.multiplier_kg,
             mass_effective=mass,
-            pricing_mode_snapshot=settings.pricing_mode,
             buy_rate_snapshot=settings.buy_points_per_kg,
             sell_rate_snapshot=settings.sell_points_per_kg,
             rate_used_snapshot=rate,
@@ -779,12 +776,10 @@ class EconomyService:
         )
         if row:
             return row
-        custom = (channel.config or {}).get("custom_params", {})
-        row = ChannelEconomySettings(
-            channel_id=channel.id,
-            buy_points_per_kg=Decimal(str(custom.get("buy_rate", "120"))),
-            sell_points_per_kg=Decimal(str(custom.get("sell_rate", "100"))),
-        )
+        # The normalized settings row is the sole source of truth after the
+        # spread-only economy migration. Legacy channel custom parameters are
+        # intentionally not consulted by runtime operations.
+        row = ChannelEconomySettings(channel_id=channel.id)
         self.db.add(row)
         self.db.flush()
         return row
@@ -1022,11 +1017,3 @@ class EconomyService:
     def _require_key(key):
         if not str(key or "").strip():
             raise EconomyDomainError("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key is required.")
-
-    # Kept as a compatibility helper for old callers; conversion pricing never
-    # invokes player modifiers anymore.
-    def _effective_rate(self, user, base_rate: Decimal, stat: StatKey) -> Decimal:
-        modifier = self.modifier_service.resolve(user, ModifierScope.ECONOMY).value(stat)
-        if stat == StatKey.BUY_DISCOUNT_PCT:
-            return base_rate * (Decimal(1) - modifier)
-        return base_rate * (Decimal(1) + modifier)

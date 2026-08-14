@@ -8,6 +8,7 @@ from domain.schemas.admin import (
     ChannelAccessResponseDTO,
     ChannelAccessUpsertDTO,
     ChannelCreateDTO,
+    EconomySwitchesRequestDTO,
     ChannelResponseDTO,
     FishCooldownSetRequestDTO,
     FishCooldownSetResponseDTO,
@@ -185,6 +186,22 @@ def remove_channel_moderator(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/channels/{channel_twitch_id}/economy-switches")
+def update_economy_switches(
+    channel_twitch_id: str,
+    data: EconomySwitchesRequestDTO,
+    security_subject: str = Depends(verify_security),
+    service: AdminService = Depends(get_admin_service),
+):
+    actor = _resolve_actor_twitch_id(security_subject, data.actor_twitch_id)
+    try:
+        return service.update_economy_switches(actor, channel_twitch_id, data.action)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/channels/{channel_twitch_id}/events/list", response_model=FishingEventListResponseDTO)

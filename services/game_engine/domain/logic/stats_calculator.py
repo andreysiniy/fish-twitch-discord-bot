@@ -44,8 +44,6 @@ def calculate_player_stats(user) -> Dict[str, Any]:
         stat_name = stat.value
         if stat_name == "fish_luck_change_ratio":
             resolved["luck_bonus"] += value
-        elif stat_name == "points_flat_bonus":
-            resolved["points_bonus"] += value
         elif stat_name == "negative_fish_reward_change_ratio":
             resolved["resist_bonus"] += value
             resolved["resolve_bad_catch"] += value

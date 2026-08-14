@@ -12,12 +12,18 @@ from core.api_errors import ApiProblem
 from core.config import settings
 from core.messages import message_placeholder_catalog, validate_custom_message_template
 from core.permissions import ROLE_PERMISSIONS, ChannelPermission
-from domain.config_schema import GameConfig, RewardDefinition
+from domain.config_schema import (
+    EventModifiersV2,
+    GameConfig,
+    LocationRequirements,
+    RewardDefinition,
+)
 from domain.event_review import event_review_issues
-from domain.item_schema import ModifierScope
+from domain.item_schema import ModifierScope, STAT_REGISTRY, StatKey
 from domain.item_schema import parse_item_definition_payload
 from domain.logic.formulas import geometric_first_success_stats
 from domain.logic.mass import apply_mass_mutation
+from domain.logic import rng
 from domain.schemas.admin import ChannelCreateDTO
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
@@ -81,12 +87,9 @@ from sqlalchemy.orm.attributes import flag_modified
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
 CONFIG_SECTIONS = {
     "xp": {"xp_base", "xp_exponent"},
-    "economy": {"sell_max_bonus", "sell_mid_level", "sell_rate", "buy_rate"},
     "robbery": {
         "rob_min_chance",
         "rob_max_chance",
-        "rob_resist_divisor",
-        "rob_loss_divisor",
         "rob_base_chance",
     },
     "cooldown": {"fishing_cooldown", "subs_fishing_cooldown"},
@@ -584,6 +587,35 @@ class DiscordAdminService:
             "behavioral_effects": list(resolved.effects),
         }
 
+    def get_stat_metadata(self, context, channel_twitch_id: str) -> dict[str, Any]:
+        """Return the authoritative stat contract used by admin editors."""
+        self._authorize(context, ChannelPermission.PLAYER_MODIFIERS_READ, channel_twitch_id)
+        items: list[dict[str, Any]] = []
+        for stat_key, definition in STAT_REGISTRY.items():
+            factor = (
+                Decimal("100")
+                if definition.human_input_conversion == "percent_to_ratio"
+                else Decimal("1")
+            )
+            items.append(
+                {
+                    "stat_key": stat_key.value,
+                    "unit": definition.unit,
+                    "value_type": definition.value_type,
+                    "human_input_conversion": definition.human_input_conversion,
+                    "minimum": str(definition.minimum * factor),
+                    "maximum": str(definition.maximum * factor),
+                    "storage_minimum": str(definition.minimum),
+                    "storage_maximum": str(definition.maximum),
+                    "allowed_scopes": sorted(scope.value for scope in definition.scopes),
+                    "allowed_operations": sorted(
+                        operation.value for operation in definition.allowed_operations
+                    ),
+                    "description": definition.description,
+                }
+            )
+        return {"schema_version": 1, "items": items}
+
     def list_items(self, context, channel_twitch_id: str, include_archived: bool) -> dict:
         channel, _ = self._authorize(context, ChannelPermission.ITEMS_READ, channel_twitch_id)
         query = self.db.query(ItemDefinition).filter(ItemDefinition.channel_id == channel.id)
@@ -793,6 +825,7 @@ class DiscordAdminService:
         location_id: str,
         item_weight: int,
         item_id: str | None = None,
+        viewer: str | None = None,
     ) -> dict:
         """Compute the runtime drop probability for a prospective item weight.
 
@@ -820,13 +853,50 @@ class DiscordAdminService:
         total_weight = (
             sum(int(row.weight) for row in rows) - existing_weight + proposed_weight
         )
-        if total_weight <= 0:
-            probability = 0.0
-        else:
-            probability = float(pool.items_drop_rate or 0.0) * (
-                proposed_weight / total_weight
+        base_probability = (
+            float(pool.items_drop_rate or 0.0) * (proposed_weight / total_weight)
+            if total_weight > 0
+            else 0.0
+        )
+        effective_probability = None
+        effective_gate = None
+        if viewer:
+            user = self._find_player_viewer(pool.channel_id, viewer)
+            resolved = PlayerModifierService(self.db).resolve(user, ModifierScope.FISHING)
+            effective_gate = min(
+                max(
+                    Decimal(str(pool.items_drop_rate or 0))
+                    + resolved.value(StatKey.ITEM_DROP_CHANCE_ADD),
+                    Decimal("0"),
+                ),
+                Decimal("1"),
             )
-        probability = round(probability, 6)
+            rarity_luck = max(
+                Decimal("0.05"),
+                Decimal("1") + resolved.value(StatKey.ITEM_RARITY_LUCK_PCT),
+            )
+            weighted_rows = []
+            for row in rows:
+                weight = Decimal(str(row.weight))
+                if item_id and row.definition.item_id == item_id:
+                    weight = Decimal(proposed_weight)
+                rank = rng.RARITY_RANK.get(str(row.definition.rarity).lower(), 0)
+                weighted_rows.append(weight * (rarity_luck**rank))
+            if item_id and not any(row.definition.item_id == item_id for row in rows):
+                definition = self._find_item_definition(pool.channel_id, item_id)
+                rank = rng.RARITY_RANK.get(str(definition.rarity).lower(), 0)
+                weighted_rows.append(Decimal(proposed_weight) * (rarity_luck**rank))
+            effective_total = sum(weighted_rows, Decimal("0"))
+            if effective_total > 0:
+                proposed_rank = 0
+                if item_id:
+                    definition = self._find_item_definition(pool.channel_id, item_id)
+                    proposed_rank = rng.RARITY_RANK.get(str(definition.rarity).lower(), 0)
+                effective_probability = float(
+                    effective_gate
+                    * (Decimal(proposed_weight) * (rarity_luck**proposed_rank) / effective_total)
+                )
+        probability = round(base_probability, 6)
         selection_weight_share = (
             round(proposed_weight / total_weight, 6) if total_weight > 0 else 0.0
         )
@@ -851,6 +921,17 @@ class DiscordAdminService:
             "total_weight": total_weight,
             "selection_weight_share": selection_weight_share,
             "drop_probability": probability,
+            "base_probability": probability,
+            "effective_probability": (
+                round(effective_probability, 6) if effective_probability is not None else None
+            ),
+            "effective_gate_probability": (
+                str(effective_gate) if effective_gate is not None else None
+            ),
+            "effective_probability_status": (
+                "calculated" if viewer else "Select a viewer to calculate effective probability"
+            ),
+            "viewer": viewer,
             "expected_casts_to_drop": expected_casts,
             "p50": p50,
             "p90": p90,
@@ -914,6 +995,15 @@ class DiscordAdminService:
             definition = self._find_item_definition(channel.id, data.item_id)
             if not definition.is_active:
                 raise ApiProblem(422, "VALIDATION_ERROR", "Archived items cannot be dropped")
+            stackable = int(definition.stack_size or 1) > 1 and definition.type != "equipment"
+            min_quantity = data.min_quantity if stackable else 1
+            max_quantity = data.max_quantity if stackable else 1
+            if not stackable and (data.min_quantity != 1 or data.max_quantity != 1):
+                raise ApiProblem(
+                    422,
+                    "NON_STACKABLE_QUANTITY_INVALID",
+                    "Non-stackable items always use a quantity range of 1 to 1.",
+                )
             table = self._ensure_pool_loot_table(pool)
             row = (
                 self.db.query(LootTableEntry)
@@ -943,8 +1033,8 @@ class DiscordAdminService:
                     loot_table_id=table.id,
                     item_definition_id=definition.id,
                     weight=data.weight,
-                    min_quantity=1,
-                    max_quantity=1,
+                    min_quantity=min_quantity,
+                    max_quantity=max_quantity,
                     xp_gain=data.xp_gain,
                     message=data.message,
                     config_version=1,
@@ -952,6 +1042,8 @@ class DiscordAdminService:
                 self.db.add(row)
                 self.db.flush()
             row.weight = data.weight
+            row.min_quantity = min_quantity
+            row.max_quantity = max_quantity
             row.xp_gain = data.xp_gain
             row.message = data.message
             try:
@@ -1287,7 +1379,18 @@ class DiscordAdminService:
 
     def get_config(self, context: DiscordServiceContext, channel_twitch_id: str) -> dict[str, Any]:
         channel, _ = self._authorize(context, ChannelPermission.CONFIG_READ, channel_twitch_id)
-        overrides = dict((channel.config or {}).get("custom_params", {}))
+        raw_overrides = dict((channel.config or {}).get("custom_params", {}))
+        # Legacy economy/robbery values are hidden from the public contract;
+        # migration 20260814_0041 removes them from stored channel config.
+        legacy_keys = {
+            "sell_max_bonus",
+            "sell_mid_level",
+            "sell_rate",
+            "buy_rate",
+            "rob_resist_divisor",
+            "rob_loss_divisor",
+        }
+        overrides = {key: value for key, value in raw_overrides.items() if key not in legacy_keys}
         effective = GameConfig.model_validate(overrides).model_dump(mode="json")
         defaults = GameConfig().model_dump(mode="json")
         return {
@@ -1400,7 +1503,16 @@ class DiscordAdminService:
             config = dict(channel.config or {})
             before = dict(config.get("custom_params", {}))
             changes = data.changes.model_dump(mode="json", exclude_none=True)
-            merged = {**before, **changes}
+            legacy_keys = {
+                "sell_max_bonus",
+                "sell_mid_level",
+                "sell_rate",
+                "buy_rate",
+                "rob_resist_divisor",
+                "rob_loss_divisor",
+            }
+            merged = {key: value for key, value in before.items() if key not in legacy_keys}
+            merged.update(changes)
             effective = GameConfig.model_validate(merged).model_dump(mode="json")
             if not changes or all(before.get(key) == value for key, value in changes.items()):
                 return {
@@ -1570,7 +1682,18 @@ class DiscordAdminService:
             if data.items_drop_rate is not None:
                 pool.items_drop_rate = float(data.items_drop_rate)
             if data.requirements is not None:
-                pool.requirements = data.requirements.model_dump(mode="json", exclude_none=True)
+                updates = (
+                    data.requirements.model_dump(mode="json", exclude_none=True)
+                    if isinstance(data.requirements, LocationRequirements)
+                    else dict(data.requirements)
+                )
+                requirements = dict(pool.requirements or {})
+                for key, value in updates.items():
+                    if value is None:
+                        requirements.pop(key, None)
+                    else:
+                        requirements[key] = value
+                pool.requirements = requirements
             pool.version += 1
             self.db.flush()
             after = self._serialize_location(pool)
@@ -1807,7 +1930,11 @@ class DiscordAdminService:
             event = FishingEvent(
                 channel_id=channel.id,
                 event_title=data.event_title,
-                modifiers=data.modifiers.model_dump(mode="json"),
+                modifiers=(
+                    data.modifiers.model_dump(mode="json")
+                    if isinstance(data.modifiers, EventModifiersV2)
+                    else EventModifiersV2(**data.modifiers).model_dump(mode="json")
+                ),
                 override_loot_pool=data.override_loot_pool,
                 is_active=False,
             )
@@ -1841,18 +1968,29 @@ class DiscordAdminService:
             if data.event_title is not None:
                 event.event_title = data.event_title
             if data.modifiers is not None:
-                event.modifiers = data.modifiers.model_dump(mode="json")
+                patch_modifiers = (
+                    data.modifiers.model_dump(mode="json")
+                    if isinstance(data.modifiers, EventModifiersV2)
+                    else dict(data.modifiers)
+                )
+                current_modifiers = dict(event.modifiers or {})
+                if current_modifiers.get("schema_version") != 2:
+                    current_modifiers = EventModifiersV2().model_dump(mode="json")
+                merged_modifiers = EventModifiersV2(
+                    **{**current_modifiers, **patch_modifiers}
+                ).model_dump(mode="json")
+                event.modifiers = merged_modifiers
                 flag_modified(event, "modifiers")
                 # An explicit v2 save from the owner confirms/reviews the event:
                 # clear the unsafe-inheritance flag and pin the schema version.
-                if data.modifiers.model_dump(mode="json").get("schema_version") == 2:
+                if merged_modifiers.get("schema_version") == 2:
                     event.requires_review = False
                     event.modifier_schema_version = 2
                     history = list(event.modifiers_history or [])
                     history.append(
                         {
                             "reviewed_at": datetime.now(timezone.utc).isoformat(),
-                            "modifiers_v2": data.modifiers.model_dump(mode="json"),
+                            "modifiers_v2": merged_modifiers,
                         }
                     )
                     event.modifiers_history = history
@@ -2024,6 +2162,13 @@ class DiscordAdminService:
             self._check_version(pool.version, data.expected_version, context)
             rewards = self._normalized_rewards(pool)
             normalized = data.reward.model_dump(mode="json")
+            if normalized.get("type") == "points":
+                raise ApiProblem(
+                    422,
+                    "POINTS_REWARD_DISABLED",
+                    "Points rewards are reserved for the economy integration and cannot be added to fishing rewards.",
+                    request_id=context.request_id,
+                )
             before = {}
             if mode == "create":
                 if len(rewards) >= 100:
@@ -2119,8 +2264,12 @@ class DiscordAdminService:
         return {
             "item_id": row.definition.item_id,
             "title": row.definition.title,
+            "item_type": row.definition.type,
+            "stack_size": row.definition.stack_size,
             "weight": row.weight,
             "xp_gain": row.xp_gain,
+            "min_quantity": row.min_quantity,
+            "max_quantity": row.max_quantity,
             "quantity": stock.remaining_quantity if stock else None,
             "message": row.message,
             "effects": row.definition.effects or [],

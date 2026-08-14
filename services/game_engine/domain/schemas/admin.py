@@ -46,6 +46,11 @@ class StreamElementsIntegrationResponseDTO(BaseModel):
     status: str
     se_channel_id: str
 
+
+class EconomySwitchesRequestDTO(BaseModel):
+    actor_twitch_id: str | None = None
+    action: str = Field(..., pattern=r"^(status|on|off|buy_on|buy_off|sell_on|sell_off)$")
+
 # --- Rewards ---
 
 class LocationItemResponseDTO(BaseModel):

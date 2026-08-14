@@ -177,6 +177,15 @@ class EngineApiClient:
             "POST", f"/v1/admin/channels/{channel_id}/events/toggle", json=payload
         )
 
+    async def admin_economy_switch(
+        self, channel_id: str, actor_twitch_id: str, action: str
+    ) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/admin/channels/{channel_id}/economy-switches",
+            json={"actor_twitch_id": actor_twitch_id, "action": action},
+        )
+
     def _get_headers(self) -> Dict[str, str]:
         return {"Content-Type": "application/json", "X-API-KEY": API_KEY}
 

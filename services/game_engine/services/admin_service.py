@@ -26,7 +26,7 @@ from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
-from infrastructure.models import ChannelIntegration
+from infrastructure.models import ChannelEconomySettings, ChannelIntegration
 from infrastructure.se_client import SEApiClient
 from infrastructure.se_client import ProviderAuthenticationError, ProviderError
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
@@ -181,6 +181,49 @@ class AdminService:
         removed = self.repo.delete_access_record(channel.id, user_twitch_id)
         if not removed:
             raise ValueError("Channel access record not found")
+
+    def update_economy_switches(
+        self, requester_twitch_id: str, channel_twitch_id: str, action: str
+    ) -> dict[str, Any]:
+        channel = self.check_access(channel_twitch_id, requester_twitch_id)
+        if channel.twitch_id != requester_twitch_id:
+            access = self.repo.get_access_record(channel.id, requester_twitch_id)
+            if not access or access.role != "editor":
+                raise PermissionError("Only the channel owner or an editor can change economy switches")
+        row = (
+            self.repo.db.query(ChannelEconomySettings)
+            .filter(ChannelEconomySettings.channel_id == channel.id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = ChannelEconomySettings(channel_id=channel.id)
+            self.repo.db.add(row)
+            self.repo.db.flush()
+        normalized = action.strip().lower()
+        if normalized == "on":
+            row.enabled = True
+        elif normalized == "off":
+            row.enabled = False
+        elif normalized == "buy_on":
+            row.buy_enabled = True
+        elif normalized == "buy_off":
+            row.buy_enabled = False
+        elif normalized == "sell_on":
+            row.sell_enabled = True
+        elif normalized == "sell_off":
+            row.sell_enabled = False
+        elif normalized != "status":
+            raise ValueError("Unknown economy switch action")
+        if normalized != "status":
+            row.version += 1
+        self.repo.db.flush()
+        return {
+            "enabled": row.enabled,
+            "buy_enabled": row.buy_enabled,
+            "sell_enabled": row.sell_enabled,
+            "version": row.version,
+        }
 
     def set_fishing_cooldown(
         self,

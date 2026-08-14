@@ -274,6 +274,39 @@ class AdminCog(commands.Cog):
             logger.exception("Fishing event toggle command failed")
             await ctx.send("Could not toggle event")
 
+    @commands.command(name="fisheconomy")
+    async def fisheconomy(self, ctx: commands.Context, *args: str) -> None:
+        """Toggle StreamElements economy switches for the channel."""
+        channel_id = await get_channel_id(ctx)
+        action = "_".join(part.strip().lower() for part in args if part.strip())
+        aliases = {"buy_on": "buy_on", "buy_off": "buy_off", "sell_on": "sell_on", "sell_off": "sell_off"}
+        if action in {"on", "off", "status"}:
+            normalized = action
+        else:
+            normalized = aliases.get(action, "")
+        if not normalized:
+            await ctx.send(
+                "Usage: !fisheconomy on|off|buy on|buy off|sell on|sell off|status"
+            )
+            return
+        try:
+            result = await self.bot.api_client.admin_economy_switch(
+                channel_id=channel_id,
+                actor_twitch_id=str(ctx.author.id),
+                action=normalized,
+            )
+            await ctx.send(
+                "Economy switches: "
+                f"conversions {'on' if result.get('enabled') else 'off'}, "
+                f"buy {'on' if result.get('buy_enabled') else 'off'}, "
+                f"sell {'on' if result.get('sell_enabled') else 'off'}."
+            )
+        except EngineApiError as error:
+            await ctx.send(str(error))
+        except Exception:
+            logger.exception("Economy switch command failed")
+            await ctx.send("Could not update economy switches")
+
     def _resolve_is_subscriber(self, ctx: commands.Context) -> bool:
         explicit_flag = getattr(ctx.author, "is_subscriber", None)
         if explicit_flag is not None:

@@ -404,12 +404,19 @@ class AdminApi:
         )
 
     async def preview_item_drop(
-        self, interaction, location_id: str, item_weight: int, item_id: str | None = None
+        self,
+        interaction,
+        location_id: str,
+        item_weight: int,
+        item_id: str | None = None,
+        viewer: str | None = None,
     ):
         channel = await self.channel_id(interaction)
         query = f"?item_weight={item_weight}"
         if item_id is not None:
             query += f"&item_id={item_id}"
+        if viewer:
+            query += f"&viewer={viewer}"
         return await self.client.request(
             interaction,
             "GET",
@@ -542,6 +549,14 @@ class AdminApi:
             interaction,
             "GET",
             f"/v1/admin/channels/{channel}/players/{viewer}/stats/explain?scope={scope}",
+        )
+
+    async def stat_metadata(self, interaction):
+        channel = await self.channel_id(interaction)
+        return await self.client.request(
+            interaction,
+            "GET",
+            f"/v1/admin/channels/{channel}/stat-metadata",
         )
 
     async def recent_casts(
