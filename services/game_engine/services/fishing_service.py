@@ -684,7 +684,11 @@ class FishingService:
             return robbery_result
 
         locked = self.user_repo.lock_users([user.id, victim.id])
-        user = locked[user.id]
+        # Keep the caller's attacker object in sync with the row locked for
+        # the robbery. The caller saves that original object after this
+        # method returns; without this copy, a separate ORM instance could
+        # overwrite the credited mass with its stale value.
+        attacker = locked[user.id]
         victim = locked[victim.id]
         victim_modifiers = self.modifier_service.resolve(victim, ModifierScope.ROBBERY)
         modifier_snapshot = {
@@ -694,13 +698,15 @@ class FishingService:
 
         counter_actions, absorbed = self._apply_robbery_defenses(
             rng_stages=rng_stages,
-            attacker=user,
+            attacker=attacker,
             victim=victim,
             effects=list(victim_modifiers.effects),
             attacker_mass_floor=attacker_modifiers.mass_floor("robbery"),
         )
 
         if absorbed:
+            user.current_mass = attacker.current_mass
+            user.total_mass_stat = attacker.total_mass_stat
             return RobberyResultDTO(
                 is_success=False,
                 absorbed=True,
@@ -714,7 +720,7 @@ class FishingService:
             )
 
         robbery_result = self.engine.calculate_mass_robbery(
-            attacker=user,
+            attacker=attacker,
             victim=victim,
             channel_config=channel_config,
             catch=loot,
@@ -728,7 +734,7 @@ class FishingService:
         if robbery_result.is_success:
             success_actions, _absorbed = self._apply_robbery_defenses(
                 rng_stages=rng_stages,
-                attacker=user,
+                attacker=attacker,
                 victim=victim,
                 effects=list(victim_modifiers.effects),
                 attacker_mass_floor=attacker_modifiers.mass_floor("robbery"),
@@ -749,12 +755,22 @@ class FishingService:
                 track_total=False,
             )
             applied_stolen = quantize_mass(-victim_delta)
-            apply_mass_mutation(user, applied_stolen, track_total=True)
+            apply_mass_mutation(attacker, applied_stolen, track_total=True)
+
+            # The lock query may return a distinct ORM instance from the one
+            # held by process_cast. Copy the authoritative values back so its
+            # final save cannot undo the robbery credit.
+            user.current_mass = attacker.current_mass
+            user.total_mass_stat = attacker.total_mass_stat
 
             robbery_result.amount_stolen = applied_stolen
             robbery_result.victim_new_mass = victim.current_mass
             self.user_repo.save_progress(victim)
 
+        # Counter effects can also mutate the locked attacker before the
+        # robbery roll. Preserve those changes on the caller's object too.
+        user.current_mass = attacker.current_mass
+        user.total_mass_stat = attacker.total_mass_stat
         return robbery_result
 
     @staticmethod

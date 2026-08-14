@@ -158,6 +158,30 @@ def test_success_triggered_counter_runs_after_success_decision(monkeypatch) -> N
     service.user_repo.save_progress.assert_called_once_with(victim)
 
 
+def test_successful_robbery_syncs_locked_attacker_mass_to_caller() -> None:
+    caller_attacker = make_user(1, "attacker", "atk", "10")
+    locked_attacker = make_user(1, "attacker", "atk", "10")
+    victim = make_user(2, "victim", "vic", "100")
+    service = make_defense_service(
+        locked_attacker,
+        victim,
+        make_engine_result(success=True),
+        [],
+    )
+
+    service.user_repo.lock_users.return_value = {
+        locked_attacker.id: locked_attacker,
+        victim.id: victim,
+    }
+
+    result = service._handle_robbery({"range": 3}, caller_attacker, [])
+
+    assert result.is_success is True
+    assert locked_attacker.current_mass == Decimal("20")
+    assert caller_attacker.current_mass == Decimal("20")
+    assert caller_attacker.total_mass_stat == Decimal("20")
+
+
 def test_absorb_returns_before_success_phase(monkeypatch) -> None:
     monkeypatch.setattr("services.fishing_service.random.random", lambda: 0.05)
     consume = Mock()
