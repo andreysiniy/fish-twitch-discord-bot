@@ -102,19 +102,17 @@ def config_embed(config: dict[str, Any], section: str | None = None) -> discord.
             if key not in values:
                 continue
             rendered_keys.add(key)
-            lines.append(
-                f"**{_CONFIG_FIELD_LABELS[key]}**\n`{_format_config_value(key, values[key])}`"
-            )
+            lines.append(f"**{_CONFIG_FIELD_LABELS[key]}:** `{_format_config_value(key, values[key])}`")
         if lines:
-            embed.add_field(name=group_name, value="\n\n".join(lines), inline=False)
+            embed.add_field(name=group_name, value="  •  ".join(lines), inline=False)
 
     unknown = [key for key in values if key not in rendered_keys]
     if unknown:
         lines = [
-            f"**{_config_field_label(key)}**\n`{_format_config_value(key, values[key])}`"
+            f"**{_config_field_label(key)}:** `{_format_config_value(key, values[key])}`"
             for key in unknown
         ]
-        embed.add_field(name="Other settings", value="\n\n".join(lines), inline=False)
+        embed.add_field(name="Other settings", value="  •  ".join(lines), inline=False)
     if not embed.fields:
         embed.add_field(name="Settings", value="No configuration values found.", inline=False)
     return embed

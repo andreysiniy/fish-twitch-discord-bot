@@ -35,12 +35,12 @@ def test_config_embed_groups_and_formats_values() -> None:
     fields = {field.name: field.value for field in embed.fields}
     assert embed.title == "Configuration"
     assert embed.description == "Version: `v4`"
-    assert fields["XP"] == "**Base XP**\n`100 XP`\n\n**XP exponent**\n`1.5x`"
-    assert "Minimum chance**\n`5%`" in fields["Robbery"]
-    assert "Base chance**\n`80%`" in fields["Robbery"]
-    assert "Maximum chance**\n`95%`" in fields["Robbery"]
-    assert "Regular fishing**\n`10 minutes`" in fields["Fishing cooldowns"]
-    assert "Subscriber fishing**\n`5 minutes`" in fields["Fishing cooldowns"]
+    assert fields["XP"] == "**Base XP:** `100 XP`  •  **XP exponent:** `1.5x`"
+    assert "**Minimum chance:** `5%`" in fields["Robbery"]
+    assert "**Base chance:** `80%`" in fields["Robbery"]
+    assert "**Maximum chance:** `95%`" in fields["Robbery"]
+    assert "**Regular fishing:** `10 minutes`" in fields["Fishing cooldowns"]
+    assert "**Subscriber fishing:** `5 minutes`" in fields["Fishing cooldowns"]
     assert "rob_min_chance" not in "\n".join(fields.values())
 
 
