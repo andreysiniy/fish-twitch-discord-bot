@@ -106,6 +106,26 @@ def _seed_draft_from_item(item_id: str, current: dict[str, Any]) -> dict[str, An
     }
 
 
+async def _load_stat_metadata(api, interaction: discord.Interaction) -> dict[str, dict[str, Any]]:
+    """Load authoritative stat units/bounds for the effect editor.
+
+    Older gateway test doubles and rolling deployments may not expose the
+    endpoint yet, so the local registry remains a compatibility fallback.
+    """
+    method = getattr(api, "stat_metadata", None)
+    if method is None:
+        return {}
+    try:
+        response = await method(interaction)
+    except Exception:
+        return {}
+    return {
+        str(item["stat_key"]): item
+        for item in response.get("items", [])
+        if isinstance(item, dict) and item.get("stat_key")
+    }
+
+
 async def start_item_create(
     interaction: discord.Interaction,
     sessions,
@@ -198,11 +218,13 @@ async def start_effect_edit(
         await session.transition(WizardStep.REVIEW)
         await _render_review(done, session, api)
 
+    stat_metadata = await _load_stat_metadata(api, interaction)
     view = ItemEffectsView(
         int(session.discord_user_id),
         list(session.draft.get("effects") or []),
         on_done,
         api=api,
+        stat_metadata=stat_metadata,
         restart_text=_restart_text(session),
     )
     await interaction.response.send_message(
@@ -395,11 +417,13 @@ async def _render_effects(
         await session.transition(WizardStep.MECHANICS)
         await _render_mechanics(done, session, api)
 
+    stat_metadata = await _load_stat_metadata(api, interaction)
     view = ItemEffectsView(
         int(session.discord_user_id),
         list(session.draft.get("effects") or []),
         on_done,
         api=api,
+        stat_metadata=stat_metadata,
         on_back=on_back,
         restart_text=_restart_text(session),
     )
@@ -474,11 +498,13 @@ async def _render_review(interaction: discord.Interaction, session: ItemWizardSe
                 await session.save()
             await _render_review(done_interaction, session, api)
 
+        stat_metadata = await _load_stat_metadata(api, editor_interaction)
         editor = ItemEffectsView(
             int(session.discord_user_id),
             effects,
             effects_done,
             api=api,
+            stat_metadata=stat_metadata,
             on_back=lambda done: _render_review(done, session, api),
             restart_text=_restart_text(session),
         )

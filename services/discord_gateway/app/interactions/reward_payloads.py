@@ -47,7 +47,7 @@ def complete_reward_payload(
         max_mass = _optional_decimal(
             values.get("max_mass"), "Maximum mass", -1_000_000, 1_000_000
         )
-        percentage = _optional_decimal(values.get("percentage"), "Percentage", -1, 1)
+        percentage = _optional_percentage(values.get("percentage"), "Percentage", -100, 100)
         has_range = min_mass is not None or max_mass is not None
         if sum((fixed_mass is not None, has_range, percentage is not None)) != 1:
             raise ValueError("Choose exactly one fish mass mode: fixed, range, or percentage")
@@ -66,7 +66,7 @@ def complete_reward_payload(
         payload["reason"] = str(values.get("reason") or "").strip()
     elif reward_type == "robbery":
         mass = _optional_decimal(values.get("mass"), "Fixed mass", 0, 1_000_000)
-        percentage = _optional_decimal(values.get("percentage"), "Percentage", 0, 1)
+        percentage = _optional_percentage(values.get("percentage"), "Percentage", 0, 100)
         if (mass is None) == (percentage is None):
             raise ValueError("Choose exactly one robbery amount: fixed mass or percentage")
         if mass is not None:
@@ -138,7 +138,7 @@ def build_roulette_outcome(
     if normalized_type == "add_percentage_mass":
         return {
             "type": normalized_type,
-            "percentage": _required_decimal(percentage, "Percentage", -1, 1),
+            "percentage": _required_percentage(percentage, "Percentage", -100, 100),
         }
     return {
         "type": normalized_type,
@@ -179,3 +179,25 @@ def _optional_decimal(
     if value is None or not str(value).strip():
         return None
     return _required_decimal(str(value), label, minimum, maximum)
+
+
+def _required_percentage(
+    value: str,
+    label: str,
+    minimum: int | Decimal,
+    maximum: int | Decimal,
+) -> str:
+    """Parse a human percentage and return the ratio expected by the engine."""
+    parsed = Decimal(_required_decimal(value, label, minimum, maximum)) / Decimal("100")
+    return format(parsed, "f")
+
+
+def _optional_percentage(
+    value: Any,
+    label: str,
+    minimum: int | Decimal,
+    maximum: int | Decimal,
+) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return _required_percentage(str(value), label, minimum, maximum)

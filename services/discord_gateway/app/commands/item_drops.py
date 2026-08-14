@@ -60,12 +60,19 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
         @app_commands.describe(
             location_id="Location that drops the item",
             item_id="Item to add to the location drops",
+            viewer="Optional viewer for effective probability preview",
         )
         async def item_drop_add(
             interaction: discord.Interaction,
             location_id: str,
             item_id: str,
+            viewer: str | None = None,
         ) -> None:
+            try:
+                definition = await api.item(interaction, item_id)
+            except (EngineError, ValueError) as error:
+                await _send_error(interaction, error)
+                return
             async def save(
                 modal_interaction: discord.Interaction, payload: dict
             ) -> None:
@@ -79,7 +86,9 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                 modal_interaction: discord.Interaction, payload: dict
             ) -> dict:
                 return await api.preview_item_drop(
-                    modal_interaction, location_id, payload["weight"]
+                    modal_interaction, location_id, payload["weight"],
+                    item_id=item_id,
+                    viewer=viewer,
                 )
 
             await interaction.response.send_modal(
@@ -89,6 +98,8 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                     location_id=location_id,
                     item_id=item_id,
                     action="Add",
+                    stackable=int(definition.get("stack_size", 1)) > 1
+                    and definition.get("item_type") != "equipment",
                 )
             )
 
@@ -96,11 +107,13 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
         @app_commands.describe(
             location_id="Location with the item drop",
             item_id="Item whose drop to edit",
+            viewer="Optional viewer for effective probability preview",
         )
         async def item_drop_edit(
             interaction: discord.Interaction,
             location_id: str,
             item_id: str,
+            viewer: str | None = None,
         ) -> None:
             async def operation() -> None:
                 current = await api.item_drops(interaction, location_id)
@@ -132,6 +145,7 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                         location_id,
                         payload["weight"],
                         item_id=item_id,
+                        viewer=viewer,
                     )
 
                 view = ModalLauncherView(
@@ -142,6 +156,8 @@ def register_item_drops_group(tree, api, sessions, fish) -> None:
                         location_id=location_id,
                         item_id=item_id,
                         action="Edit",
+                        stackable=int(row.get("stack_size", 1)) > 1
+                        and row.get("item_type") != "equipment",
                         defaults=row,
                     ),
                 )

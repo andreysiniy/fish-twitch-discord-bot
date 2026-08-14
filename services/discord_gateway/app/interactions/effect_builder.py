@@ -218,7 +218,7 @@ class RerollRewardModal(TypedEffectModal):
         super().__init__("Reroll Reward", on_save, on_saved)
         self.targets = discord.ui.TextInput(
             label="Target actions (comma separated)",
-            placeholder="nothing, negative_mass, negative_percentage",
+            placeholder="nothing, fish_positive, fish_negative, fish_zero",
             max_length=120,
             required=True,
         )
@@ -253,7 +253,7 @@ class BlockActionModal(TypedEffectModal):
         super().__init__("Block Action", on_save, on_saved)
         self.targets = discord.ui.TextInput(
             label="Target actions (comma separated)",
-            placeholder="nothing, negative_mass",
+            placeholder="nothing, fish_positive, fish_negative, fish_zero",
             max_length=120,
             required=True,
         )

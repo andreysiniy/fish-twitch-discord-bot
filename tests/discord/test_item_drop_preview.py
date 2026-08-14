@@ -89,7 +89,9 @@ def test_item_drop_preview_embed_shows_derived_stats() -> None:
     fields = _field_texts(embed)
     assert "50.00% of the pool" in fields["Pool share"]
     assert "location drop rate 10.00%" in fields["Pool share"]
-    assert "5.00% per cast (≈20.0 casts)" in fields["Chance per cast"]
+    assert "Base Probability: 5.00% per cast" in fields["Chance per cast"]
+    assert "≈20.0 casts" in fields["Chance per cast"]
+    assert "Effective Probability: Select a viewer" in fields["Chance per cast"]
     assert "5 min: 1.7 h" in fields["Expected active time"]
     assert "7.5 min: 2.5 h" in fields["Expected active time"]
     assert "10 min: 3.3 h" in fields["Expected active time"]

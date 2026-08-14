@@ -104,8 +104,9 @@ class StatValueModal(discord.ui.Modal):
         on_saved: OnSaved = None,
         *,
         current: Any = None,
+        definition: UIStatDefinition | None = None,
     ):
-        self.definition = UI_STAT_DEFINITIONS[stat_key]
+        self.definition = definition or UI_STAT_DEFINITIONS[stat_key]
         super().__init__(title=self.definition.label)
         self.on_save = on_save
         self.on_saved = on_saved
@@ -141,8 +142,9 @@ class StatMultiplyModal(discord.ui.Modal):
         on_saved: OnSaved = None,
         *,
         current: Any = None,
+        definition: UIStatDefinition | None = None,
     ):
-        self.definition = UI_STAT_DEFINITIONS[stat_key]
+        self.definition = definition or UI_STAT_DEFINITIONS[stat_key]
         super().__init__(title=f"Multiply {self.definition.label}")
         self.on_save = on_save
         self.on_saved = on_saved

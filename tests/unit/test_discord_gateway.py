@@ -99,8 +99,9 @@ def test_economy_modal_uses_max_number_alias() -> None:
     ("reward_type", "parameters", "expected"),
     [
         ("fish", {"min_mass": "0.1", "max_mass": "5"}, {"min_mass": "0.1", "max_mass": "5"}),
+        ("fish", {"percentage": "-15"}, {"percentage": "-0.15"}),
         ("timeout", {"duration": "10m", "reason": "test"}, {"duration": 600, "reason": "test"}),
-        ("robbery", {"percentage": "0.2", "range": "5"}, {"percentage": "0.2", "range": 5}),
+        ("robbery", {"percentage": "20", "range": "5"}, {"percentage": "0.2", "range": 5}),
         (
             "russian_roulette",
             {
@@ -139,7 +140,7 @@ def test_reward_payloads_reject_ambiguous_fields_and_build_roulette_outcomes() -
             {"fixed_mass": "1", "percentage": "0.1"},
         )
 
-    assert build_roulette_outcome("add_percentage_mass", "", "0.25", "", "") == {
+    assert build_roulette_outcome("add_percentage_mass", "", "25", "", "") == {
         "type": "add_percentage_mass",
         "percentage": "0.25",
     }

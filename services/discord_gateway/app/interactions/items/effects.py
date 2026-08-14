@@ -3,7 +3,7 @@
 ``ItemEffectsView`` is the standard effects editor used by the item wizard. It
 replaces the raw effect-type select with a human flow:
 
-1. pick a category (Fishing / Item Drop / Robbery / Inventory / Economy /
+1. pick a category (Fishing / Item Drop / Robbery / Inventory /
    Triggered / Advanced);
 2. pick a stat or triggered effect inside that category;
 3. enter values in a typed modal with human labels and units (no StatKey, no
@@ -18,13 +18,13 @@ advanced mode (spec §35).
 """
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 import discord
 
 from app.domain.item_effect_registry import (
     ADVANCED_MAX_EFFECTS,
-    ADVANCED_STAT_DEFINITIONS,
     CATEGORY_ADVANCED,
     EFFECT_CATEGORIES,
     CATEGORY_TRIGGERED,
@@ -34,7 +34,6 @@ from app.domain.item_effect_registry import (
     TRIGGERED_EFFECT_OPTIONS,
     UI_STAT_DEFINITIONS,
     describe_effect,
-    stat_options,
 )
 from app.interactions.items.effect_forms import (
     EffectNumbersModal,
@@ -52,11 +51,11 @@ def _embed_for(title: str, description: str) -> discord.Embed:
 def _auto_advanced(effects: list[dict]) -> bool:
     """A draft that already overflows the standard editor must open in advanced
     mode: legacy/imported items can have more than ``STANDARD_MAX_EFFECTS`` or
-    carry advanced-only stats (``stat_multiply``, ``points_flat_bonus``)."""
+ carry advanced-only stats (``stat_multiply``)."""
     if len(effects) > STANDARD_MAX_EFFECTS:
         return True
     return any(
-        effect.get("type") == "stat_multiply" or effect.get("stat") == "points_flat_bonus"
+        effect.get("type") == "stat_multiply"
         for effect in effects
     )
 
@@ -67,7 +66,7 @@ class ItemEffectsView(discord.ui.View):
     In standard mode the list is capped at ``STANDARD_MAX_EFFECTS`` (spec §35)
     and advanced stats are hidden behind a warning (spec §32). Once advanced
     mode is enabled the cap becomes ``ADVANCED_MAX_EFFECTS`` and low-level
-    controls (``stat_multiply``, ``points_flat_bonus``) become reachable.
+    controls (``stat_multiply``) become reachable.
     """
 
     def __init__(
@@ -81,6 +80,7 @@ class ItemEffectsView(discord.ui.View):
         timeout: int = 600,
         restart_text: str = "Run /fish item create again.",
         advanced: bool = False,
+        stat_metadata: dict[str, dict[str, Any]] | None = None,
     ):
         super().__init__(timeout=timeout)
         self.initiator_id = initiator_id
@@ -89,11 +89,43 @@ class ItemEffectsView(discord.ui.View):
         self.on_back = on_back
         self.api = api
         self._restart_text = restart_text
+        self.stat_definitions = self._build_stat_definitions(stat_metadata or {})
         self._advanced = advanced or _auto_advanced(effects)
         self._selected_index: int | None = None
         self._validation_error: str | None = None
         self._rebuild_pick_options()
         self._update_buttons()
+
+    @staticmethod
+    def _build_stat_definitions(
+        metadata: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Overlay engine-provided units and human bounds on the UI registry."""
+        definitions = dict(UI_STAT_DEFINITIONS)
+        for stat_key, definition in definitions.items():
+            contract = metadata.get(stat_key)
+            if not contract:
+                continue
+            unit = definition.unit
+            if contract.get("unit") == "kg":
+                unit = "mass_kg"
+            elif contract.get("unit") == "slots":
+                unit = "flat"
+            definitions[stat_key] = replace(
+                definition,
+                unit=unit,
+                value_type=contract.get("value_type", definition.value_type),
+                display_min=str(contract.get("minimum", definition.display_min)),
+                display_max=str(contract.get("maximum", definition.display_max)),
+                helper=contract.get("description", definition.helper),
+            )
+        return definitions
+
+    def stat_definition(self, stat_key: str):
+        definition = self.stat_definitions.get(stat_key)
+        if definition is not None:
+            return definition
+        return UI_STAT_DEFINITIONS[stat_key]
 
     # --- presentation --------------------------------------------------------
 
@@ -360,13 +392,23 @@ class ItemEffectsView(discord.ui.View):
         current = current or {}
         if effect_type == "stat_add":
             stat = str(current.get("stat") or "")
-            modal = StatValueModal(stat, commit, self._refresh_from, current=current.get("value"))
+            modal = StatValueModal(
+                stat,
+                commit,
+                self._refresh_from,
+                current=current.get("value"),
+                definition=self.stat_definition(stat),
+            )
             await interaction.response.send_modal(modal)
             return
         if effect_type == "stat_multiply":
             stat = str(current.get("stat") or "")
             modal = StatMultiplyModal(
-                stat, commit, self._refresh_from, current=current.get("value")
+                stat,
+                commit,
+                self._refresh_from,
+                current=current.get("value"),
+                definition=self.stat_definition(stat),
             )
             await interaction.response.send_modal(modal)
             return
@@ -376,7 +418,13 @@ class ItemEffectsView(discord.ui.View):
         # Unknown effect type: fall back to a plain stat form so an effect can
         # still be corrected without raw JSON.
         stat = str(current.get("stat") or "fish_luck_change_ratio")
-        modal = StatValueModal(stat, commit, self._refresh_from, current=current.get("value"))
+        modal = StatValueModal(
+            stat,
+            commit,
+            self._refresh_from,
+            current=current.get("value"),
+            definition=self.stat_definition(stat),
+        )
         await interaction.response.send_modal(modal)
 
     async def _open_triggered_form(
@@ -446,7 +494,7 @@ class EffectCategoryPickerView(discord.ui.View):
         if category == CATEGORY_ADVANCED:
             return [
                 discord.SelectOption(label=definition.label, value=definition.stat)
-                for definition in ADVANCED_STAT_DEFINITIONS
+                for definition in self.editor.stat_definitions.values()
                 if not (
                     has_duplicate_effect(
                         self.editor.effects,
@@ -460,7 +508,8 @@ class EffectCategoryPickerView(discord.ui.View):
             ]
         return [
             discord.SelectOption(label=definition.label, value=definition.stat)
-            for definition in stat_options(category)
+            for definition in self.editor.stat_definitions.values()
+            if definition.category == category
             if not has_duplicate_effect(
                 self.editor.effects,
                 {"type": "stat_add", "stat": definition.stat},
@@ -512,7 +561,12 @@ class EffectCategoryPickerView(discord.ui.View):
             view = AdvancedEffectPickerView(self.editor, picked)
             await interaction.response.edit_message(embed=view._embed(), view=view)
         else:
-            modal = StatValueModal(picked, self.editor._append, self.editor._refresh_from)
+            modal = StatValueModal(
+                picked,
+                self.editor._append,
+                self.editor._refresh_from,
+                definition=self.editor.stat_definition(picked),
+            )
             await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=2)
@@ -595,7 +649,7 @@ class AdvancedEffectPickerView(discord.ui.View):
         self.initiator_id = editor.initiator_id
         self.stat_key = stat_key
         self._operation: str | None = None
-        definition = UI_STAT_DEFINITIONS[stat_key]
+        definition = editor.stat_definition(stat_key)
         self._label = definition.label
         self.operation_select.options = [
             discord.SelectOption(label="Add", value="add", description=f"Change {self._label}"),
@@ -678,9 +732,19 @@ class AdvancedEffectPickerView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         if self._operation == "multiply":
-            modal = StatMultiplyModal(self.stat_key, self.editor._append, self.editor._refresh_from)
+            modal = StatMultiplyModal(
+                self.stat_key,
+                self.editor._append,
+                self.editor._refresh_from,
+                definition=self.editor.stat_definition(self.stat_key),
+            )
         else:
-            modal = StatValueModal(self.stat_key, self.editor._append, self.editor._refresh_from)
+            modal = StatValueModal(
+                self.stat_key,
+                self.editor._append,
+                self.editor._refresh_from,
+                definition=self.editor.stat_definition(self.stat_key),
+            )
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=1)

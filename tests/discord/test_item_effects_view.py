@@ -170,7 +170,7 @@ def test_effect_category_picker_preserves_selected_category_as_default() -> None
 
 
 def test_advanced_effect_picker_preserves_operation_as_default() -> None:
-    view = AdvancedEffectPickerView(_editor([]), "points_flat_bonus")
+    view = AdvancedEffectPickerView(_editor([]), "fish_luck_change_ratio")
     assert not any(option.default for option in view.operation_select.options)
 
     view._operation = "multiply"
@@ -255,7 +255,7 @@ def test_effect_form_select_pick_marks_chosen_value_as_default() -> None:
 
 
 def test_advanced_effect_picker_needs_operation_first() -> None:
-    view = AdvancedEffectPickerView(_editor([]), "points_flat_bonus")
+    view = AdvancedEffectPickerView(_editor([]), "fish_luck_change_ratio")
     assert view.continue_button.disabled is True
     view._operation = "add"
     view.continue_button.disabled = False
@@ -352,7 +352,7 @@ def test_auto_advanced_arms_on_overflowing_effect_count() -> None:
 
 def test_auto_advanced_arms_on_legacy_advanced_stats() -> None:
     assert _auto_advanced([{"type": "stat_multiply", "stat": "xp_gain_change_ratio", "value": "2"}])
-    assert _auto_advanced([{"type": "stat_add", "stat": "points_flat_bonus", "value": "5"}])
+    assert not _auto_advanced([{"type": "stat_add", "stat": "points_flat_bonus", "value": "5"}])
 
 
 def test_advanced_mode_raises_effect_cap_and_labels_footer() -> None:

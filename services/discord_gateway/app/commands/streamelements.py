@@ -73,20 +73,63 @@ class EconomySettingsModal(discord.ui.Modal, title="Economy settings"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            await self.api.patch_economy_settings(
+            result = await self.api.patch_economy_settings(
                 interaction,
                 {
                     "expected_version": int(self.current["version"]),
-                    "pricing_mode": "spread",
                     "buy_points_per_kg": str(self.buy_points_per_kg.value),
                     "sell_points_per_kg": str(self.sell_points_per_kg.value),
                     "min_transaction_mass": str(self.minimum.value),
                     "max_transaction_mass": str(self.maximum.value),
                 },
             )
-            await interaction.followup.send("Economy settings updated.", ephemeral=True)
+            await interaction.followup.send(
+                "Rates and limits updated. Use the controls below to change economy switches.",
+                view=EconomySwitchesView(self.api, result),
+                ephemeral=True,
+            )
         except (EngineError, ValueError) as error:
             await _send_error(interaction, error)
+
+
+class EconomySwitchesView(discord.ui.View):
+    def __init__(self, api, current: dict):
+        super().__init__(timeout=600)
+        self.api = api
+        self.current = dict(current)
+        self._refresh_labels()
+
+    def _refresh_labels(self) -> None:
+        self.enabled_button.label = f"Conversions: {'On' if self.current.get('enabled') else 'Off'}"
+        self.buy_button.label = f"Buying: {'On' if self.current.get('buy_enabled') else 'Off'}"
+        self.sell_button.label = f"Selling: {'On' if self.current.get('sell_enabled') else 'Off'}"
+
+    async def _toggle(self, interaction: discord.Interaction, field: str) -> None:
+        try:
+            result = await self.api.patch_economy_settings(
+                interaction,
+                {
+                    "expected_version": int(self.current["version"]),
+                    field: not bool(self.current.get(field)),
+                },
+            )
+            self.current = dict(result)
+            self._refresh_labels()
+            await interaction.response.edit_message(view=self)
+        except (EngineError, ValueError) as error:
+            await _send_error(interaction, error)
+
+    @discord.ui.button(label="Conversions", style=discord.ButtonStyle.primary)
+    async def enabled_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "enabled")
+
+    @discord.ui.button(label="Buying", style=discord.ButtonStyle.secondary)
+    async def buy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "buy_enabled")
+
+    @discord.ui.button(label="Selling", style=discord.ButtonStyle.secondary)
+    async def sell_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._toggle(interaction, "sell_enabled")
 
 
 def _status_embed(result: dict) -> discord.Embed:

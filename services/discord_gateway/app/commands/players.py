@@ -80,13 +80,17 @@ def register_players_group(tree, api, sessions, fish) -> None:
             await _deferred(interaction, operation)
 
         @player.command(name="item-grant", description="Grant a typed item atomically")
-        @app_commands.describe(viewer="Viewer Twitch username; omit to use your own account")
+        @app_commands.describe(
+            viewer="Viewer Twitch username; omit to use your own account",
+            current_charges="Optional charges for charge-based consumables; omitted uses full charges",
+        )
         async def player_item_grant(
             interaction: discord.Interaction,
             item_id: str,
             quantity: app_commands.Range[int, 1, 1_000_000] = 1,
             slot_id: app_commands.Range[int, 1, 1_000_000] | None = None,
             current_durability: app_commands.Range[int, 0, 1_000_000] | None = None,
+            current_charges: app_commands.Range[int, 0, 1_000_000] | None = None,
             viewer: str | None = None,
         ) -> None:
             async def mutation() -> None:
@@ -99,6 +103,7 @@ def register_players_group(tree, api, sessions, fish) -> None:
                         "quantity": quantity,
                         "slot_id": slot_id,
                         "current_durability": current_durability,
+                        "current_charges": current_charges,
                         "meta": {},
                     },
                 )
@@ -230,17 +235,6 @@ def register_players_group(tree, api, sessions, fish) -> None:
             viewer: str | None = None,
             expires_in: str | None = None,
         ) -> None:
-            payload = _player_modifier_payload(
-                stat_key=stat_key.value,
-                operation=operation.value,
-                scope=scope.value,
-                value=value,
-                source_key=source_key,
-                reason=reason,
-                expected_version=expected_version,
-                expires_in=expires_in,
-            )
-            expires_at = payload.get("expires_at")
             op_label = {
                 "add": "Add",
                 "multiply": "Multiply",
@@ -249,7 +243,30 @@ def register_players_group(tree, api, sessions, fish) -> None:
                 "max": "Set maximum",
             }.get(operation.value, operation.value)
 
-            async def operation() -> None:
+            async def apply_operation() -> None:
+                metadata_response = await api.stat_metadata(interaction)
+                metadata = next(
+                    (
+                        item
+                        for item in metadata_response.get("items", [])
+                        if item.get("stat_key") == stat_key.value
+                    ),
+                    None,
+                )
+                if metadata is None:
+                    raise ValueError("The selected stat is not available in the current engine contract.")
+                payload = _player_modifier_payload(
+                    stat_key=stat_key.value,
+                    operation=operation.value,
+                    scope=scope.value,
+                    value=value,
+                    source_key=source_key,
+                    reason=reason,
+                    expected_version=expected_version,
+                    expires_in=expires_in,
+                    metadata=metadata,
+                )
+                expires_at = payload.get("expires_at")
                 # Show the current resolved value for this stat before applying,
                 # so an additive/override change is never applied blind.
                 resolved = await _resolve_viewer(api, interaction, viewer)
@@ -277,11 +294,16 @@ def register_players_group(tree, api, sessions, fish) -> None:
                 if isinstance(current_resolved, dict) and "value" in current_resolved:
                     resolved_text = str(current_resolved["value"])
 
-                display_value = (
-                    value.strip()
-                    if operation.value == "multiply"
-                    else f"{value.strip()}%"
-                )
+                if operation.value == "multiply":
+                    display_value = value.strip()
+                elif metadata.get("human_input_conversion") == "percent_to_ratio":
+                    display_value = f"{value.strip()}%"
+                elif metadata.get("unit") == "kg":
+                    display_value = f"{value.strip()} kg"
+                elif metadata.get("unit") == "slots":
+                    display_value = f"{value.strip()} slots"
+                else:
+                    display_value = value.strip()
                 embed = _player_modifier_preview_embed(
                     user_twitch_id=resolved,
                     scope=scope.value,
@@ -309,7 +331,7 @@ def register_players_group(tree, api, sessions, fish) -> None:
                     ),
                 )
 
-            await _deferred(interaction, operation)
+            await _deferred(interaction, apply_operation)
 
         @player_modifier.command(name="disable", description="Disable a player modifier")
         @app_commands.describe(viewer="Viewer Twitch username; omit to use your own account")
@@ -404,16 +426,6 @@ def register_players_group(tree, api, sessions, fish) -> None:
         }
 
 
-# Stats whose value is an absolute count, not a ratio; human-percent
-# conversion must not apply to them.
-_INTEGER_STATS = {
-    "inventory_slots_add",
-    "cooldown_seconds_flat",
-}
-
-_STAT_IS_RATIO = {name: False for name in _INTEGER_STATS}
-
-
 def _player_modifier_payload(
     *,
     stat_key: str,
@@ -424,18 +436,13 @@ def _player_modifier_payload(
     reason: str,
     expected_version: int | None,
     expires_in: str | None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the backend payload; human percentages become ratios (10 -> 0.10).
-
-    ``multiply`` keeps a raw multiplier (2 = x2) because the backend bounds a
-    multiplier in 0..100, not a ratio. Integer-valued stats (e.g. inventory
-    slots) keep the raw count. ``expires_in`` is a duration string such as
-    "2h" that turns into an absolute ``expires_at`` timestamp.
-    """
-    is_ratio_stat = _STAT_IS_RATIO.get(stat_key, True)
+    """Build a payload from the engine-provided stat metadata contract."""
+    conversion = (metadata or {}).get("human_input_conversion", "percent_to_ratio")
     if operation == "multiply":
         ratio_value = str(Decimal(value.strip()))
-    elif is_ratio_stat:
+    elif conversion == "percent_to_ratio":
         ratio_value = str((Decimal(value.strip()) / 100))
     else:
         ratio_value = str(Decimal(value.strip()))

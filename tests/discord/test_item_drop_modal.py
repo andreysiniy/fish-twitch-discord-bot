@@ -55,6 +55,8 @@ def test_item_drop_modal_parses_fields() -> None:
         "weight": 25,
         "xp_gain": 50,
         "quantity": 10,
+        "min_quantity": 1,
+        "max_quantity": 1,
         "message": "Got {name}!",
     }
 
@@ -110,6 +112,8 @@ def test_item_drop_modal_shows_preview_and_confirms() -> None:
             "weight": 25,
             "xp_gain": 50,
             "quantity": None,
+            "min_quantity": 1,
+            "max_quantity": 1,
             "message": None,
         }
     ]

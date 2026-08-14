@@ -298,10 +298,15 @@ def item_drop_preview_embed(
             inline=False,
         )
 
-    probability = preview.get("drop_probability")
+    probability = preview.get("base_probability", preview.get("drop_probability"))
     expected = preview.get("expected_casts_to_drop")
     if probability is not None:
-        chance_text = f"{_format_percent(float(probability))} per cast"
+        chance_text = f"Base Probability: {_format_percent(float(probability))} per cast"
+        effective = preview.get("effective_probability")
+        if effective is None:
+            chance_text += f"\nEffective Probability: {preview.get('effective_probability_status', 'Select a viewer to calculate effective probability')}"
+        else:
+            chance_text += f"\nEffective Probability: {_format_percent(float(effective))} per cast"
         if expected is not None:
             chance_text += f" (≈{expected} casts)"
         embed.add_field(name="Chance per cast", value=chance_text, inline=False)
