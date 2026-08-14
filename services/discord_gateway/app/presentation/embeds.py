@@ -85,17 +85,130 @@ def diff_embed(title: str, before: dict[str, Any], after: dict[str, Any]) -> dis
 
 
 def reward_list_entry(item: dict[str, Any]) -> tuple[str, str]:
-    title = item.get("name") or item["type"].replace("_", " ").title()
-    order = (
-        "reward_id",
-        "type",
-        "name",
-        "weight",
-        "probability",
-        "xp",
-        "message",
-    )
-    return title, _entity_details(item, order, probability_key="probability")
+    title = item.get("name") or _reward_type_label(item.get("type"))
+    lines = [
+        f"ID: `{item.get('reward_id', '?')}`",
+        f"Type: {_reward_type_label(item.get('type'))}",
+        f"Weight: {item.get('weight', '?')}",
+    ]
+    if item.get("probability") is not None:
+        lines.append(f"Chance: {float(item['probability']):.2%}")
+    if item.get("xp") is not None:
+        lines.append(f"XP: {item['xp']}")
+
+    parameter_lines = _reward_parameter_lines(item)
+    if parameter_lines:
+        lines.extend(("", "**Outcome**", *(f"- {line}" for line in parameter_lines)))
+    if item.get("message"):
+        lines.extend(("", f"**Message** {item['message']!s}"))
+    return title, "\n".join(lines)
+
+
+def _reward_type_label(value: Any) -> str:
+    normalized = str(value or "unknown").replace("_", " ").strip()
+    return normalized.title()
+
+
+def _compact_decimal(value: Any) -> str:
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value)
+    rendered = format(decimal_value, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    return rendered or "0"
+
+
+def _signed_decimal(value: Any, *, suffix: str = "") -> str:
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return f"{value}{suffix}"
+    sign = "+" if decimal_value > 0 else ""
+    return f"{sign}{_compact_decimal(decimal_value)}{suffix}"
+
+
+def _signed_percent(value: Any) -> str:
+    try:
+        decimal_value = Decimal(str(value)) * 100
+    except (InvalidOperation, TypeError, ValueError):
+        return f"{value}%"
+    return _signed_decimal(decimal_value, suffix="%")
+
+
+def _duration_label(value: Any) -> str:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return f"{value} seconds"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"
+
+
+def _roulette_outcome_label(outcome: Any) -> str:
+    if not isinstance(outcome, dict):
+        return "Not configured"
+    outcome_type = outcome.get("type")
+    if outcome_type == "add_mass":
+        return _signed_decimal(outcome.get("mass"), suffix=" kg")
+    if outcome_type == "add_percentage_mass":
+        return f"{_signed_percent(outcome.get('percentage'))} of current mass"
+    if outcome_type == "timeout":
+        reason = str(outcome.get("reason") or "No reason")
+        return f"Timeout for {_duration_label(outcome.get('duration'))} ({reason})"
+    return _reward_type_label(outcome_type)
+
+
+def _reward_parameter_lines(item: dict[str, Any]) -> list[str]:
+    reward_type = str(item.get("type") or "")
+    if reward_type == "fish":
+        if item.get("fixed_mass") is not None:
+            return [f"Mass: {_signed_decimal(item['fixed_mass'], suffix=' kg')}"]
+        if item.get("min_mass") is not None and item.get("max_mass") is not None:
+            minimum = _signed_decimal(item["min_mass"])
+            maximum = _signed_decimal(item["max_mass"])
+            return [f"Mass range: {minimum} to {maximum} kg"]
+        if item.get("percentage") is not None:
+            return [f"Mass change: {_signed_percent(item['percentage'])} of current mass"]
+        return ["Mass: Not configured"]
+    if reward_type == "timeout":
+        lines = [f"Duration: {_duration_label(item.get('duration'))}"]
+        if item.get("reason"):
+            lines.append(f"Reason: {str(item['reason'])[:200]}")
+        return lines
+    if reward_type == "robbery":
+        if item.get("percentage") is not None:
+            amount = f"{_signed_percent(item['percentage'])} of target mass"
+        else:
+            amount = _signed_decimal(item.get("mass"), suffix=" kg")
+        lines = [f"Amount: {amount}", f"Range: {item.get('range', '?')} player(s)"]
+        if item.get("success_message"):
+            lines.append(f"Success message: {item['success_message']}")
+        return lines
+    if reward_type == "russian_roulette":
+        lines = [
+            f"Chambers: {item.get('bullets', '?')} loaded / {item.get('chambers', '?')} total",
+            f"Safe outcome: {_roulette_outcome_label(item.get('reward'))}",
+            f"Loaded outcome: {_roulette_outcome_label(item.get('penalty'))}",
+        ]
+        if item.get("safe_message"):
+            lines.append(f"Safe message: {item['safe_message']}")
+        if item.get("shot_message"):
+            lines.append(f"Loaded message: {item['shot_message']}")
+        return lines
+    if reward_type == "dupe":
+        return [
+            f"Extra casts: {item.get('amount', '?')}",
+            f"Delay: {_duration_label(item.get('delay', 0))}",
+        ]
+    if reward_type == "points":
+        return [f"Points: {_signed_decimal(item.get('value'))}"]
+    if reward_type == "nothing":
+        return ["Outcome: Nothing"]
+    return ["No additional parameters."]
 
 
 def legacy_import_embed(result: dict[str, Any], replace_existing: bool) -> discord.Embed:
@@ -734,15 +847,11 @@ def player_stats_explain_embed(result: dict[str, Any]) -> discord.Embed:
 
 
 def reward_detail_embed(item: dict[str, Any], *, location_id: str) -> discord.Embed:
-    """Human-readable reward card (no raw JSON in the primary UI).
-
-    Base fields render as labelled fields; reward-type-specific parameters
-    render as a compact ``key: value`` list, excluding already-shown fields.
-    """
-    title = item.get("name") or item["type"].replace("_", " ").title()
-    embed = info_embed(f"Reward — {title}")
+    """Render one reward as a typed card instead of dumping its API payload."""
+    title = item.get("name") or _reward_type_label(item.get("type"))
+    embed = info_embed(f"Reward: {title}")
     embed.add_field(name="Reward ID", value=f"`{item.get('reward_id')}`", inline=True)
-    embed.add_field(name="Type", value=item.get("type", "?"), inline=True)
+    embed.add_field(name="Type", value=_reward_type_label(item.get("type")), inline=True)
     embed.add_field(name="Location", value=f"`{location_id}`", inline=True)
     embed.add_field(name="Weight", value=str(item.get("weight", "?")), inline=True)
     probability = item.get("probability")
@@ -752,23 +861,14 @@ def reward_detail_embed(item: dict[str, Any], *, location_id: str) -> discord.Em
         embed.add_field(name="XP", value=str(item["xp"]), inline=True)
     if item.get("message"):
         embed.add_field(name="Message", value=str(item["message"])[:1024], inline=False)
-    payload_lines = [
-        f"{key}: `{value}`"
-        for key, value in sorted(item.items())
-        if key not in _REWARD_BASE_FIELDS and value not in (None, "")
-    ]
-    if payload_lines:
+    parameter_lines = _reward_parameter_lines(item)
+    if parameter_lines:
         embed.add_field(
-            name="Parameters",
-            value="\n".join(payload_lines)[:1024],
+            name="Outcome details",
+            value="\n".join(f"- {line}" for line in parameter_lines)[:1024],
             inline=False,
         )
     return embed
-
-
-_REWARD_BASE_FIELDS = frozenset(
-    {"reward_id", "type", "name", "weight", "xp", "message", "probability"}
-)
 
 
 def _line_chunks(lines: list[str], *, max_chars: int = 1024) -> list[str]:

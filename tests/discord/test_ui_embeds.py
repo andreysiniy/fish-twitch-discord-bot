@@ -8,6 +8,8 @@ from app.presentation.embeds import (
     item_list_entry,
     preview_embed,
     rarity_color,
+    reward_detail_embed,
+    reward_list_entry,
     success_embed,
     warning_embed,
 )
@@ -369,8 +371,6 @@ def test_player_stats_explain_embed_empty_state() -> None:
 
 
 def test_reward_detail_embed_renders_reward_card() -> None:
-    from app.presentation.embeds import reward_detail_embed
-
     embed = reward_detail_embed(
         {
             "reward_id": "r1",
@@ -386,16 +386,37 @@ def test_reward_detail_embed_renders_reward_card() -> None:
         location_id="lake",
     )
     fields = {field.name: field.value for field in embed.fields}
-    assert embed.title == "Reward — Big Trout"
+    assert embed.title == "Reward: Big Trout"
     assert fields["Reward ID"] == "`r1`"
-    assert fields["Type"] == "fish"
+    assert fields["Type"] == "Fish"
     assert fields["Location"] == "`lake`"
     assert fields["Weight"] == "40"
     assert fields["Probability"] == "40.00%"
     assert fields["XP"] == "50"
     assert fields["Message"] == "You caught a big trout!"
-    assert "min_mass: `1.5`" in fields["Parameters"]
-    assert "max_mass: `8.0`" in fields["Parameters"]
-    assert "weight:" not in fields["Parameters"]
+    assert "Mass range: +1.5 to +8 kg" in fields["Outcome details"]
+    assert "min_mass" not in fields["Outcome details"]
+    assert "max_mass" not in fields["Outcome details"]
     text = "\n".join(field.value for field in embed.fields)
     assert "{" not in text
+
+
+def test_reward_list_entry_uses_typed_outcome_labels() -> None:
+    title, details = reward_list_entry(
+        {
+            "reward_id": "timeout-1",
+            "type": "timeout",
+            "name": "Short timeout",
+            "weight": 2,
+            "probability": 0.05,
+            "xp": 0,
+            "duration": 60,
+            "reason": "Test timeout",
+            "message": "Please wait.",
+        }
+    )
+    assert title == "Short timeout"
+    assert "Chance: 5.00%" in details
+    assert "Duration: 1 minute" in details
+    assert "Reason: Test timeout" in details
+    assert "duration:" not in details
