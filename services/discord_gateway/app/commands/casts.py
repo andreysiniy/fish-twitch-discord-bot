@@ -12,6 +12,7 @@ from discord import app_commands
 
 from app.api.admin import AdminApi
 from app.api.errors import EngineError
+from app.presentation.formatting import format_compact_number
 from app.presentation.pagination import PagedEmbedView
 
 STATUS_COLORS = {
@@ -29,6 +30,97 @@ def _short(cast_id: str) -> str:
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _fmt_mass(value, *, signed: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    text = format_compact_number(value)
+    if signed and not text.startswith("-"):
+        try:
+            if float(value) > 0:
+                text = f"+{text}"
+        except (TypeError, ValueError):
+            pass
+    return f"{text} kg"
+
+
+def _fmt_outcome(outcome: dict | None) -> str:
+    if not isinstance(outcome, dict):
+        return "none"
+    outcome_type = outcome.get("type")
+    if outcome_type == "add_mass":
+        return f"Add mass {_fmt_mass(outcome.get('mass'), signed=True)}"
+    if outcome_type == "add_percentage_mass":
+        return f"Add mass {_fmt_probability(outcome.get('percentage'))}"
+    if outcome_type == "timeout":
+        reason = outcome.get("reason") or "No reason"
+        return f"Timeout for {outcome.get('duration', '?')} seconds ({reason})"
+    if outcome_type == "nothing":
+        return "Nothing"
+    return str(outcome_type or "unknown").replace("_", " ").capitalize()
+
+
+def _fmt_counter_actions(actions) -> str:
+    if not isinstance(actions, list) or not actions:
+        return "none"
+    lines = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        action_type = action.get("type")
+        if action_type == "timeout":
+            lines.append(f"Timeout ({action.get('duration_seconds', '?')} seconds)")
+        elif action_type == "add_mass":
+            lines.append(f"Mass {_fmt_mass(action.get('amount'), signed=True)}")
+        else:
+            lines.append(str(action_type or "unknown").replace("_", " ").capitalize())
+    return "; ".join(lines) or "none"
+
+
+def _reward_details_lines(item: dict) -> list[str]:
+    reward_type = (item.get("reward") or {}).get("reward_type")
+    details = item.get("reward_details") or {}
+    if reward_type == "robbery":
+        robbery = details.get("robbery")
+        if not isinstance(robbery, dict):
+            return []
+        if not robbery.get("victim_found", True):
+            outcome = "No target found"
+        elif robbery.get("absorbed"):
+            outcome = "Blocked by protection"
+        elif robbery.get("is_success"):
+            outcome = "Successful"
+        else:
+            outcome = "Failed"
+        lines = [
+            f"Attacker: {item.get('username') or 'unknown'}",
+            f"Victim: {robbery.get('victim_name') or 'unknown'}",
+            f"Outcome: {outcome}",
+            f"Stolen: {_fmt_mass(robbery.get('amount_stolen'), signed=True)}",
+            f"Victim mass after: {_fmt_mass(robbery.get('victim_new_mass'))}",
+            f"Success chance: {_fmt_probability(robbery.get('chance_used'))}",
+            f"Robbery roll: {_fmt_roll(robbery.get('roll'))}",
+            f"Counter effects: {_fmt_counter_actions(robbery.get('counter_actions'))}",
+        ]
+        return lines
+
+    if reward_type == "russian_roulette":
+        roulette = details.get("roulette")
+        if not isinstance(roulette, dict):
+            return []
+        outcome = "Loaded chamber (hit)" if roulette.get("is_hit") else "Empty chamber (safe)"
+        selected_outcome = roulette.get("penalty") if roulette.get("is_hit") else roulette.get("reward")
+        return [
+            f"Outcome: {outcome}",
+            f"Loaded chambers: {roulette.get('bullets', '?')} / {roulette.get('chambers', '?')}",
+            f"Success chance: {_fmt_probability(roulette.get('success_chance'))}",
+            f"Roulette roll: {_fmt_roll(roulette.get('roll'))}",
+            f"Applied result: {_fmt_outcome(selected_outcome)}",
+            f"Mass change: {_fmt_mass(roulette.get('mass_delta'), signed=True)}",
+            f"Message: {roulette.get('message') or 'none'}",
+        ]
+    return []
 
 
 def cast_detail_embed(item: dict) -> discord.Embed:
@@ -95,6 +187,10 @@ def cast_detail_embed(item: dict) -> discord.Embed:
             f"{_fmt_weight(reward.get('total_weight'))}"
         )
     embed.add_field(name="Reward", value="\n".join(reward_lines), inline=False)
+
+    reward_details = _reward_details_lines(item)
+    if reward_details:
+        embed.add_field(name="Reward details", value="\n".join(reward_details), inline=False)
 
     drops = item.get("items") or []
     if drops:

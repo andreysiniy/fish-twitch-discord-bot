@@ -2725,6 +2725,28 @@ class DiscordAdminService:
             "roll": roll,
         }
 
+    def _cast_reward_details(self, cast) -> dict | None:
+        """Expose structured details for special rewards in list/show views.
+
+        The raw trace remains available through the technical cast view. This
+        compact payload is intentionally limited to the special reward result
+        so Discord can render it without exposing a large diagnostic JSON blob.
+        """
+        if cast.reward_type not in {"robbery", "russian_roulette"}:
+            return None
+        snapshot = cast.special_result if isinstance(cast.special_result, dict) else {}
+        key = "robbery" if cast.reward_type == "robbery" else "roulette"
+        value = snapshot.get(key)
+        if not isinstance(value, dict):
+            return None
+
+        details = {key: dict(value)}
+        if key == "roulette":
+            hit_stage = self._trace_stage(cast.rng_trace, "roulette_hit")
+            if hit_stage and hit_stage.get("threshold") is not None:
+                details[key]["success_chance"] = hit_stage["threshold"]
+        return details
+
     def get_cast_summary_stats(
         self,
         context,
@@ -2796,6 +2818,7 @@ class DiscordAdminService:
             },
             "items": drops,
             "item_drop": item_drop,
+            "reward_details": self._cast_reward_details(cast),
         }
         if include_technical:
             detail["technical"] = {
