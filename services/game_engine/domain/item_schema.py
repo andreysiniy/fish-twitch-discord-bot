@@ -2,7 +2,8 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Annotated, Callable, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from domain.logic.outcome_classifier import normalize_outcome_target
 
 
 class StrictItemModel(BaseModel):
@@ -53,7 +54,6 @@ class ModifierOperation(str, Enum):
 class ModifierScope(str, Enum):
     FISHING = "fishing"
     ROBBERY = "robbery"
-    ECONOMY = "economy"
     INVENTORY = "inventory"
     ALL = "all"
 
@@ -65,27 +65,26 @@ class StatKey(str, Enum):
     NEGATIVE_FISH_REWARD_CHANGE_RATIO = "negative_fish_reward_change_ratio"
     XP_GAIN_CHANGE_RATIO = "xp_gain_change_ratio"
     COOLDOWN_CHANGE_RATIO = "cooldown_change_ratio"
-    POINTS_FLAT_BONUS = "points_flat_bonus"
     ITEM_DROP_CHANCE_ADD = "item_drop_chance_add"
     ITEM_RARITY_LUCK_PCT = "item_rarity_luck_pct"
     EMPTY_CATCH_REROLL_CHANCE_PCT = "empty_catch_reroll_chance_pct"
     ROBBERY_PROTECTION_PCT = "robbery_protection_pct"
     ROBBERY_EVASION_PCT = "robbery_evasion_pct"
     PROTECTED_MASS_FLAT = "protected_mass_flat"
-    ROBBERY_COUNTER_CHANCE_PCT = "robbery_counter_chance_pct"
     ROBBERY_ATTACK_CHANCE_ADD = "robbery_attack_chance_add"
     ROBBERY_AMOUNT_BONUS_PCT = "robbery_amount_bonus_pct"
     INVENTORY_SLOTS_ADD = "inventory_slots_add"
-    SELL_RATE_BONUS_PCT = "sell_rate_bonus_pct"
-    BUY_DISCOUNT_PCT = "buy_discount_pct"
 
 
 class StatDefinition(StrictItemModel):
     value_type: Literal["decimal", "integer"] = "decimal"
+    unit: Literal["percent", "percentage_points", "kg", "slots", "ratio"]
+    human_input_conversion: Literal["percent_to_ratio", "identity"]
     minimum: Decimal
     maximum: Decimal
     default_operation: ModifierOperation
     scopes: frozenset[ModifierScope]
+    allowed_operations: frozenset[ModifierOperation]
     allowed_sources: frozenset[str]
     description: str
 
@@ -133,13 +132,19 @@ def _stat(
     description: str,
     operation: ModifierOperation = ModifierOperation.ADD,
     value_type: Literal["decimal", "integer"] = "decimal",
+    unit: Literal["percent", "percentage_points", "kg", "slots", "ratio"] = "ratio",
+    human_input_conversion: Literal["percent_to_ratio", "identity"] = "identity",
+    allowed_operations: set[ModifierOperation] | None = None,
 ) -> StatDefinition:
     return StatDefinition(
         value_type=value_type,
+        unit=unit,
+        human_input_conversion=human_input_conversion,
         minimum=Decimal(minimum),
         maximum=Decimal(maximum),
         default_operation=operation,
         scopes=frozenset(scopes),
+        allowed_operations=frozenset(allowed_operations or set(ModifierOperation)),
         allowed_sources=ALL_SOURCES,
         description=description,
     )
@@ -149,56 +154,59 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
     StatKey.FISH_LUCK_CHANGE_RATIO: _stat(
         "-0.50", "1.00", {ModifierScope.FISHING},
         "Fish luck ratio; affects only the magnitude of fish rewards.",
+        unit="percent", human_input_conversion="percent_to_ratio",
     ),
     StatKey.POSITIVE_FISH_REWARD_CHANGE_RATIO: _stat(
         "-0.50", "2.00", {ModifierScope.FISHING},
         "Change ratio applied only to positive fish rewards.",
+        unit="percent", human_input_conversion="percent_to_ratio",
     ),
     StatKey.NEGATIVE_FISH_REWARD_CHANGE_RATIO: _stat(
         "-1.00", "1.00", {ModifierScope.FISHING},
         "Change ratio applied only to negative fish rewards "
         "(negative softens the penalty).",
+        unit="percent", human_input_conversion="percent_to_ratio",
     ),
     StatKey.XP_GAIN_CHANGE_RATIO: _stat(
-        "-1.00", "4.00", {ModifierScope.FISHING}, "Fishing XP gain change ratio."
-    ),
-    StatKey.POINTS_FLAT_BONUS: _stat(
-        "-1000000",
-        "1000000",
-        {ModifierScope.FISHING},
-        "Flat points reward adjustment.",
-        value_type="integer",
+        "-1.00", "4.00", {ModifierScope.FISHING}, "Fishing XP gain change ratio.",
+        unit="percent", human_input_conversion="percent_to_ratio"
     ),
     StatKey.ITEM_DROP_CHANCE_ADD: _stat(
-        "-1", "1", {ModifierScope.FISHING}, "Additive item-drop probability."
+        "-1", "1", {ModifierScope.FISHING}, "Additive item-drop probability.",
+        unit="percentage_points", human_input_conversion="percent_to_ratio",
     ),
     StatKey.ITEM_RARITY_LUCK_PCT: _stat(
-        "-0.95", "10", {ModifierScope.FISHING}, "Item rarity roll luck."
+        "-0.95", "10", {ModifierScope.FISHING}, "Item rarity roll luck.",
+        unit="percent", human_input_conversion="percent_to_ratio",
     ),
     StatKey.COOLDOWN_CHANGE_RATIO: _stat(
-        "-0.80", "1.00", {ModifierScope.FISHING}, "Fishing cooldown change ratio."
+        "-0.80", "1.00", {ModifierScope.FISHING}, "Fishing cooldown change ratio.",
+        unit="percent", human_input_conversion="percent_to_ratio"
     ),
     StatKey.EMPTY_CATCH_REROLL_CHANCE_PCT: _stat(
-        "0", "1", {ModifierScope.FISHING}, "Chance to reroll an empty catch."
+        "0", "1", {ModifierScope.FISHING}, "Chance to reroll an empty catch.",
+        unit="percent", human_input_conversion="percent_to_ratio"
     ),
     StatKey.ROBBERY_PROTECTION_PCT: _stat(
-        "0", "1", {ModifierScope.ROBBERY}, "Reduction of stolen mass."
+        "0", "1", {ModifierScope.ROBBERY}, "Reduction of stolen mass.",
+        unit="percent", human_input_conversion="percent_to_ratio"
     ),
     StatKey.ROBBERY_EVASION_PCT: _stat(
-        "0", "1", {ModifierScope.ROBBERY}, "Reduction of robbery success chance."
+        "0", "1", {ModifierScope.ROBBERY}, "Reduction of robbery success chance.",
+        unit="percent", human_input_conversion="percent_to_ratio"
     ),
     StatKey.PROTECTED_MASS_FLAT: _stat(
         "0", "1000000000000", {ModifierScope.ROBBERY, ModifierScope.FISHING},
         "Mass that cannot be removed.",
-    ),
-    StatKey.ROBBERY_COUNTER_CHANCE_PCT: _stat(
-        "0", "1", {ModifierScope.ROBBERY}, "Chance to trigger a robbery counter."
+        unit="kg",
     ),
     StatKey.ROBBERY_ATTACK_CHANCE_ADD: _stat(
-        "-1", "1", {ModifierScope.ROBBERY}, "Additive robbery attack chance."
+        "-1", "1", {ModifierScope.ROBBERY}, "Additive robbery attack chance.",
+        unit="percentage_points", human_input_conversion="percent_to_ratio",
     ),
     StatKey.ROBBERY_AMOUNT_BONUS_PCT: _stat(
-        "-0.95", "10", {ModifierScope.ROBBERY}, "Robbery amount bonus."
+        "-0.95", "10", {ModifierScope.ROBBERY}, "Robbery amount bonus.",
+        unit="percent", human_input_conversion="percent_to_ratio",
     ),
     StatKey.INVENTORY_SLOTS_ADD: _stat(
         "-100",
@@ -206,12 +214,7 @@ STAT_REGISTRY: dict[StatKey, StatDefinition] = {
         {ModifierScope.INVENTORY},
         "Additional inventory slots.",
         value_type="integer",
-    ),
-    StatKey.SELL_RATE_BONUS_PCT: _stat(
-        "-0.95", "10", {ModifierScope.ECONOMY}, "Fish selling rate bonus."
-    ),
-    StatKey.BUY_DISCOUNT_PCT: _stat(
-        "0", "0.95", {ModifierScope.ECONOMY}, "Fish buying discount."
+        unit="slots",
     ),
 }
 
@@ -259,6 +262,11 @@ class RerollRewardEffect(StrictItemModel):
     max_rerolls: int = Field(1, ge=1, le=3)
     durability_cost: int = Field(0, ge=0, le=1000)
 
+    @field_validator("target_action_types")
+    @classmethod
+    def validate_targets(cls, values: list[str]) -> list[str]:
+        return [normalize_outcome_target(value) for value in values]
+
 
 class BlockActionEffect(StrictItemModel):
     type: Literal["block_action"]
@@ -266,6 +274,11 @@ class BlockActionEffect(StrictItemModel):
     target_action_types: list[str] = Field(min_length=1, max_length=20)
     chance: Decimal = Field(Decimal(1), ge=0, le=1)
     durability_cost: int = Field(0, ge=0, le=1000)
+
+    @field_validator("target_action_types")
+    @classmethod
+    def validate_targets(cls, values: list[str]) -> list[str]:
+        return [normalize_outcome_target(value) for value in values]
 
 
 class TimeoutEffectAction(StrictItemModel):

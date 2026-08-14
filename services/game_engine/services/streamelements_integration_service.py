@@ -224,14 +224,9 @@ class StreamElementsIntegrationService:
                 request_id=context.request_id,
             )
         before = self._serialize_settings(row)
-        if data.pricing_mode == "single_rate":
-            assert data.points_per_kg is not None
-            row.buy_points_per_kg = data.points_per_kg
-            row.sell_points_per_kg = data.points_per_kg
-        else:
+        if data.buy_points_per_kg is not None and data.sell_points_per_kg is not None:
             row.buy_points_per_kg = data.buy_points_per_kg
             row.sell_points_per_kg = data.sell_points_per_kg
-        row.pricing_mode = data.pricing_mode
         for field in (
             "buy_enabled",
             "sell_enabled",
@@ -342,7 +337,6 @@ class StreamElementsIntegrationService:
 
     def _serialize_settings(self, row: ChannelEconomySettings) -> dict[str, Any]:
         return {
-            "pricing_mode": row.pricing_mode,
             "buy_points_per_kg": str(row.buy_points_per_kg),
             "sell_points_per_kg": str(row.sell_points_per_kg),
             "buy_enabled": row.buy_enabled,

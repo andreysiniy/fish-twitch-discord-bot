@@ -48,7 +48,6 @@ def serialize_loot_table_entry(
         "quantity": None,
         "min_quantity": entry.min_quantity,
         "max_quantity": entry.max_quantity,
-        "rarity_filter": entry.rarity_filter,
         "message": entry.message or "You caught {name}!",
         "effects": definition.effects or [],
         "definition_version": definition.version,

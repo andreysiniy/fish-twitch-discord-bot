@@ -106,9 +106,6 @@ class ChannelEconomySettings(Base):
     __tablename__ = "channel_economy_settings"
     __table_args__ = (
         UniqueConstraint("channel_id", name="uq_channel_economy_settings_channel"),
-        CheckConstraint(
-            "pricing_mode IN ('single_rate','spread')", name="ck_economy_settings_pricing_mode"
-        ),
         CheckConstraint("buy_points_per_kg > 0", name="ck_economy_settings_buy_rate_positive"),
         CheckConstraint("sell_points_per_kg > 0", name="ck_economy_settings_sell_rate_positive"),
         CheckConstraint("min_transaction_mass > 0", name="ck_economy_settings_min_mass_positive"),
@@ -119,7 +116,6 @@ class ChannelEconomySettings(Base):
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
-    pricing_mode = Column(String, nullable=False, default="single_rate")
     buy_points_per_kg = Column(Numeric(18, 4), nullable=False, default=Decimal("120"))
     sell_points_per_kg = Column(Numeric(18, 4), nullable=False, default=Decimal("100"))
     buy_enabled = Column(Boolean, nullable=False, default=True)
@@ -717,7 +713,7 @@ class PlayerModifier(Base):
             name="ck_player_modifiers_operation",
         ),
         CheckConstraint(
-            "scope IN ('fishing','robbery','economy','inventory','all')",
+            "scope IN ('fishing','robbery','inventory','all')",
             name="ck_player_modifiers_scope",
         ),
         Index("ix_player_modifiers_user", "user_progress_id"),
@@ -819,7 +815,6 @@ class LootTableEntry(Base):
     weight = Column(Integer, nullable=False)
     min_quantity = Column(Integer, default=1, nullable=False)
     max_quantity = Column(Integer, default=1, nullable=False)
-    rarity_filter = Column(String, nullable=True)
     xp_gain = Column(Integer, default=0, nullable=False)
     message = Column(String, nullable=True)
     config_version = Column(Integer, default=1, nullable=False)

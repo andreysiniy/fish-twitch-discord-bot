@@ -236,7 +236,7 @@ def test_dupe_reward_creates_bounded_repeat_action() -> None:
     assert response.actions[1].delay == 2
 
 
-def test_points_bonus_is_applied_to_points_reward() -> None:
+def test_legacy_points_reward_is_not_modified_by_player_stats() -> None:
     rod = SimpleNamespace(
         slot_id=1,
         quantity=1,
@@ -272,7 +272,7 @@ def test_points_bonus_is_applied_to_points_reward() -> None:
         items_drop_rate=0,
         custom_params={},
     )
-    assert result.loot["value"] == 125
+    assert result.loot["value"] == 100
 
 
 @pytest.mark.parametrize(
@@ -401,8 +401,8 @@ def test_robbery_mass_uses_decimal_arithmetic(monkeypatch) -> None:
     )
 
     assert result.is_success is True
-    assert result.amount_stolen == Decimal("4.55")
-    assert result.victim_new_mass == Decimal("5.45")
+    assert result.amount_stolen == Decimal("5.00")
+    assert result.victim_new_mass == Decimal("5.00")
     assert isinstance(result.amount_stolen, Decimal)
 
 
@@ -562,7 +562,7 @@ def test_block_action_rerolls_matching_reward_and_tracks_durability(monkeypatch)
     assert effect["_trigger_count"] == 1
 
 
-def test_counter_stat_adds_to_item_counter_chance(monkeypatch) -> None:
+def test_counter_effect_uses_its_own_chance(monkeypatch) -> None:
     service = object.__new__(FishingService)
     service.user_repo = SimpleNamespace(db=Mock())
     monkeypatch.setattr("services.fishing_service.random.random", lambda: 0.10)
@@ -575,12 +575,11 @@ def test_counter_stat_adds_to_item_counter_chance(monkeypatch) -> None:
         [
             {
                 "type": "robbery_counter",
-                "chance": "0",
+                "chance": "1",
                 "durability_cost": 0,
                 "action": {"type": "timeout", "duration_seconds": 30},
             }
         ],
-        counter_chance_bonus=Decimal("0.20"),
     )
 
     assert absorbed is False

@@ -46,7 +46,8 @@ class ResolvedPlayerModifiers:
             if effect.get("type") == "mass_floor"
             and effect_scope in (effect.get("scopes") or [])
         ]
-        return max(floors, default=Decimal("0"))
+        protected_stat = self.values.get(StatKey.PROTECTED_MASS_FLAT.value, Decimal("0"))
+        return max([*floors, Decimal(str(protected_stat))], default=Decimal("0"))
 
 
 logger = logging.getLogger(__name__)
