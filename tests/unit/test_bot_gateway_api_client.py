@@ -2,12 +2,25 @@ import asyncio
 
 import pytest
 from api_client import EngineApiClient, EngineApiError
+from commands.admin import _effective_economy_switches
 from commands.economy import _format_rate, _user_economy_error
 
 
 def test_fish_rate_formatter_removes_insignificant_zeroes() -> None:
     assert _format_rate("120.0000") == "120"
     assert _format_rate("12.5000") == "12.5"
+
+
+def test_disabled_conversions_make_buy_and_sell_effectively_unavailable() -> None:
+    assert _effective_economy_switches(
+        {"enabled": False, "buy_enabled": True, "sell_enabled": True}
+    ) == (False, False, False)
+
+
+def test_enabled_conversions_preserve_direction_switches() -> None:
+    assert _effective_economy_switches(
+        {"enabled": True, "buy_enabled": True, "sell_enabled": False}
+    ) == (True, True, False)
 
 
 def test_economy_operation_in_progress_error_is_safe_for_chat() -> None:

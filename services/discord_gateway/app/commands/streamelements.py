@@ -10,6 +10,11 @@ from app.commands.shared import _confirmation, _deferred, _send_error
 from app.presentation.formatting import format_compact_number
 
 
+def _is_effective_switch_enabled(settings: dict, field: str) -> bool:
+    """A disabled conversions switch makes both market directions unavailable."""
+    return bool(settings.get("enabled")) and bool(settings.get(field))
+
+
 class StreamElementsConnectModal(discord.ui.Modal, title="Connect StreamElements"):
     token = discord.ui.TextInput(
         label="StreamElements JWT",
@@ -101,8 +106,12 @@ class EconomySwitchesView(discord.ui.View):
 
     def _refresh_labels(self) -> None:
         self.enabled_button.label = f"Conversions: {'On' if self.current.get('enabled') else 'Off'}"
-        self.buy_button.label = f"Buying: {'On' if self.current.get('buy_enabled') else 'Off'}"
-        self.sell_button.label = f"Selling: {'On' if self.current.get('sell_enabled') else 'Off'}"
+        self.buy_button.label = (
+            f"Buying: {'On' if _is_effective_switch_enabled(self.current, 'buy_enabled') else 'Off'}"
+        )
+        self.sell_button.label = (
+            f"Selling: {'On' if _is_effective_switch_enabled(self.current, 'sell_enabled') else 'Off'}"
+        )
 
     async def _toggle(self, interaction: discord.Interaction, field: str) -> None:
         try:
