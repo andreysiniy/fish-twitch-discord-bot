@@ -66,7 +66,17 @@ def _without_timeout_rewards(loot_pool: list[dict]) -> list[dict]:
     their pool; a pool that becomes empty falls back to a neutral catch so the
     weighted roll never sees an empty table.
     """
-    pool = [reward for reward in loot_pool if reward.get("type") != ActionType.TIMEOUT]
+    def contains_timeout(reward: dict) -> bool:
+        if reward.get("type") == ActionType.TIMEOUT:
+            return True
+        if reward.get("type") != ActionType.RUSSIAN_ROULETTE:
+            return False
+        return any(
+            isinstance(outcome, dict) and outcome.get("type") == ActionType.TIMEOUT
+            for outcome in (reward.get("reward"), reward.get("penalty"))
+        )
+
+    pool = [reward for reward in loot_pool if not contains_timeout(reward)]
     if not pool:
         return [{"type": "nothing", "weight": 100, "message": "No fish here..."}]
     return pool

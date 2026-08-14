@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from typing import Any, Dict, Optional, Tuple
 
@@ -243,11 +244,9 @@ class EngineApiClient:
                     msg = entry.get("msg") or entry.get("detail")
                     if msg:
                         messages.append(str(msg))
-                    else:
-                        messages.append(str(entry))
                 else:
-                    messages.append(str(entry))
-            return "; ".join(messages) if messages else "Request failed"
+                    messages.append(self._safe_error_text(entry))
+            return "; ".join(messages) if messages else "The request could not be completed."
 
         if isinstance(detail, dict):
             message = detail.get("message") or detail.get("msg") or detail.get("detail")
@@ -263,8 +262,24 @@ class EngineApiClient:
                     if rendered:
                         suffix = " ".join(rendered)
                         return f"{message or 'Request failed'} {suffix}"
-            return str(message or detail)
+            return self._safe_error_text(message or "The request could not be completed.")
 
         if detail is None:
-            return "Request failed"
-        return str(detail)
+            return "The request could not be completed."
+        return self._safe_error_text(detail)
+
+    @staticmethod
+    def _safe_error_text(value: Any) -> str:
+        """Keep JSON error payloads out of Twitch chat."""
+        text = str(value).strip()
+        if not text:
+            return "The request could not be completed."
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            return text
+        if isinstance(parsed, dict):
+            message = parsed.get("message") or parsed.get("msg") or parsed.get("detail")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        return "The request could not be completed."

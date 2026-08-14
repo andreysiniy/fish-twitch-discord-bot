@@ -614,3 +614,27 @@ def test_mod_pool_with_only_timeout_falls_back_to_nothing() -> None:
     assert fallback == [
         {"type": "nothing", "weight": 100, "message": "No fish here..."}
     ]
+
+
+def test_mod_pool_excludes_roulette_rewards_with_timeout_outcome() -> None:
+    """A roulette reward with a timeout outcome is unsafe for moderators too."""
+    from services.fishing_service import _without_timeout_rewards
+
+    pool = [
+        {
+            "type": "russian_roulette",
+            "weight": 20,
+            "reward": {"type": "add_mass", "mass": 1},
+            "penalty": {"type": "timeout", "duration": 60},
+        },
+        {
+            "type": "russian_roulette",
+            "weight": 30,
+            "reward": {"type": "add_mass", "mass": 1},
+            "penalty": {"type": "add_mass", "mass": -1},
+        },
+    ]
+
+    filtered = _without_timeout_rewards(pool)
+
+    assert filtered == [pool[1]]

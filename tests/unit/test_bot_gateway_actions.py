@@ -565,13 +565,12 @@ async def test_timeout_action_without_target_user_raises_clear_error(monkeypatch
     )
 
     sent = ctx.send.await_args.args[0]
-    assert "target_user" in sent
-    assert "missing target_user" in sent
+    assert sent == "The timeout action is missing a target user."
 
 
 @pytest.mark.asyncio
-async def test_timeout_api_error_includes_status_and_context(monkeypatch) -> None:
-    """A Twitch API rejection is surfaced with status, body and resolved ids."""
+async def test_timeout_api_error_does_not_expose_provider_json(monkeypatch) -> None:
+    """A Twitch API rejection is reported safely without raw provider details."""
     response = SimpleNamespace(status=403, text=AsyncMock(return_value='{"error":"Forbidden"}'))
 
     class _FakeResponse:
@@ -619,11 +618,10 @@ async def test_timeout_api_error_includes_status_and_context(monkeypatch) -> Non
     )
 
     sent = ctx.send.await_args.args[0]
-    assert "403" in sent
-    assert "Forbidden" in sent
-    assert "broadcaster=464887139" in sent
-    assert "moderator=1141045443" in sent
-    assert "target=srakjopa_2" in sent
+    assert sent == "The timeout could not be applied. Please try again."
+    assert "Forbidden" not in sent
+    assert "broadcaster" not in sent
+    assert "target" not in sent
 
 
 def _fake_session_with_responses(*responses) -> MagicMock:
@@ -706,7 +704,7 @@ async def test_timeout_retries_without_reason_when_reason_rejected(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_timeout_retry_failure_reports_retry_status(monkeypatch) -> None:
-    """If the reason-less retry also fails, the retry status is surfaced."""
+    """If the reason-less retry also fails, provider details stay out of chat."""
     rejected = SimpleNamespace(
         status=400,
         text=AsyncMock(
@@ -725,5 +723,5 @@ async def test_timeout_retry_failure_reports_retry_status(monkeypatch) -> None:
     )
 
     sent = ctx.send.await_args.args[0]
-    assert "500" in sent
-    assert "Internal Server Error" in sent
+    assert sent == "The timeout could not be applied. Please try again."
+    assert "Internal Server Error" not in sent
