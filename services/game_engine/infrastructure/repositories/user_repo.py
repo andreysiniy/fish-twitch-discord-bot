@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import func
 import random
@@ -13,16 +14,38 @@ class UserRepository:
     def get_channel(self, channel_twitch_id: str) -> Channel | None:
         return self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()
 
-    def get_progress(self, user_twitch_id: str, channel_twitch_id: str) -> UserProgress | None:
+    def get_progress(
+        self,
+        user_twitch_id: str,
+        channel_twitch_id: str,
+        *,
+        lock: bool = False,
+    ) -> UserProgress | None:
         channel = self.get_channel(channel_twitch_id)
 
         if not channel:
             return None
 
-        return self.db.query(UserProgress).filter(
+        query = self.db.query(UserProgress).filter(
             UserProgress.user_twitch_id == user_twitch_id,
             UserProgress.channel_id == channel.id,
-        ).first()
+        )
+        if lock:
+            query = query.with_for_update(of=UserProgress)
+        return query.first()
+
+    def acquire_fishing_lock(self, user_twitch_id: str, channel_twitch_id: str) -> None:
+        """Serialize fishing requests for one channel viewer in this transaction.
+
+        The advisory lock also covers the first request for a viewer who does
+        not have a ``UserProgress`` row yet, so concurrent profile creation is
+        serialized before the row-level lock is acquired.
+        """
+        lock_key = f"fishing:{channel_twitch_id}:{user_twitch_id}"
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": lock_key},
+        )
 
     def create(self, user_twitch_id: str, username: str, channel_twitch_id: str) -> UserProgress:
         channel = self.db.query(Channel).filter(Channel.twitch_id == channel_twitch_id).first()

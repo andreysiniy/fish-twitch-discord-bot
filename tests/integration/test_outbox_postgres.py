@@ -4,9 +4,13 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from domain.economy import EconomyDomainError
 from infrastructure.database import SessionLocal
 from infrastructure.models import Channel, EconomyOperation, OutboxEvent, UserProgress
 from infrastructure.se_client import SETransientError
+from infrastructure.repositories.channel_repo import ChannelRepository
+from infrastructure.repositories.user_repo import UserRepository
+from services.economy_service import EconomyService
 from services.eventing.se_job_runner import SEJobRunner
 
 
@@ -45,7 +49,7 @@ def _sell_operation(db, suffix: str, *, mass: str = "90.00"):
     event = OutboxEvent(
         idempotency_key=f"economy:{operation.id}",
         topic="streamelements.points",
-        payload={"operation_id": operation.id},
+        payload={"operation_id": str(operation.id)},
         state="processing",
         lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=1),
     )
@@ -106,6 +110,30 @@ def test_expired_processing_lease_requires_reconciliation_without_refund() -> No
         assert event.state == "reconciliation_required"
         assert operation.state == "reconciliation_required"
         assert user.current_mass == Decimal("90.00")
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.integration
+def test_active_economy_operation_blocks_new_conversion_until_terminal() -> None:
+    db = SessionLocal()
+    try:
+        user, operation, _event = _sell_operation(db, "active-rule")
+        service = EconomyService(
+            UserRepository(db),
+            ChannelRepository(db),
+            se_client=None,
+        )
+
+        with pytest.raises(
+            EconomyDomainError, match="Another fish conversion is already processing"
+        ):
+            service._ensure_no_active_operation(user)
+
+        operation.state = "completed"
+        db.flush()
+        service._ensure_no_active_operation(user)
     finally:
         db.rollback()
         db.close()

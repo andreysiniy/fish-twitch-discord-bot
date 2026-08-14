@@ -1,11 +1,16 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import text
 from infrastructure.database import SessionLocal
+from infrastructure.after_commit import run_after_commit_callbacks
 from infrastructure.models import Channel, FishingCast, RewardPool, UserProgress
+from domain.schemas.fishing import FishResponse
 from services.fishing_service import FishingService
 
 
@@ -130,6 +135,78 @@ def test_duplicate_source_request_replays_without_second_cast() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+@pytest.mark.integration
+def test_different_source_requests_are_serialized_by_player_cast_lock() -> None:
+    """Two concurrent messages cannot both pass the same viewer cooldown."""
+    db = SessionLocal()
+    try:
+        channel, user = _seed_channel_user(db, "concurrent")
+        db.commit()
+        channel_id = channel.id
+        user_id = user.id
+        twitch_id = user.user_twitch_id
+        username = user.username
+        channel_twitch_id = channel.twitch_id
+    finally:
+        db.close()
+
+    start = Barrier(2)
+
+    def run_cast(source_request_id: str):
+        worker_db = SessionLocal()
+        try:
+            service = _make_service(worker_db)
+            service.presenter.build_response = lambda _u, _r: FishResponse(
+                chat_message="ok", xp_gained=0, actions=[]
+            )
+            start.wait(timeout=10)
+            response = service.process_cast(
+                twitch_id,
+                username,
+                channel_twitch_id,
+                source="twitch",
+                source_request_id=source_request_id,
+            )
+            worker_db.commit()
+            run_after_commit_callbacks(worker_db)
+            return response
+        except Exception:
+            worker_db.rollback()
+            raise
+        finally:
+            worker_db.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(
+                executor.map(run_cast, ("msg-concurrent-a", "msg-concurrent-b"))
+            )
+
+        assert sum(response.chat_message == "ok" for response in responses) == 1
+        assert sum(response.chat_message != "ok" for response in responses) == 1
+    finally:
+        cleanup_db = SessionLocal()
+        try:
+            cleanup_db.query(FishingCast).filter(
+                FishingCast.source_request_id.in_(
+                    ("msg-concurrent-a", "msg-concurrent-b")
+                )
+            ).delete(synchronize_session=False)
+            cleanup_db.query(UserProgress).filter(UserProgress.id == user_id).delete(
+                synchronize_session=False
+            )
+            cleanup_db.execute(
+                text("DELETE FROM fishing_ruleset_snapshots WHERE channel_id = :channel_id"),
+                {"channel_id": channel_id},
+            )
+            cleanup_db.query(Channel).filter(Channel.id == channel_id).delete(
+                synchronize_session=False
+            )
+            cleanup_db.commit()
+        finally:
+            cleanup_db.close()
 
 
 @pytest.mark.integration
