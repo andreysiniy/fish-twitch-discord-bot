@@ -75,6 +75,16 @@ def test_error_formatter_does_not_render_json_error_strings() -> None:
     assert message == "The request could not be completed."
 
 
+def test_error_formatter_sanitizes_nested_json_messages() -> None:
+    client = EngineApiClient("http://engine")
+
+    message = client._format_error_detail(
+        [{"msg": '{"error":"Bad Request","status":400}'}]
+    )
+
+    assert message == "The request could not be completed."
+
+
 @pytest.mark.asyncio
 async def test_engine_timeout_is_reported_as_actionable_error() -> None:
     class TimeoutContext:

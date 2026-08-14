@@ -243,7 +243,7 @@ class EngineApiClient:
                 if isinstance(entry, dict):
                     msg = entry.get("msg") or entry.get("detail")
                     if msg:
-                        messages.append(str(msg))
+                        messages.append(self._safe_error_text(msg))
                 else:
                     messages.append(self._safe_error_text(entry))
             return "; ".join(messages) if messages else "The request could not be completed."
@@ -255,13 +255,14 @@ class EngineApiClient:
                 issues = fields.get("review_issues")
                 if isinstance(issues, list):
                     rendered = [
-                        str(issue.get("message"))
+                        self._safe_error_text(issue.get("message"))
                         for issue in issues
                         if isinstance(issue, dict) and issue.get("message")
                     ]
                     if rendered:
                         suffix = " ".join(rendered)
-                        return f"{message or 'Request failed'} {suffix}"
+                        prefix = self._safe_error_text(message or "Request failed")
+                        return f"{prefix} {suffix}"
             return self._safe_error_text(message or "The request could not be completed.")
 
         if detail is None:
