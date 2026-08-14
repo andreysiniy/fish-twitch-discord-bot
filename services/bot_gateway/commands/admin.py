@@ -1,17 +1,23 @@
 import logging
 import unicodedata
 
-from twitchio.ext import commands
-from twitchio import User
-
-from heplers.context_tool import get_channel_id
-
 from api_client import EngineApiError
+from heplers.context_tool import get_channel_id
+from twitchio import User
+from twitchio.ext import commands
 
 ALLOWED_ROLES = {"editor", "moderator"}
 # TwitchIO may expose the missing optional argument as the string "0".
 INDEFINITE_DURATION_TOKENS = {"", "0", "none", "null", "indefinite", "unlimited"}
 logger = logging.getLogger(__name__)
+
+
+def _effective_economy_switches(result: dict) -> tuple[bool, bool, bool]:
+    """Return the switches that are effective for viewers in the channel."""
+    conversions_enabled = bool(result.get("enabled"))
+    buy_enabled = conversions_enabled and bool(result.get("buy_enabled"))
+    sell_enabled = conversions_enabled and bool(result.get("sell_enabled"))
+    return conversions_enabled, buy_enabled, sell_enabled
 
 
 def _duration_argument(arg2: str | None) -> str:
@@ -295,11 +301,12 @@ class AdminCog(commands.Cog):
                 actor_twitch_id=str(ctx.author.id),
                 action=normalized,
             )
+            conversions_enabled, buy_enabled, sell_enabled = _effective_economy_switches(result)
             await ctx.send(
                 "Economy switches: "
-                f"conversions {'on' if result.get('enabled') else 'off'}, "
-                f"buy {'on' if result.get('buy_enabled') else 'off'}, "
-                f"sell {'on' if result.get('sell_enabled') else 'off'}."
+                f"conversions {'on' if conversions_enabled else 'off'}, "
+                f"buy {'on' if buy_enabled else 'off'}, "
+                f"sell {'on' if sell_enabled else 'off'}."
             )
         except EngineApiError as error:
             await ctx.send(str(error))

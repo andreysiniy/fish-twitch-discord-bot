@@ -7,7 +7,11 @@ from app.api.errors import EngineError, localize_error
 from app.api.idempotency import interaction_key
 from app.bot import FisherDiscordBot
 from app.commands.register import _json_confirmation
-from app.commands.streamelements import EconomySettingsModal, StreamElementsConnectModal
+from app.commands.streamelements import (
+    EconomySettingsModal,
+    StreamElementsConnectModal,
+    _is_effective_switch_enabled,
+)
 from app.config import DiscordSettings
 from app.interactions.confirms import ConfirmView
 from app.interactions.modals import (
@@ -93,6 +97,12 @@ def test_economy_modal_uses_max_number_alias() -> None:
         "version": 1,
     })
     assert modal.maximum.default == "MAX_NUMBER"
+
+
+def test_discord_economy_switches_use_effective_global_state() -> None:
+    settings = {"enabled": False, "buy_enabled": True, "sell_enabled": True}
+    assert not _is_effective_switch_enabled(settings, "buy_enabled")
+    assert not _is_effective_switch_enabled(settings, "sell_enabled")
 
 
 @pytest.mark.parametrize(
