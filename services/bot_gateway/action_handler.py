@@ -45,8 +45,7 @@ class ActionHandler:
                 await self._handle_dupe(ctx, action)
         except Exception as error:
             logger.exception("Failed to execute action type=%s", action_type)
-            detail = str(error) or type(error).__name__
-            await ctx.send(f"Action '{action_type}' failed: {detail}"[:500])
+            await ctx.send(self._public_action_error(action_type, error))
             return
 
         action_message = action.get("action_message")
@@ -54,6 +53,21 @@ class ActionHandler:
             await ctx.send(action_message)
         if warning:
             await ctx.send(warning)
+
+    @staticmethod
+    def _public_action_error(action_type: str, error: Exception) -> str:
+        """Return a safe Twitch-facing error without provider response bodies.
+
+        External APIs often return JSON containing internal IDs and diagnostic
+        details. Those details stay in logs; chat receives only an actionable,
+        stable message. Local validation errors retain their useful guidance.
+        """
+        if action_type == "timeout" and isinstance(error, ValueError):
+            if "missing target_user" in str(error):
+                return "The timeout action is missing a target user."
+        if action_type == "timeout":
+            return "The timeout could not be applied. Please try again."
+        return "The action could not be completed. Please try again."
 
     async def _handle_dupe(self, ctx, action: Dict[str, Any]) -> None:
         amount = max(min(int(action.get("amount", 1)), 20), 1)

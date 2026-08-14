@@ -58,6 +58,23 @@ def test_review_error_formatter_includes_concrete_modifier_issue() -> None:
     assert "Good Catch is +500%" in message
 
 
+def test_error_formatter_does_not_render_unknown_json_objects() -> None:
+    client = EngineApiClient("http://engine")
+
+    message = client._format_error_detail({"error": "Bad Request", "status": 400})
+
+    assert message == "The request could not be completed."
+    assert "Bad Request" not in message
+
+
+def test_error_formatter_does_not_render_json_error_strings() -> None:
+    client = EngineApiClient("http://engine")
+
+    message = client._format_error_detail('{"error":"Bad Request","status":400}')
+
+    assert message == "The request could not be completed."
+
+
 @pytest.mark.asyncio
 async def test_engine_timeout_is_reported_as_actionable_error() -> None:
     class TimeoutContext:
