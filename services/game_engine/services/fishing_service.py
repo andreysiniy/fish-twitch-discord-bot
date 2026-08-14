@@ -115,7 +115,8 @@ class FishingService:
     ):
         started_monotonic = time.monotonic()
         started_at = datetime.now(timezone.utc)
-        user = self.user_repo.get_progress(twitch_id, channel_id)
+        self.user_repo.acquire_fishing_lock(twitch_id, channel_id)
+        user = self.user_repo.get_progress(twitch_id, channel_id, lock=True)
         if not user:
             user = self.user_repo.create(twitch_id, username, channel_id)
 
@@ -140,8 +141,19 @@ class FishingService:
                 started_monotonic=started_monotonic,
             )
         except Exception as error:
+            # Release the advisory and row locks before the failed-cast ledger
+            # opens its independent transaction. Otherwise its FK insert can
+            # wait forever on the user row locked by this failed request.
+            failed_user = {
+                "channel_id": user.channel_id,
+                "user_progress_id": user.id,
+                "twitch_user_id": user.user_twitch_id,
+                "username": user.username,
+                "location_id": user.current_location_id or "default",
+            }
+            self.user_repo.db.rollback()
             self._record_failed_cast(
-                user=user,
+                **failed_user,
                 source=source,
                 source_request_id=source_request_id,
                 requested_at=requested_at or started_at,
@@ -519,7 +531,11 @@ class FishingService:
     def _record_failed_cast(
         self,
         *,
-        user: UserProgress,
+        channel_id: int,
+        user_progress_id: int,
+        twitch_user_id: str,
+        username: str,
+        location_id: str,
         source: str,
         source_request_id: str,
         requested_at: datetime,
@@ -539,11 +555,11 @@ class FishingService:
             try:
                 ledger = FishingLedgerService(failed_db)
                 ledger.record_failed(
-                    channel_id=user.channel_id,
-                    user_progress_id=user.id,
-                    twitch_user_id=user.user_twitch_id,
-                    username=user.username,
-                    location_id=user.current_location_id or "default",
+                    channel_id=channel_id,
+                    user_progress_id=user_progress_id,
+                    twitch_user_id=twitch_user_id,
+                    username=username,
+                    location_id=location_id,
                     error_code=type(error).__name__,
                     source=source,
                     source_request_id=source_request_id,
