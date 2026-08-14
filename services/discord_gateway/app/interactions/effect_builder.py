@@ -101,6 +101,17 @@ def _percent(value: Any) -> str:
         return f"{value}"
 
 
+def _human_chance_ratio(value: str) -> str:
+    """Convert a legacy modal's human chance percentage to a backend ratio."""
+    try:
+        chance = Decimal(value.strip() or "100")
+    except Exception as error:
+        raise ValueError("Chance must be a number from 0 to 100") from error
+    if not Decimal("0") <= chance <= Decimal("100"):
+        raise ValueError("Chance must be a number from 0 to 100")
+    return format(chance / Decimal("100"), "f")
+
+
 class TypedEffectModal(discord.ui.Modal):
     """Shared base for typed effect modals.
 
@@ -155,7 +166,7 @@ class PassiveEffectModal(TypedEffectModal):
             required=True,
         )
         self.value = discord.ui.TextInput(
-            label="Value (ratio; 0.10 = +10%)",
+            label="Value (human percentage where applicable; 10 = +10%)",
             max_length=24,
             required=True,
         )
@@ -265,7 +276,7 @@ class BlockActionModal(TypedEffectModal):
             required=True,
         )
         self.chance = discord.ui.TextInput(
-            label="Chance (0..1)", default="1", max_length=8, required=True
+            label="Chance (%)", default="100", max_length=8, required=True
         )
         self.durability_cost = discord.ui.TextInput(
             label="Durability cost", max_length=4, default="0", required=True
@@ -280,7 +291,7 @@ class BlockActionModal(TypedEffectModal):
             "target_action_types": [
                 part.strip() for part in self.targets.value.split(",") if part.strip()
             ],
-            "chance": self.chance.value.strip() or "1",
+            "chance": _human_chance_ratio(self.chance.value),
             "durability_cost": int(self.durability_cost.value.strip() or "0"),
         }
         await self._finish(interaction, payload)
@@ -297,7 +308,7 @@ class RobberyCounterModal(TypedEffectModal):
             label="Trigger", default="on_robbery_attempt", max_length=30, required=True
         )
         self.chance = discord.ui.TextInput(
-            label="Chance (0..1)", default="1", max_length=8, required=True
+            label="Chance (%)", default="100", max_length=8, required=True
         )
         self.action_type = discord.ui.TextInput(
             label="Counter action",
@@ -327,7 +338,7 @@ class RobberyCounterModal(TypedEffectModal):
         payload = {
             "type": "robbery_counter",
             "trigger": self.trigger.value.strip() or "on_robbery_attempt",
-            "chance": self.chance.value.strip() or "1",
+            "chance": _human_chance_ratio(self.chance.value),
             "action": action,
             "durability_cost": 1,
         }
@@ -342,7 +353,7 @@ class AbsorbRobberyModal(TypedEffectModal):
     ):
         super().__init__("Absorb Robbery", on_save, on_saved)
         self.chance = discord.ui.TextInput(
-            label="Chance (0..1)", default="1", max_length=8, required=True
+            label="Chance (%)", default="100", max_length=8, required=True
         )
         self.attacker_delta = discord.ui.TextInput(
             label="Attacker mass delta", default="0", max_length=24, required=True
@@ -357,7 +368,7 @@ class AbsorbRobberyModal(TypedEffectModal):
         payload = {
             "type": "absorb_robbery",
             "trigger": "on_robbery_attempt",
-            "chance": self.chance.value.strip() or "1",
+            "chance": _human_chance_ratio(self.chance.value),
             "attacker_mass_delta": self.attacker_delta.value.strip() or "0",
             "durability_cost": int(self.durability_cost.value.strip() or "1"),
         }
