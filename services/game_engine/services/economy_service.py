@@ -67,6 +67,15 @@ _SellCallable = TypeVar(
     "_SellCallable", bound=Callable[..., Coroutine[object, object, FishResponse]]
 )
 
+_ACTIVE_OPERATION_STATES = (
+    "pending",
+    "queued",
+    "processing",
+    "external_pending",
+    "external_applied",
+    "reconciliation_required",
+)
+
 
 def _serialize_buy_requests(func: _BuyCallable) -> _BuyCallable:
     """Serialize purchases per viewer before any provider balance is read."""
@@ -128,6 +137,7 @@ class EconomyService:
             return self._message(channel, MsgKey.ERR_NO_PROFILE, username=twitch_id)
         if not settings.enabled or not settings.sell_enabled:
             return self._message(channel, MsgKey.SELL_MASS_DISABLED)
+        self._ensure_no_active_operation(user)
         current_mass = self._decimal(user.current_mass)
         if current_mass <= 0:
             return self._message(channel, MsgKey.SELL_MASS_EMPTY)
@@ -150,6 +160,7 @@ class EconomyService:
                 error.code, "StreamElements is temporarily unavailable."
             ) from error
         user = self._lock_user(user.id)
+        self._ensure_no_active_operation(user)
         current_mass = self._decimal(user.current_mass)
         if current_mass <= 0:
             return self._message(channel, MsgKey.SELL_MASS_EMPTY)
@@ -268,16 +279,18 @@ class EconomyService:
         )
         if previous:
             return self._stored_response(previous)
-        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=False)
+        user, channel, integration, settings = self._load_context(twitch_id, channel_id, lock=True)
         if user is None:
             return self._message(channel, MsgKey.ERR_NO_PROFILE, username=twitch_id)
         if not settings.enabled or not settings.buy_enabled:
             return self._message(channel, MsgKey.SELL_MASS_DISABLED)
+        self._ensure_no_active_operation(user)
         parsed = parse_mass_argument(amount_str, allow_all=True)
         token = self._decrypt_integration(integration, channel)
         username = (user.username or "").strip() or twitch_id
-        # The Redis request lock serializes concurrent purchases for one viewer
-        # without holding a PostgreSQL row lock across the provider call.
+        # Release the row lock before waiting on StreamElements. The durable
+        # operation check is repeated before creating the provider saga.
+        self.db.commit()
         try:
             balance = await self.se_client.get_balance(
                 str(integration.provider_channel_id), token, username
@@ -291,6 +304,8 @@ class EconomyService:
                 error.code, "StreamElements is temporarily unavailable."
             ) from error
         balance = validate_provider_balance(balance)
+        user = self._lock_user(user.id)
+        self._ensure_no_active_operation(user)
         rate = Decimal(str(settings.buy_points_per_kg))
         mass = self._resolve_buy_mass(parsed, balance, rate, settings)
         cost = calculate_buy_points(mass, rate)
@@ -719,7 +734,7 @@ class EconomyService:
     @contextmanager
     def _buy_request_lock(self, channel_id: str, twitch_id: str):
         redis = RedisClient.get_client()
-        key = f"economy:buy:{channel_id}:{twitch_id}"
+        key = f"economy:{channel_id}:{twitch_id}"
         token = uuid4().hex
         if not redis.set(key, token, nx=True, ex=120):
             raise EconomyDomainError(
@@ -740,7 +755,7 @@ class EconomyService:
     @contextmanager
     def _sell_request_lock(self, channel_id: str, twitch_id: str):
         redis = RedisClient.get_client()
-        key = f"economy:sell:{channel_id}:{twitch_id}"
+        key = f"economy:{channel_id}:{twitch_id}"
         token = uuid4().hex
         if not redis.set(key, token, nx=True, ex=120):
             raise EconomyDomainError(
@@ -767,6 +782,30 @@ class EconomyService:
             .with_for_update()
             .one()
         )
+
+    def _ensure_no_active_operation(self, user: UserProgress) -> None:
+        """Reject a new conversion while an earlier one is not terminal.
+
+        Redis serialization protects the normal request path. This durable
+        check also protects retries after a Redis lease expires and prevents a
+        conversion from starting while its provider saga still needs
+        reconciliation.
+        """
+        active = (
+            self.db.query(EconomyOperation.id)
+            .filter(
+                EconomyOperation.channel_id == user.channel_id,
+                EconomyOperation.user_id == user.id,
+                EconomyOperation.state.in_(_ACTIVE_OPERATION_STATES),
+            )
+            .order_by(EconomyOperation.created_at.asc())
+            .first()
+        )
+        if active is not None:
+            raise EconomyDomainError(
+                "ECONOMY_OPERATION_IN_PROGRESS",
+                "Another fish conversion is already processing. Please wait.",
+            )
 
     def _settings(self, channel: Channel) -> ChannelEconomySettings:
         row = (
