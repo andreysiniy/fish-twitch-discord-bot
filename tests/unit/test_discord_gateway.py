@@ -265,8 +265,11 @@ def test_entity_list_entries_include_all_parameters_without_truncation() -> None
     rendered = "\n".join(field.value for field in view.embed().fields)
 
     assert title == "Risky reward"
-    assert "probability: 50.00%" in details
-    assert all(f"{key}:" in details for key in reward)
+    assert "Chance: 50.00%" in details
+    assert "Chambers: 1 loaded / 6 total" in details
+    assert "Safe outcome: +2.5 kg" in details
+    assert "Loaded outcome: Timeout for 1 minute (Unlucky)" in details
+    assert "null" not in details.lower()
     assert marker in rendered
 
     location = {

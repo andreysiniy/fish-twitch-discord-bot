@@ -7,18 +7,6 @@ import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
-from app.interactions.confirms import ConfirmView
-from app.interactions.launchers import ModalLauncherView
-from app.interactions.modals import (
-    create_reward_modal,
-)
-from app.presentation.embeds import (
-    legacy_import_embed,
-    reward_detail_embed,
-    reward_list_entry,
-)
-from app.presentation.pagination import PagedEmbedView
-
 from app.commands.shared import (  # noqa: F401  (shared helpers)
     BREAK_POLICY_CHOICES,
     EQUIPMENT_SLOT_CHOICES,
@@ -40,6 +28,16 @@ from app.commands.shared import (  # noqa: F401  (shared helpers)
     _session,
     _simple_mutation,
 )
+from app.interactions.confirms import ConfirmView
+from app.interactions.launchers import ModalLauncherView
+from app.interactions.modals import (
+    create_reward_modal,
+)
+from app.presentation.embeds import (
+    legacy_import_embed,
+    reward_detail_embed,
+)
+from app.presentation.pagination import PagedEmbedView
 
 
 def register_rewards_group(tree, api, sessions, fish) -> None:
@@ -53,8 +51,7 @@ def register_rewards_group(tree, api, sessions, fish) -> None:
                     interaction.user.id,
                     f"Rewards — {location_id}",
                     result["items"],
-                    reward_list_entry,
-                    page_size=1,
+                    embed_builder=lambda item: reward_detail_embed(item, location_id=location_id),
                 )
                 await interaction.followup.send(embed=view.embed(), view=view, ephemeral=True)
 
