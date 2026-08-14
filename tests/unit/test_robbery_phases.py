@@ -2,7 +2,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from domain.schemas.fishing import RobberyResultDTO
+from domain.schemas.fishing import FishingResult, RobberyResultDTO
 from services.fishing_service import FishingService
 
 
@@ -180,6 +180,86 @@ def test_successful_robbery_syncs_locked_attacker_mass_to_caller() -> None:
     assert locked_attacker.current_mass == Decimal("20")
     assert caller_attacker.current_mass == Decimal("20")
     assert caller_attacker.total_mass_stat == Decimal("20")
+
+
+def test_resolved_cast_records_net_robbery_mass_delta() -> None:
+    """The cast journal must include mass credited by a successful robbery."""
+    attacker = make_user(1, "attacker", "atk", "10")
+    attacker.channel_id = 1
+    attacker.current_location_id = "qa_robbery_lab"
+    attacker.xp = 0
+    attacker.level = 1
+    attacker.total_fish_stat = 0
+    attacker.channel = SimpleNamespace(id=1, config={}, config_version=1)
+
+    service = object.__new__(FishingService)
+    service.user_repo = Mock()
+    service.user_repo.save_progress = Mock()
+    service.user_repo.apply_equipped_rod_durability_loss.return_value = None
+    service.config_repo = Mock()
+    service.config_repo.get_dual_pool.return_value = (
+        [{"type": "robbery", "weight": 100}],
+        [],
+        0.0,
+    )
+    service.cooldown_repo = Mock()
+    service.strategy_resolver = Mock()
+    service.strategy_resolver.resolve.return_value = SimpleNamespace(
+        calculation_strategy=None,
+        override_loot_pool_location_id=None,
+    )
+    service.modifier_service = Mock()
+    fishing_modifiers = make_modifiers([])
+    fishing_modifiers.explain = dict
+    service.modifier_service.resolve.return_value = fishing_modifiers
+    service.presenter = Mock()
+    service.presenter.build_response.return_value = SimpleNamespace(cast_id=None)
+    service.ledger = Mock()
+    service.ledger.find_replay.return_value = None
+    service.engine = Mock()
+    service.engine.calculate_result.return_value = FishingResult(
+        loot={"type": "robbery", "weight": 100},
+        item_drop=None,
+        username="attacker",
+        xp_gained=0,
+        mass_gained=Decimal("0"),
+        is_level_up=False,
+        old_level=1,
+        new_level=1,
+    )
+
+    def apply_robbery(loot, user, rng_stages=None):
+        user.current_mass = Decimal("17.50")
+        user.total_mass_stat = Decimal("17.50")
+        return RobberyResultDTO(
+            is_success=True,
+            amount_stolen=Decimal("7.50"),
+            victim_name="victim",
+            victim_twitch_id="victim-id",
+            victim_new_mass=Decimal("92.50"),
+            chance_used=1.0,
+        )
+
+    service._handle_robbery = apply_robbery
+    service._record_resolved_cast = Mock(return_value=None)
+
+    service._process_cast_body(
+        user=attacker,
+        twitch_id="atk",
+        username="attacker",
+        channel_id="1",
+        is_mod=False,
+        is_sub=False,
+        bypass_cooldown=True,
+        source="test",
+        source_request_id="robbery-cast-1",
+        requested_at=None,
+        started_at=None,
+        started_monotonic=0.0,
+    )
+
+    recorded_result = service._record_resolved_cast.call_args.kwargs["result"]
+    assert recorded_result.mass_gained == Decimal("7.50")
 
 
 def test_absorb_returns_before_success_phase(monkeypatch) -> None:

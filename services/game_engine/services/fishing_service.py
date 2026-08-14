@@ -223,6 +223,7 @@ class FishingService:
                 )
 
         location_id = user.current_location_id or "default"
+        cast_mass_before = quantize_mass(user.current_mass)
         loot_pool, item_pool, rate = self.config_repo.get_dual_pool(channel_id, location_id)
         effective_pool_location_id = location_id
 
@@ -409,6 +410,14 @@ class FishingService:
             user,
             result.durability_loss,
         )
+
+        # Robbery applies the transfer inside ``_handle_robbery`` because it
+        # must lock and update both participants atomically.  The generic mass
+        # mutation above therefore has no robbery delta to record.  Capture
+        # the actual net change after all robbery effects (including counters)
+        # so the cast journal reflects the state that was committed.
+        if result.robbery_result is not None:
+            result.mass_gained = quantize_mass(user.current_mass - cast_mass_before)
 
         self.user_repo.save_progress(user)
         if cooldown_duration > 0:
