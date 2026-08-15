@@ -7,6 +7,7 @@ from commands.economy import EconomyCog
 from commands.fishing import FishingCog
 from commands.inventory import InventoryCog
 from commands.travel import TravelCog
+from channel_reconciler import TwitchChannelReconciler
 from config import BotConfig
 from logging_config import configure_logging
 from reconnect_patch import patch_reconnect_init
@@ -20,13 +21,14 @@ class BotGateway(commands.Bot):
         super().__init__(
             token=cfg.twitch_token,
             prefix=cfg.command_prefix,
-            initial_channels=cfg.initial_channels,
+            initial_channels=cfg.bootstrap_channels if cfg.channel_source == "bootstrap" else [],
             client_secret=cfg.twitch_client_secret or None,
             client_id=cfg.twitch_client_id or None,
             bot_id=cfg.bot_nick or None,
         )
         self.cfg = cfg
-        self.api_client = EngineApiClient(cfg.engine_url)
+        self.api_client = EngineApiClient(cfg.engine_url, cfg.service_api_key)
+        self.channel_reconciler = TwitchChannelReconciler(self, self.api_client, cfg)
         self.action_handler = ActionHandler(self)
         patch_reconnect_init(self._connection)
 
@@ -43,11 +45,13 @@ class BotGateway(commands.Bot):
                 "TWITCH_CLIENT_ID is not set: moderation actions (timeout/ban) "
                 "will be rejected by the Twitch API"
             )
+        await self.channel_reconciler.start()
 
     async def event_error(self, error: Exception, data=None):
         logger.exception("Unhandled Twitch bot error", exc_info=error)
 
     async def close(self):
+        await self.channel_reconciler.stop()
         await self.action_handler.close()
         await self.api_client.close()
         await super().close()

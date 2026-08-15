@@ -15,8 +15,9 @@ class EngineApiError(Exception):
 
 
 class EngineApiClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, service_api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
+        self.service_api_key = service_api_key or os.getenv("TWITCH_BOT_SERVICE_KEY", "")
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def start(self) -> None:
@@ -31,6 +32,21 @@ class EngineApiClient:
 
     async def fish(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/v1/fish", json=payload)
+
+    async def desired_twitch_channels(self) -> Dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/internal/twitch-bot/channels",
+            headers=self._internal_headers(),
+        )
+
+    async def report_twitch_status(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/internal/twitch-bot/status",
+            json=payload,
+            headers=self._internal_headers(),
+        )
 
     async def sell_fish(self, payload: Dict[str, Any], *, idempotency_key: str) -> Dict[str, Any]:
         return await self._request(
@@ -190,6 +206,13 @@ class EngineApiClient:
     def _get_headers(self) -> Dict[str, str]:
         return {"Content-Type": "application/json", "X-API-KEY": API_KEY}
 
+    def _internal_headers(self) -> Dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "X-Service-Name": "bot_gateway",
+            "X-Service-API-Key": self.service_api_key,
+        }
+
     async def _request(
         self,
         method: str,
@@ -197,13 +220,14 @@ class EngineApiClient:
         *,
         json: Optional[Dict[str, Any]] = None,
         idempotency_key: str | None = None,
+        headers: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
         await self.start()
         if self._session is None:
             raise EngineApiError("HTTP session is not initialized")
 
         url = f"{self.base_url}{path}"
-        headers = self._get_headers()
+        headers = headers or self._get_headers()
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         try:
