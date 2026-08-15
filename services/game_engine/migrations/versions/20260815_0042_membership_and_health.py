@@ -1,6 +1,5 @@
 """Add durable Twitch membership and StreamElements health state."""
 
-import logging
 import os
 
 import sqlalchemy as sa
@@ -12,7 +11,6 @@ down_revision = "20260814_0041"
 branch_labels = None
 depends_on = None
 
-logger = logging.getLogger(__name__)
 
 
 def upgrade() -> None:
@@ -77,33 +75,16 @@ def upgrade() -> None:
 
     # Transitional bootstrap: only existing channels are enabled.  Unknown
     # logins are deliberately not created without a verified Twitch identity.
-    raw = os.getenv("BOOTSTRAP_CHANNELS") or ""
-    unknown_logins = []
+    raw = os.getenv("BOOTSTRAP_CHANNELS") or os.getenv("INITIAL_CHANNELS") or ""
     for login in (value.strip().lower() for value in raw.split(",")):
         if not login:
-            continue
-        channel_id = bind.execute(
-            sa.text(
-                "SELECT id FROM channels "
-                "WHERE lower(name) = :login OR lower(twitch_id) = :login "
-                "ORDER BY id LIMIT 1"
-            ),
-            {"login": login},
-        ).scalar()
-        if channel_id is None:
-            unknown_logins.append(login)
             continue
         bind.execute(
             sa.text(
                 "UPDATE channels SET twitch_bot_enabled = true "
-                "WHERE id = :channel_id"
+                "WHERE lower(name) = :login OR lower(twitch_id) = :login"
             ),
-            {"channel_id": channel_id},
-        )
-    if unknown_logins:
-        logger.warning(
-            "Twitch membership bootstrap preflight found unknown logins: %s",
-            ", ".join(sorted(set(unknown_logins))),
+            {"login": login},
         )
 
 
