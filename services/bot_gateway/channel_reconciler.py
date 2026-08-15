@@ -36,6 +36,7 @@ class TwitchChannelReconciler:
             for login in config.bootstrap_channels
         }
         self._last_desired: dict[str, DesiredChannel] | None = None
+        self._last_reconcile_error: str | None = None
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
@@ -69,6 +70,7 @@ class TwitchChannelReconciler:
             self._last_desired = desired
         except Exception as error:  # control-plane failures are fail-safe
             inc("twitch_bot_reconcile_failures_total")
+            self._last_reconcile_error = "control_plane_unavailable"
             logger.warning("Twitch membership control-plane unavailable", extra={"error": type(error).__name__})
             # Never interpret an unavailable engine as an empty desired set.
             # Bootstrap channels are a transitional startup fallback only.
@@ -89,10 +91,12 @@ class TwitchChannelReconciler:
 
         try:
             await self._apply(desired)
+            self._last_reconcile_error = None
             inc("twitch_bot_reconcile_runs_total")
             return True
         except Exception as error:
             inc("twitch_bot_reconcile_failures_total")
+            self._last_reconcile_error = type(error).__name__
             logger.warning("Twitch membership reconciliation failed", extra={"error": type(error).__name__})
             await self._report_status(desired)
             return False
@@ -230,7 +234,7 @@ class TwitchChannelReconciler:
                         if item.login in actual
                         else "joining" if twitch_id in self._joined else "unknown"
                     ),
-                    "last_error": None,
+                    "last_error": self._last_reconcile_error,
                 }
             )
         try:
