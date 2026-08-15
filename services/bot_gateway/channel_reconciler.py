@@ -100,11 +100,15 @@ class TwitchChannelReconciler:
             set_gauge("twitch_bot_reconcile_duration_seconds", asyncio.get_running_loop().time() - started)
 
     async def _apply(self, desired: dict[str, DesiredChannel]) -> None:
+        actual_logins = self._connected_logins()
         # A renamed login retains its stable Twitch identity when the runtime
         # already reports that login as joined.
         for twitch_id, item in desired.items():
             if twitch_id in self._joined:
                 self._joined[twitch_id] = item.login
+                if item.login not in actual_logins:
+                    inc("twitch_bot_join_attempts_total")
+                    await self.bot.join_channels([item.login])
                 continue
             matching_id = next(
                 (known_id for known_id, login in self._joined.items() if login == item.login),
@@ -172,7 +176,11 @@ class TwitchChannelReconciler:
                     "twitch_id": twitch_id,
                     "login": item.login,
                     "desired": "joined",
-                    "actual": "joined" if item.login in actual or twitch_id in self._joined else "unknown",
+                    "actual": (
+                        "joined"
+                        if item.login in actual
+                        else "joining" if twitch_id in self._joined else "unknown"
+                    ),
                     "last_error": None,
                 }
             )
