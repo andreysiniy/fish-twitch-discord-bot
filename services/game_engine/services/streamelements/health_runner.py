@@ -169,13 +169,57 @@ class StreamElementsHealthRunner:
         self._rebuild_scheduler()
 
     async def _check_one(self, integration_id: str) -> HealthProbeResult | None:
+        try:
+            parsed_id = uuid.UUID(integration_id)
+        except ValueError:
+            self.redis.zrem(self.DUE_KEY, integration_id)
+            return None
+
+        # Read the credential snapshot in a short transaction.  The provider
+        # request must not hold a PostgreSQL row lock while waiting on network
+        # I/O; a second locked transaction below applies the result safely.
         db = self.db_factory()
         try:
-            try:
-                parsed_id = uuid.UUID(integration_id)
-            except ValueError:
+            integration = (
+                db.query(ChannelIntegration)
+                .filter(ChannelIntegration.id == parsed_id)
+                .first()
+            )
+            if not integration:
                 self.redis.zrem(self.DUE_KEY, integration_id)
                 return None
+            if integration.status == "disconnected":
+                self.redis.zrem(self.DUE_KEY, integration_id)
+                self.redis.delete(f"{self.CACHE_PREFIX}{integration.channel_id}")
+                return None
+
+            snapshot = {
+                "version": integration.version,
+                "provider_channel_id": integration.provider_channel_id,
+                "credential_ciphertext": integration.credential_ciphertext,
+                "credential_key_version": integration.credential_key_version,
+                "channel_id": integration.channel_id,
+            }
+        finally:
+            db.close()
+
+        started = time.perf_counter()
+        try:
+            token = decrypt_integration_token(
+                snapshot["credential_ciphertext"],
+                key_version=snapshot["credential_key_version"],
+            )
+            provider_channel_id = await self.se_client.get_channel_id(token)
+            if provider_channel_id != snapshot["provider_channel_id"]:
+                raise ProviderIdentityMismatch("Provider channel identity changed")
+            result = HealthProbeResult(
+                "connected", None, 200, max(int((time.perf_counter() - started) * 1000), 0)
+            )
+        except Exception as error:
+            result = self._failure_result(error, started)
+
+        db = self.db_factory()
+        try:
             integration = (
                 db.query(ChannelIntegration)
                 .filter(ChannelIntegration.id == parsed_id)
@@ -191,36 +235,26 @@ class StreamElementsHealthRunner:
                 self.redis.zrem(self.DUE_KEY, integration_id)
                 self.redis.delete(f"{self.CACHE_PREFIX}{integration.channel_id}")
                 return None
-
-            started = time.perf_counter()
-            try:
-                token = decrypt_integration_token(
-                    integration.credential_ciphertext,
-                    key_version=integration.credential_key_version,
-                )
-                provider_channel_id = await self.se_client.get_channel_id(token)
-                if provider_channel_id != integration.provider_channel_id:
-                    raise ProviderIdentityMismatch("Provider channel identity changed")
-            except Exception as error:
-                result = self._failure_result(error, started)
-                previous = integration.status
-                self._apply_failure(integration, result)
-                db.commit()
+            if (
+                integration.version != snapshot["version"]
+                or integration.credential_ciphertext != snapshot["credential_ciphertext"]
+            ):
+                # A connect/disconnect/credential rotation won the race while
+                # the probe was in flight.  Preserve the newer durable state.
                 self._schedule(integration)
-                self._write_cache(integration, result.latency_ms)
-                self._log_transition(integration, previous, result)
-                return result
+                return None
 
-            result = HealthProbeResult(
-                "connected", None, 200, max(int((time.perf_counter() - started) * 1000), 0)
-            )
             previous = integration.status
-            self._apply_success(integration, result)
+            if result.status == "connected":
+                self._apply_success(integration, result)
+            else:
+                self._apply_failure(integration, result)
             db.commit()
             self._schedule(integration)
-            self._last_successful_check_at = datetime.now(timezone.utc)
             self._write_cache(integration, result.latency_ms)
             self._log_transition(integration, previous, result)
+            if result.status == "connected":
+                self._last_successful_check_at = datetime.now(timezone.utc)
             return result
         finally:
             db.close()
