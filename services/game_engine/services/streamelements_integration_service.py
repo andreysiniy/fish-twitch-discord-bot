@@ -7,6 +7,7 @@ from typing import Any
 
 from api.discord_dependencies import DiscordServiceContext
 from core.api_errors import ApiProblem
+from core.config import settings
 from core.permissions import ChannelPermission
 from core.security import (
     decrypt_integration_token,
@@ -90,7 +91,7 @@ class StreamElementsIntegrationService:
                 channel_id=channel.id,
                 provider_channel_id=provider_channel_id,
                 credential_ciphertext=ciphertext,
-                credential_key_version=1,
+                credential_key_version=settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION,
                 credential_fingerprint=integration_key_fingerprint(),
                 status="connected",
                 last_validated_at=now,
@@ -103,7 +104,7 @@ class StreamElementsIntegrationService:
         else:
             integration.provider_channel_id = provider_channel_id
             integration.credential_ciphertext = ciphertext
-            integration.credential_key_version = 1
+            integration.credential_key_version = settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION
             integration.credential_fingerprint = integration_key_fingerprint()
             integration.status = "connected"
             integration.version += 1

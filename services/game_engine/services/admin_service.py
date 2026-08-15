@@ -5,6 +5,7 @@ from core.game_limits import validate_cooldown_seconds, validate_event_duration_
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.messages import MsgKey, format_time, resolve_message
 from core.security import encrypt_integration_token, integration_key_fingerprint
+from core.config import settings
 from domain.item_schema import parse_item_definition_payload
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
@@ -309,7 +310,7 @@ class AdminService:
                 channel_id=channel.id,
                 provider_channel_id=se_channel_id,
                 credential_ciphertext=ciphertext,
-                credential_key_version=1,
+                credential_key_version=settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION,
                 credential_fingerprint=integration_key_fingerprint(),
                 status="connected",
             )
@@ -317,7 +318,7 @@ class AdminService:
         else:
             integration.provider_channel_id = se_channel_id
             integration.credential_ciphertext = ciphertext
-            integration.credential_key_version = 1
+            integration.credential_key_version = settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION
             integration.credential_fingerprint = integration_key_fingerprint()
             integration.status = "connected"
             integration.version += 1
