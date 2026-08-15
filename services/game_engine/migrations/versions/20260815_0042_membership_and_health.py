@@ -42,6 +42,12 @@ def upgrade() -> None:
     for column in health_columns:
         op.add_column("channel_integrations", column)
 
+    bind = op.get_bind()
+    bind.execute(
+        sa.text(
+            "UPDATE channel_integrations SET status = 'degraded' WHERE status = 'error'"
+        )
+    )
     op.drop_constraint("ck_channel_integrations_status", "channel_integrations", type_="check")
     op.create_check_constraint(
         "ck_channel_integrations_status",
@@ -59,12 +65,6 @@ def upgrade() -> None:
         "validation_latency_ms IS NULL OR validation_latency_ms >= 0",
     )
 
-    bind = op.get_bind()
-    bind.execute(
-        sa.text(
-            "UPDATE channel_integrations SET status = 'degraded' WHERE status = 'error'"
-        )
-    )
     bind.execute(
         sa.text(
             "UPDATE channel_integrations SET next_validation_at = now() "
