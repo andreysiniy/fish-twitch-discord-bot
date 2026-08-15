@@ -22,12 +22,12 @@ from infrastructure.models import (
     EconomyOperation,
 )
 from infrastructure.redis_client import RedisClient
-from redis.exceptions import RedisError
 from infrastructure.se_client import (
     ProviderAuthenticationError,
     ProviderError,
     SEApiClient,
 )
+from redis.exceptions import RedisError
 from services.discord_admin_service import DiscordAdminService
 from services.streamelements.health_policy import backoff_seconds
 
@@ -486,9 +486,17 @@ class StreamElementsIntegrationService:
             "state": row.state,
             "username": row.twitch_username,
             "mass_delta": str(row.mass_delta),
+            "mass_effective": str(row.mass_effective) if row.mass_effective is not None else None,
+            "pricing_mode": row.pricing_mode_snapshot,
             "points_delta": str(row.points_delta),
             "points_calculated": str(row.points_calculated),
             "rate": str(row.rate_used_snapshot or ""),
+            "player_mass_before": (
+                str(row.player_mass_before) if row.player_mass_before is not None else None
+            ),
+            "player_mass_after": (
+                str(row.player_mass_after) if row.player_mass_after is not None else None
+            ),
             "provider_channel_id": row.provider_channel_id_snapshot,
             "provider_points_cap": row.provider_points_cap,
             "provider_balance_before": row.provider_balance_before,
@@ -501,5 +509,6 @@ class StreamElementsIntegrationService:
             "error_code": row.error_code,
             "reconciliation_reason": row.reconciliation_reason,
             "requested_at": row.requested_at.isoformat() if row.requested_at else None,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
         }
