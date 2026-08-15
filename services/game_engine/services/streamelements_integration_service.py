@@ -152,7 +152,7 @@ class StreamElementsIntegrationService:
         channel, _ = self.admin._authorize(
             context, ChannelPermission.INTEGRATIONS_WRITE, channel_twitch_id
         )
-        integration = self._integration(channel.id)
+        integration = self._integration(channel.id, lock=True)
         try:
             token = self._decrypt(integration)
         except ApiProblem:
@@ -243,7 +243,7 @@ class StreamElementsIntegrationService:
         channel, _ = self.admin._authorize(
             context, ChannelPermission.INTEGRATIONS_WRITE, channel_twitch_id, for_update=True
         )
-        integration = self._integration(channel.id)
+        integration = self._integration(channel.id, lock=True)
         before = self._serialize(integration)
         integration.status = "disconnected"
         integration.version += 1
@@ -396,15 +396,16 @@ class StreamElementsIntegrationService:
         )
         integration.next_validation_at = now + timedelta(seconds=delay)
 
-    def _integration(self, channel_id: int) -> ChannelIntegration:
-        row = (
-            self.db.query(ChannelIntegration)
-            .filter(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.provider == "streamelements",
-            )
-            .first()
+    def _integration(
+        self, channel_id: int, *, lock: bool = False
+    ) -> ChannelIntegration:
+        query = self.db.query(ChannelIntegration).filter(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.provider == "streamelements",
         )
+        if lock:
+            query = query.with_for_update()
+        row = query.first()
         if not row or row.status in {"invalid", "disconnected"}:
             raise ApiProblem(
                 409, "STREAM_ELEMENTS_NOT_CONFIGURED", "StreamElements integration is not connected"
