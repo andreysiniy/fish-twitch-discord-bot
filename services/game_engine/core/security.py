@@ -110,9 +110,6 @@ def _get_fernet() -> Fernet:
 
 def _integration_key_values() -> dict[int, str]:
     values: dict[int, str] = {}
-    current = str(settings.INTEGRATIONS_ENCRYPTION_KEY or "").strip()
-    if current:
-        values[settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION] = current
     raw = str(settings.INTEGRATIONS_ENCRYPTION_KEYS or "").strip()
     if raw:
         try:
@@ -130,6 +127,11 @@ def _integration_key_values() -> dict[int, str]:
             if normalized_version < 1 or not normalized_key:
                 raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEYS")
             values[normalized_version] = normalized_key
+    # The dedicated current key always wins over a stale duplicate entry in
+    # the rotation map.
+    current = str(settings.INTEGRATIONS_ENCRYPTION_KEY or "").strip()
+    if current:
+        values[settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION] = current
     return values
 
 
