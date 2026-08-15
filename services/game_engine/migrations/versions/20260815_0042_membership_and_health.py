@@ -11,8 +11,6 @@ down_revision = "20260814_0041"
 branch_labels = None
 depends_on = None
 
-
-
 def upgrade() -> None:
     op.add_column(
         "channels",
