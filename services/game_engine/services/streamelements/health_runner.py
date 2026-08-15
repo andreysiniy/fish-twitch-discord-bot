@@ -22,6 +22,7 @@ from infrastructure.se_client import (
     ProviderError,
     SEApiClient,
 )
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,10 @@ class StreamElementsHealthRunner:
                 if row.next_validation_at is None:
                     row.next_validation_at = now
                     changed = True
-                self.redis.zadd(self.DUE_KEY, {str(row.id): row.next_validation_at.timestamp()})
+                try:
+                    self.redis.zadd(self.DUE_KEY, {str(row.id): row.next_validation_at.timestamp()})
+                except RedisError:
+                    logger.warning("StreamElements health scheduler is unavailable")
             if changed:
                 db.commit()
         finally:
