@@ -23,6 +23,7 @@ from infrastructure.se_client import (
     SEApiClient,
 )
 from redis.exceptions import RedisError
+from services.streamelements.health_policy import backoff_seconds, regular_interval_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +53,6 @@ def classify_probe_error(error: Exception) -> tuple[str, str]:
     if isinstance(error, ValueError):
         return "invalid", "STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED"
     return "degraded", getattr(error, "code", "STREAM_ELEMENTS_PROVIDER_UNAVAILABLE")
-
-
-def backoff_seconds(failures: int, *, rng: Callable[[float, float], float] = random.uniform) -> float:
-    normalized = max(failures, 1)
-    base = 1800 if normalized >= 5 else {1: 60, 2: 120, 3: 300, 4: 900}[normalized]
-    return base * rng(0.9, 1.1)
-
-
-def regular_interval_seconds(*, rng: Callable[[float, float], float] = random.uniform) -> float:
-    return 1800 * rng(0.9, 1.1)
 
 
 class StreamElementsHealthRunner:
@@ -130,6 +121,7 @@ class StreamElementsHealthRunner:
             self._reconcile_scheduler()
             self._last_scheduler_reconcile = now
         due = self.redis.zrangebyscore(self.DUE_KEY, "-inf", now, start=0, num=100)
+        metrics.set_gauge("streamelements_health_due_queue_size", len(due))
         processed = 0
         for integration_id in due:
             if not self._acquire_lock(str(integration_id)):
@@ -145,11 +137,13 @@ class StreamElementsHealthRunner:
     def _rebuild_scheduler(self) -> None:
         db = self.db_factory()
         try:
-            rows = (
-                db.query(ChannelIntegration)
-                .filter(ChannelIntegration.status != "disconnected")
-                .all()
-            )
+            all_rows = db.query(ChannelIntegration).all()
+            status_counts: dict[str, int] = {}
+            for row in all_rows:
+                status_counts[row.status] = status_counts.get(row.status, 0) + 1
+            for status, count in status_counts.items():
+                metrics.set_gauge("streamelements_integrations_total", count, {"status": status})
+            rows = [row for row in all_rows if row.status != "disconnected"]
             now = datetime.now(timezone.utc)
             changed = False
             for row in rows:
@@ -323,7 +317,6 @@ class StreamElementsHealthRunner:
                 }
             ),
         )
-
     def _heartbeat(self, *, due_queue_size: int = 0) -> None:
         now = datetime.now(timezone.utc)
         self.redis.setex(
@@ -340,6 +333,8 @@ class StreamElementsHealthRunner:
                 }
             ),
         )
+        metrics.set_gauge("streamelements_health_due_queue_size", due_queue_size)
+        metrics.set_gauge("streamelements_health_worker_heartbeat_age_seconds", 0)
 
     def _acquire_lock(self, integration_id: str) -> bool:
         return bool(

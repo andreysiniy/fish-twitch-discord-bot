@@ -30,6 +30,7 @@ from app.interactions.modals import (
 from app.interactions.reward_payloads import build_reward_payload, build_roulette_outcome
 from app.interactions.sessions import WizardSessionStore
 from app.presentation.embeds import (
+    control_plane_status_embed,
     event_list_entry,
     legacy_import_embed,
     location_list_entry,
@@ -422,6 +423,27 @@ def test_command_tree_and_optional_empty_environment(monkeypatch) -> None:
 
 def test_streamelements_connect_modal_respects_discord_input_limit() -> None:
     assert StreamElementsConnectModal.token.max_length == 4000
+
+
+def test_streamelements_status_embed_includes_health_schedule_and_failures() -> None:
+    embed = control_plane_status_embed(
+        {
+            "channel_status": {
+                "twitch": {"channel": "river", "desired": "joined", "actual": "joined"},
+                "streamelements": {
+                    "status": "degraded",
+                    "last_check_at": "2026-08-15T20:00:00+00:00",
+                    "next_validation_at": "2026-08-15T20:01:00+00:00",
+                    "consecutive_failures": 2,
+                },
+                "economy": {"enabled": True, "buy_enabled": True, "sell_enabled": True},
+            }
+        }
+    )
+    fields = {field.name: field.value for field in embed.fields}
+    assert "Last Check: 2026-08-15T20:00:00+00:00" in fields["StreamElements"]
+    assert "Next Check: 2026-08-15T20:01:00+00:00" in fields["StreamElements"]
+    assert "Failures: 2" in fields["StreamElements"]
 
 
 @pytest.mark.parametrize(

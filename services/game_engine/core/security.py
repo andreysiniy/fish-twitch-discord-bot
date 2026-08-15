@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -10,7 +11,7 @@ from core.config import settings
 
 
 _fernet_instance: Fernet | None = None
-_integration_fernet_instance: Fernet | None = None
+_integration_fernet_instances: dict[int, Fernet] = {}
 
 
 def create_access_token(subject: str | Any) -> str:
@@ -66,10 +67,15 @@ def decrypt_integration_token(encrypted_token: str, *, key_version: int = 1) -> 
     """Decrypt a provider credential, rejecting unknown key versions."""
 
     if key_version != settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION:
-        raise ValueError("Unsupported integration credential key version")
+        # Older keys remain decryptable during a rotation window when they
+        # are explicitly supplied through INTEGRATIONS_ENCRYPTION_KEYS.
+        if key_version not in _integration_key_values():
+            raise ValueError("Unsupported integration credential key version")
     try:
         return (
-            _get_integration_fernet().decrypt(str(encrypted_token).encode("utf-8")).decode("utf-8")
+            _get_integration_fernet(key_version)
+            .decrypt(str(encrypted_token).encode("utf-8"))
+            .decode("utf-8")
         )
     except (InvalidToken, ValueError) as error:
         raise ValueError("Failed to decrypt integration token") from error
@@ -78,7 +84,7 @@ def decrypt_integration_token(encrypted_token: str, *, key_version: int = 1) -> 
 def integration_key_fingerprint() -> str:
     """Return a non-secret fingerprint useful for readiness diagnostics."""
 
-    key = settings.INTEGRATIONS_ENCRYPTION_KEY or settings.ENCRYPTION_KEY
+    key = settings.INTEGRATIONS_ENCRYPTION_KEY
     if not key:
         return "unconfigured"
     return hashlib.sha256(key.strip().encode("utf-8")).hexdigest()[:12]
@@ -102,18 +108,47 @@ def _get_fernet() -> Fernet:
     return _fernet_instance
 
 
-def _get_integration_fernet() -> Fernet:
-    global _integration_fernet_instance
-    if _integration_fernet_instance is not None:
-        return _integration_fernet_instance
-    key = settings.INTEGRATIONS_ENCRYPTION_KEY or settings.ENCRYPTION_KEY
+def _integration_key_values() -> dict[int, str]:
+    values: dict[int, str] = {}
+    raw = str(settings.INTEGRATIONS_ENCRYPTION_KEYS or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEYS") from error
+        if not isinstance(parsed, dict):
+            raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEYS")
+        for version, key in parsed.items():
+            try:
+                normalized_version = int(version)
+            except (TypeError, ValueError) as error:
+                raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEYS") from error
+            normalized_key = str(key or "").strip()
+            if normalized_version < 1 or not normalized_key:
+                raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEYS")
+            values[normalized_version] = normalized_key
+    # The dedicated current key always wins over a stale duplicate entry in
+    # the rotation map.
+    current = str(settings.INTEGRATIONS_ENCRYPTION_KEY or "").strip()
+    if current:
+        values[settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION] = current
+    return values
+
+
+def _get_integration_fernet(key_version: int | None = None) -> Fernet:
+    version = key_version or settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION
+    cached = _integration_fernet_instances.get(version)
+    if cached is not None:
+        return cached
+    key = _integration_key_values().get(version)
     if not key:
         raise ValueError("INTEGRATIONS_ENCRYPTION_KEY is not configured")
     try:
-        _integration_fernet_instance = Fernet(key.strip().encode("utf-8"))
+        instance = Fernet(key.encode("utf-8"))
     except (TypeError, ValueError) as error:
         raise ValueError("Invalid INTEGRATIONS_ENCRYPTION_KEY") from error
-    return _integration_fernet_instance
+    _integration_fernet_instances[version] = instance
+    return instance
 
 
 def _derive_fernet_key(secret: str) -> bytes:

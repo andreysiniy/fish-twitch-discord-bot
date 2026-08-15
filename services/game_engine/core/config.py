@@ -20,10 +20,13 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str
     ENCRYPTION_KEY: str | None = None
-    # Dedicated key for provider credentials.  It may be omitted during a
-    # read-only rollout; connecting a provider requires it (or the explicit
-    # legacy fallback configured below).
+    # Dedicated key for provider credentials.  It is intentionally separate
+    # from SECRET_KEY/ENCRYPTION_KEY and is required for provider mutations.
     INTEGRATIONS_ENCRYPTION_KEY: str | None = None
+    # Optional JSON object containing versioned previous keys, for example
+    # {"1":"old-fernet-key","2":"current-fernet-key"}.  The current
+    # version still comes from INTEGRATIONS_ENCRYPTION_KEY.
+    INTEGRATIONS_ENCRYPTION_KEYS: str | None = None
     INTEGRATIONS_ENCRYPTION_KEY_VERSION: int = 1
     BOT_API_KEY: str
     DISCORD_BOT_API_KEY: str

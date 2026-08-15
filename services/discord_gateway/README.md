@@ -22,6 +22,8 @@ global Discord command propagation can take longer.
 - `/fish account link|status|unlink` manages the one-to-one Twitch identity link.
 - `/fish setup bind|replace|remove|status` binds one Discord server to one Twitch channel. Binding
   requires Discord Manage Server permission and ownership of the linked Twitch channel.
+- `/fish streamelements status|connect|test|disconnect|settings|operations` manages the encrypted
+  StreamElements credential, health state, economy settings, and recent provider operations.
 - `/fish config show|edit|reset|cooldown` manages versioned game settings.
 - `/fish location list|show|create|edit|delete` manages up to 50 fishing locations.
 - `/fish reward list|show|add|edit|delete` manages stable-ID weighted rewards. Supported types are
@@ -95,6 +97,12 @@ data. Back up the database first.
 - `GUILD_BINDING_REQUIRED`: a server manager must run `/fish setup bind`.
 - `CONFIG_VERSION_CONFLICT`: reopen the form to load the latest version.
 - `ENGINE_UNAVAILABLE`: check both readiness endpoints and Redis/PostgreSQL connectivity.
+- `INTEGRATIONS_ENCRYPTION_KEY` must be set separately from `ENCRYPTION_KEY`; it encrypts
+  StreamElements credentials and supports versioned rotation through
+  `INTEGRATIONS_ENCRYPTION_KEYS`.
+- `TWITCH_BOT_SERVICE_KEY` is a separate internal credential used only by `bot_gateway` for
+  desired-membership reads and runtime status reports. Production membership uses PostgreSQL with
+  `TWITCH_CHANNEL_SOURCE=database`; `BOOTSTRAP_CHANNELS` is transitional only.
 - Commands are missing: confirm the invite includes `applications.commands`, then check sync mode,
   application ID, guild ID, and the `commands` readiness field.
 

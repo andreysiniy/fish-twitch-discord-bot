@@ -125,6 +125,9 @@ def control_plane_status_embed(status: dict[str, Any]) -> discord.Embed:
     se_lines.append(f"Failures: {se.get('consecutive_failures', 0)}")
     if se.get("last_error_code"):
         se_lines.append(f"Error: {se['last_error_code']}")
+    worker = channel_status.get("streamelements_worker") or {}
+    if worker:
+        se_lines.append(f"Health Worker: {str(worker.get('status', 'offline')).title()}")
     embed.add_field(name="StreamElements", value="\n".join(se_lines), inline=False)
 
     economy = channel_status.get("economy") or {}

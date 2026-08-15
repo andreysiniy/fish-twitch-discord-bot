@@ -7,6 +7,7 @@ from typing import Any
 
 from api.discord_dependencies import DiscordServiceContext
 from core.api_errors import ApiProblem
+from core.config import settings
 from core.permissions import ChannelPermission
 from core.security import (
     decrypt_integration_token,
@@ -14,6 +15,7 @@ from core.security import (
     integration_key_fingerprint,
 )
 from domain.schemas.discord_admin import EconomySettingsPatchRequest
+from infrastructure.after_commit import run_after_commit_callbacks, schedule_after_commit
 from infrastructure.models import (
     ChannelEconomySettings,
     ChannelIntegration,
@@ -27,6 +29,7 @@ from infrastructure.se_client import (
     SEApiClient,
 )
 from services.discord_admin_service import DiscordAdminService
+from services.streamelements.health_policy import backoff_seconds
 
 
 class StreamElementsIntegrationService:
@@ -90,7 +93,7 @@ class StreamElementsIntegrationService:
                 channel_id=channel.id,
                 provider_channel_id=provider_channel_id,
                 credential_ciphertext=ciphertext,
-                credential_key_version=1,
+                credential_key_version=settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION,
                 credential_fingerprint=integration_key_fingerprint(),
                 status="connected",
                 last_validated_at=now,
@@ -103,7 +106,7 @@ class StreamElementsIntegrationService:
         else:
             integration.provider_channel_id = provider_channel_id
             integration.credential_ciphertext = ciphertext
-            integration.credential_key_version = 1
+            integration.credential_key_version = settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION
             integration.credential_fingerprint = integration_key_fingerprint()
             integration.status = "connected"
             integration.version += 1
@@ -116,7 +119,7 @@ class StreamElementsIntegrationService:
             integration.validation_latency_ms = None
             integration.last_error_code = None
         self.db.flush()
-        self._schedule_health(integration)
+        self._schedule_health_after_commit(integration)
         after = self._serialize(integration)
         self.admin._audit(
             context,
@@ -149,7 +152,7 @@ class StreamElementsIntegrationService:
         channel, _ = self.admin._authorize(
             context, ChannelPermission.INTEGRATIONS_WRITE, channel_twitch_id
         )
-        integration = self._integration(channel.id)
+        integration = self._integration(channel.id, lock=True)
         try:
             token = self._decrypt(integration)
         except ApiProblem:
@@ -161,7 +164,9 @@ class StreamElementsIntegrationService:
             integration.consecutive_failures += 1
             integration.next_validation_at = now + timedelta(hours=6)
             self.db.flush()
-            self._schedule_health(integration)
+            self._schedule_health_after_commit(integration)
+            self.db.commit()
+            run_after_commit_callbacks(self.db)
             raise
         started = datetime.now(timezone.utc)
         try:
@@ -169,9 +174,25 @@ class StreamElementsIntegrationService:
         except ProviderError as error:
             self._record_failure(integration, error)
             self.db.flush()
-            self._schedule_health(integration)
+            self._schedule_health_after_commit(integration)
+            self.db.commit()
+            run_after_commit_callbacks(self.db)
+            problem_status = 400 if integration.status == "invalid" else 502
+            problem_code = (
+                "STREAM_ELEMENTS_INVALID_CREDENTIALS"
+                if integration.status == "invalid"
+                else error.code
+            )
+            problem_message = (
+                "StreamElements rejected the credential"
+                if integration.status == "invalid"
+                else "StreamElements test failed"
+            )
             raise ApiProblem(
-                502, error.code, "StreamElements test failed", request_id=context.request_id
+                problem_status,
+                problem_code,
+                problem_message,
+                request_id=context.request_id,
             ) from error
         if provider_channel_id != integration.provider_channel_id:
             error = ProviderError("Provider channel identity changed", status_code=409)
@@ -182,7 +203,9 @@ class StreamElementsIntegrationService:
                 status="invalid",
             )
             self.db.flush()
-            self._schedule_health(integration)
+            self._schedule_health_after_commit(integration)
+            self.db.commit()
+            run_after_commit_callbacks(self.db)
             raise ApiProblem(
                 409,
                 "STREAM_ELEMENTS_CHANNEL_MISMATCH",
@@ -200,7 +223,7 @@ class StreamElementsIntegrationService:
         integration.validation_latency_ms = max(int((now - started).total_seconds() * 1000), 0)
         integration.next_validation_at = now + timedelta(minutes=30)
         self.db.flush()
-        self._schedule_health(integration)
+        self._schedule_health_after_commit(integration)
         self.admin._audit(
             context,
             channel.twitch_id,
@@ -220,19 +243,19 @@ class StreamElementsIntegrationService:
         channel, _ = self.admin._authorize(
             context, ChannelPermission.INTEGRATIONS_WRITE, channel_twitch_id, for_update=True
         )
-        integration = self._integration(channel.id)
+        integration = self._integration(channel.id, lock=True)
         before = self._serialize(integration)
         integration.status = "disconnected"
         integration.version += 1
         integration.last_error_code = None
         integration.next_validation_at = None
         self.db.flush()
-        try:
-            redis = RedisClient.get_client()
-            redis.zrem(self.HEALTH_DUE_KEY, str(integration.id))
-            redis.delete(f"{self.HEALTH_CACHE_PREFIX}{channel.id}")
-        except RedisError:
-            pass
+        integration_id = str(integration.id)
+        channel_id = channel.id
+        schedule_after_commit(
+            self.db,
+            lambda: self._remove_health_schedule(integration_id, channel_id),
+        )
         after = self._serialize(integration)
         self.admin._audit(
             context,
@@ -320,17 +343,33 @@ class StreamElementsIntegrationService:
         )
         return {"items": [self._serialize_operation(row) for row in rows]}
 
-    def _schedule_health(self, integration: ChannelIntegration) -> None:
+    def _schedule_health_after_commit(self, integration: ChannelIntegration) -> None:
         if integration.next_validation_at is None:
             return
+        integration_id = str(integration.id)
+        due_at = integration.next_validation_at.timestamp()
+        schedule_after_commit(
+            self.db,
+            lambda: self._enqueue_health_schedule(integration_id, due_at),
+        )
+
+    def _enqueue_health_schedule(self, integration_id: str, due_at: float) -> None:
         try:
             RedisClient.get_client().zadd(
                 self.HEALTH_DUE_KEY,
-                {str(integration.id): integration.next_validation_at.timestamp()},
+                {integration_id: due_at},
             )
         except RedisError:
             # PostgreSQL remains the source of truth; the worker rebuilds the
             # operational queue after Redis recovers.
+            pass
+
+    def _remove_health_schedule(self, integration_id: str, channel_id: int) -> None:
+        try:
+            redis = RedisClient.get_client()
+            redis.zrem(self.HEALTH_DUE_KEY, integration_id)
+            redis.delete(f"{self.HEALTH_CACHE_PREFIX}{channel_id}")
+        except RedisError:
             pass
 
     @staticmethod
@@ -352,19 +391,21 @@ class StreamElementsIntegrationService:
         integration.last_error_at = now
         integration.last_error_code = code or error.code
         integration.consecutive_failures += 1
-        integration.next_validation_at = now + timedelta(
-            hours=6 if integration.status == "invalid" else 1
+        delay = 6 * 3600 if integration.status == "invalid" else backoff_seconds(
+            integration.consecutive_failures
         )
+        integration.next_validation_at = now + timedelta(seconds=delay)
 
-    def _integration(self, channel_id: int) -> ChannelIntegration:
-        row = (
-            self.db.query(ChannelIntegration)
-            .filter(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.provider == "streamelements",
-            )
-            .first()
+    def _integration(
+        self, channel_id: int, *, lock: bool = False
+    ) -> ChannelIntegration:
+        query = self.db.query(ChannelIntegration).filter(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.provider == "streamelements",
         )
+        if lock:
+            query = query.with_for_update()
+        row = query.first()
         if not row or row.status in {"invalid", "disconnected"}:
             raise ApiProblem(
                 409, "STREAM_ELEMENTS_NOT_CONFIGURED", "StreamElements integration is not connected"

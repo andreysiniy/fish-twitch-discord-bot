@@ -39,6 +39,7 @@ from infrastructure.models import (
     OutboxEvent,
     UserProgress,
 )
+from infrastructure.after_commit import schedule_after_commit
 from infrastructure.redis_client import RedisClient
 from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
@@ -49,6 +50,8 @@ from infrastructure.se_client import (
     ProviderConnectionNotSentError,
     ProviderError,
     ProviderRateLimitError,
+    ProviderServerReadError,
+    ProviderUnexpectedResponseError,
     ProviderValidationError,
     SEApiClient,
 )
@@ -62,6 +65,7 @@ from integrations.streamelements.constants import (
     validate_provider_balance,
 )
 from services.player_modifier_service import PlayerModifierService
+from services.streamelements.health_policy import backoff_seconds
 
 _BuyCallable = TypeVar("_BuyCallable", bound=Callable[..., Coroutine[object, object, FishResponse]])
 _SellCallable = TypeVar(
@@ -143,7 +147,17 @@ class EconomyService:
         if current_mass <= 0:
             return self._message(channel, MsgKey.SELL_MASS_EMPTY)
         parsed = parse_mass_argument(amount_str, allow_all=True)
-        token = self._decrypt_integration(integration, channel)
+        try:
+            token = self._decrypt_integration(integration, channel)
+        except EconomyDomainError:
+            self._record_provider_health(
+                integration,
+                success=False,
+                error_code="STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED",
+                force_invalid=True,
+            )
+            self.db.commit()
+            raise
         # End the read-only transaction before waiting on StreamElements.  A
         # provider timeout must not retain a PostgreSQL connection or a row
         # lock needed by the next chat command.
@@ -157,6 +171,8 @@ class EconomyService:
                 )
             )
         except ProviderError as error:
+            self._record_provider_health(integration, success=False, error=error)
+            self.db.commit()
             raise EconomyDomainError(
                 error.code, "StreamElements is temporarily unavailable."
             ) from error
@@ -287,7 +303,17 @@ class EconomyService:
             return self._message(channel, MsgKey.SELL_MASS_DISABLED)
         self._ensure_no_active_operation(user)
         parsed = parse_mass_argument(amount_str, allow_all=True)
-        token = self._decrypt_integration(integration, channel)
+        try:
+            token = self._decrypt_integration(integration, channel)
+        except EconomyDomainError:
+            self._record_provider_health(
+                integration,
+                success=False,
+                error_code="STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED",
+                force_invalid=True,
+            )
+            self.db.commit()
+            raise
         username = (user.username or "").strip() or twitch_id
         # Release the row lock before waiting on StreamElements. The durable
         # operation check is repeated before creating the provider saga.
@@ -297,10 +323,14 @@ class EconomyService:
                 str(integration.provider_channel_id), token, username
             )
         except ProviderAuthenticationError as error:
+            self._record_provider_health(integration, success=False, error=error)
+            self.db.commit()
             raise EconomyDomainError(
                 "STREAM_ELEMENTS_INVALID_CREDENTIALS", "StreamElements credentials are invalid."
             ) from error
         except ProviderError as error:
+            self._record_provider_health(integration, success=False, error=error)
+            self.db.commit()
             raise EconomyDomainError(
                 error.code, "StreamElements is temporarily unavailable."
             ) from error
@@ -454,15 +484,19 @@ class EconomyService:
             self.db.commit()
             return response
         except ProviderAmbiguousWriteError as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "ambiguous", error=error)
             return self._ambiguous(operation, channel, error, "sell")
         except ProviderConnectionNotSentError as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "not_sent", error=error)
             return self._queue_retry(operation, channel, error, "sell")
         except (
             ProviderAuthenticationError,
             ProviderValidationError,
             ProviderRateLimitError,
+            ProviderServerReadError,
+            ProviderUnexpectedResponseError,
         ) as error:
             self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "rejected", error=error)
@@ -532,15 +566,19 @@ class EconomyService:
             self.db.commit()
             return response
         except ProviderAmbiguousWriteError as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "ambiguous", error=error)
             return self._ambiguous(operation, channel, error, "buy")
         except ProviderConnectionNotSentError as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "not_sent", error=error)
             return self._queue_retry(operation, channel, error, "buy")
         except (
             ProviderAuthenticationError,
             ProviderValidationError,
             ProviderRateLimitError,
+            ProviderServerReadError,
+            ProviderUnexpectedResponseError,
         ) as error:
             self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "rejected", error=error)
@@ -587,6 +625,7 @@ class EconomyService:
             if result.balance_after is not None:
                 validate_provider_balance(result.balance_after)
         except ProviderError as compensation_error:
+            self._record_provider_health(integration, success=False, error=compensation_error)
             operation.state = "reconciliation_required"
             operation.reconciliation_reason = (
                 "provider_cap_blocks_full_compensation"
@@ -611,6 +650,7 @@ class EconomyService:
             )
             self._mark_outbox(operation, "reconciliation_required")
         else:
+            self._record_provider_health(integration, success=True)
             operation.state = "compensated"
             operation.compensation_state = "confirmed"
             operation.last_error = type(error).__name__
@@ -851,6 +891,8 @@ class EconomyService:
         success: bool,
         error: ProviderError | None = None,
         latency_ms: int | None = None,
+        error_code: str | None = None,
+        force_invalid: bool = False,
     ) -> None:
         """Feed confirmed economy calls into the same durable health state."""
 
@@ -867,27 +909,39 @@ class EconomyService:
         else:
             integration.status = (
                 "invalid"
-                if isinstance(error, ProviderAuthenticationError)
+                if force_invalid
+                or isinstance(error, ProviderAuthenticationError)
                 or getattr(error, "status_code", None) in {401, 403}
                 else "degraded"
             )
             integration.last_error_at = now
-            integration.last_error_code = getattr(
+            integration.last_error_code = error_code or getattr(
                 error, "code", "STREAM_ELEMENTS_PROVIDER_UNAVAILABLE"
             )
             integration.consecutive_failures += 1
-            integration.next_validation_at = now + timedelta(
-                hours=6 if integration.status == "invalid" else 1
+            delay = 6 * 3600 if integration.status == "invalid" else backoff_seconds(
+                integration.consecutive_failures
             )
+            integration.next_validation_at = now + timedelta(seconds=delay)
         integration.validation_latency_ms = latency_ms
         if integration.next_validation_at:
-            try:
-                RedisClient.get_client().zadd(
-                    "fish:se:health:due",
-                    {str(integration.id): integration.next_validation_at.timestamp()},
-                )
-            except RedisError:
-                pass
+            integration_id = str(integration.id)
+            due_at = integration.next_validation_at.timestamp()
+            schedule_after_commit(
+                self.db,
+                lambda: self._enqueue_health_schedule(integration_id, due_at),
+            )
+
+    @staticmethod
+    def _enqueue_health_schedule(integration_id: str, due_at: float) -> None:
+        try:
+            RedisClient.get_client().zadd(
+                "fish:se:health:due", {integration_id: due_at}
+            )
+        except RedisError:
+            # PostgreSQL next_validation_at remains durable; the worker can
+            # rebuild the operational queue after Redis recovers.
+            pass
 
     def _resolve_sell_mass(
         self, parsed: ParsedMassArgument, current_mass: Decimal, settings, provider_balance: int

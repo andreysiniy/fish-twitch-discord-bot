@@ -5,6 +5,8 @@ from core.game_limits import validate_cooldown_seconds, validate_event_duration_
 from core.game_params import DEFAULT_GAME_PARAMS, GParam
 from core.messages import MsgKey, format_time, resolve_message
 from core.security import encrypt_integration_token, integration_key_fingerprint
+from core.config import settings
+from infrastructure.after_commit import schedule_after_commit
 from domain.item_schema import parse_item_definition_payload
 from domain.schemas.admin import (
     ALLOWED_CHANNEL_ROLES,
@@ -27,8 +29,10 @@ from infrastructure.repositories.config_repo import ConfigRepository
 from infrastructure.repositories.inventory_repo import InventoryRepository
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.models import ChannelEconomySettings, ChannelIntegration
+from infrastructure.redis_client import RedisClient
 from infrastructure.se_client import SEApiClient
 from infrastructure.se_client import ProviderAuthenticationError, ProviderError
+from redis.exceptions import RedisError
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.player_modifier_service import PlayerModifierService
 from services.item_dependency_validator import validate_item_dependency_graph
@@ -296,6 +300,7 @@ class AdminService:
             ciphertext = encrypt_integration_token(normalized_token)
         except ValueError as error:
             raise ValueError("Integration encryption key is not configured") from error
+        now = datetime.now(timezone.utc)
         integration = (
             self.user_repo.db.query(ChannelIntegration)
             .filter(
@@ -309,22 +314,51 @@ class AdminService:
                 channel_id=channel.id,
                 provider_channel_id=se_channel_id,
                 credential_ciphertext=ciphertext,
-                credential_key_version=1,
+                credential_key_version=settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION,
                 credential_fingerprint=integration_key_fingerprint(),
                 status="connected",
+                last_validated_at=now,
+                last_check_at=now,
+                last_success_at=now,
+                next_validation_at=now + timedelta(minutes=30),
+                consecutive_failures=0,
             )
             self.user_repo.db.add(integration)
         else:
             integration.provider_channel_id = se_channel_id
             integration.credential_ciphertext = ciphertext
-            integration.credential_key_version = 1
+            integration.credential_key_version = settings.INTEGRATIONS_ENCRYPTION_KEY_VERSION
             integration.credential_fingerprint = integration_key_fingerprint()
             integration.status = "connected"
             integration.version += 1
+            integration.last_validated_at = now
+            integration.last_check_at = now
+            integration.last_success_at = now
+            integration.last_error_at = None
+            integration.next_validation_at = now + timedelta(minutes=30)
+            integration.consecutive_failures = 0
+            integration.validation_latency_ms = None
             integration.last_error_code = None
         self.user_repo.db.flush()
+        integration_id = str(integration.id)
+        due_at = integration.next_validation_at.timestamp()
+        schedule_after_commit(
+            self.user_repo.db,
+            lambda: self._enqueue_stream_elements_health(integration_id, due_at),
+        )
 
         return {"status": "ok", "se_channel_id": se_channel_id}
+
+    @staticmethod
+    def _enqueue_stream_elements_health(integration_id: str, due_at: float) -> None:
+        try:
+            RedisClient.get_client().zadd(
+                "fish:se:health:due", {integration_id: due_at}
+            )
+        except RedisError:
+            # PostgreSQL next_validation_at remains durable; the worker will
+            # rebuild the operational queue when Redis is available again.
+            return
 
     def upsert_item_definition(
         self,

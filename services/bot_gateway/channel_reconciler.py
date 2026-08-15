@@ -36,6 +36,7 @@ class TwitchChannelReconciler:
             for login in config.bootstrap_channels
         }
         self._last_desired: dict[str, DesiredChannel] | None = None
+        self._last_reconcile_error: str | None = None
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
@@ -69,6 +70,7 @@ class TwitchChannelReconciler:
             self._last_desired = desired
         except Exception as error:  # control-plane failures are fail-safe
             inc("twitch_bot_reconcile_failures_total")
+            self._last_reconcile_error = "control_plane_unavailable"
             logger.warning("Twitch membership control-plane unavailable", extra={"error": type(error).__name__})
             # Never interpret an unavailable engine as an empty desired set.
             # Bootstrap channels are a transitional startup fallback only.
@@ -89,10 +91,12 @@ class TwitchChannelReconciler:
 
         try:
             await self._apply(desired)
+            self._last_reconcile_error = None
             inc("twitch_bot_reconcile_runs_total")
             return True
         except Exception as error:
             inc("twitch_bot_reconcile_failures_total")
+            self._last_reconcile_error = type(error).__name__
             logger.warning("Twitch membership reconciliation failed", extra={"error": type(error).__name__})
             await self._report_status(desired)
             return False
@@ -108,7 +112,24 @@ class TwitchChannelReconciler:
                 self._joined[twitch_id] = item.login
                 if item.login not in actual_logins:
                     inc("twitch_bot_join_attempts_total")
-                    await self.bot.join_channels([item.login])
+                    started = asyncio.get_running_loop().time()
+                    try:
+                        await self.bot.join_channels([item.login])
+                    except Exception:
+                        inc("twitch_bot_join_failures_total")
+                        raise
+                    logger.info(
+                        "Twitch channel joined",
+                        extra={
+                            "action": "twitch_channel_join",
+                            "twitch_id": item.twitch_id,
+                            "login": item.login,
+                            "result": "success",
+                            "latency_ms": int(
+                                (asyncio.get_running_loop().time() - started) * 1000
+                            ),
+                        },
+                    )
                 continue
             matching_id = next(
                 (known_id for known_id, login in self._joined.items() if login == item.login),
@@ -124,11 +145,24 @@ class TwitchChannelReconciler:
                 self._joined[twitch_id] = item.login
                 continue
             inc("twitch_bot_join_attempts_total")
-            await self.bot.join_channels([item.login])
+            started = asyncio.get_running_loop().time()
+            try:
+                await self.bot.join_channels([item.login])
+            except Exception:
+                inc("twitch_bot_join_failures_total")
+                raise
             self._joined[twitch_id] = item.login
             logger.info(
                 "Twitch channel joined",
-                extra={"action": "twitch_channel_join", "twitch_id": item.twitch_id, "login": item.login},
+                extra={
+                    "action": "twitch_channel_join",
+                    "twitch_id": item.twitch_id,
+                    "login": item.login,
+                    "result": "success",
+                    "latency_ms": int(
+                        (asyncio.get_running_loop().time() - started) * 1000
+                    ),
+                },
             )
 
         desired_logins = {item.login for item in desired.values()}
@@ -142,6 +176,7 @@ class TwitchChannelReconciler:
             # Bootstrap-only identities are also removed once the database has
             # successfully returned a desired set.
             inc("twitch_bot_part_attempts_total")
+            started = asyncio.get_running_loop().time()
             try:
                 await self.bot.part_channels([login])
             except Exception:
@@ -151,7 +186,14 @@ class TwitchChannelReconciler:
                 self._joined.pop(twitch_id, None)
             logger.info(
                 "Twitch channel parted",
-                extra={"action": "twitch_channel_part", "login": login},
+                extra={
+                    "action": "twitch_channel_part",
+                    "login": login,
+                    "result": "success",
+                    "latency_ms": int(
+                        (asyncio.get_running_loop().time() - started) * 1000
+                    ),
+                },
             )
 
         set_gauge("twitch_bot_desired_channels", len(desired))
@@ -192,7 +234,7 @@ class TwitchChannelReconciler:
                         if item.login in actual
                         else "joining" if twitch_id in self._joined else "unknown"
                     ),
-                    "last_error": None,
+                    "last_error": self._last_reconcile_error,
                 }
             )
         try:
