@@ -2,12 +2,161 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+
 import discord
 from discord import app_commands
 
 from app.api.errors import EngineError
 from app.commands.shared import _confirmation, _deferred, _send_error
 from app.presentation.formatting import format_compact_number
+from app.presentation.pagination import PagedEmbedView
+
+ECONOMY_OPERATION_STATUS_COLORS = {
+    "completed": discord.Color.green(),
+    "external_applied": discord.Color.green(),
+    "failed": discord.Color.red(),
+    "dead_letter": discord.Color.red(),
+    "compensated": discord.Color.orange(),
+    "reconciliation_required": discord.Color.orange(),
+    "pending": discord.Color.gold(),
+    "queued": discord.Color.gold(),
+    "processing": discord.Color.gold(),
+    "external_pending": discord.Color.gold(),
+}
+
+
+def _operation_short_id(operation_id: object) -> str:
+    value = str(operation_id or "")
+    return value[:8] or "unknown"
+
+
+def _operation_number(value: object, *, signed: bool = False, suffix: str = "") -> str:
+    """Format economy values without exposing Decimal scale noise."""
+    if value is None or value == "":
+        return "n/a"
+    try:
+        decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return str(value)
+    if not decimal.is_finite():
+        return str(value)
+    text = format_compact_number(decimal)
+    if signed and decimal > 0:
+        text = f"+{text}"
+    return f"{text}{suffix}"
+
+
+def _operation_timestamp(value: object) -> str:
+    """Use Discord's localized timestamp for operation lifecycle fields."""
+    if not value:
+        return "n/a"
+    raw = str(value)
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return f"<t:{int(parsed.timestamp())}:f>"
+    except (TypeError, ValueError, OverflowError):
+        return raw[:19]
+
+
+def _operation_state_label(state: object) -> str:
+    return str(state or "unknown").replace("_", " ").title()
+
+
+def _operation_error_text(item: dict) -> str | None:
+    code = item.get("error_code")
+    reason = item.get("last_error") or item.get("reconciliation_reason")
+    if not code and not reason:
+        return None
+    label = str(code or "Operation issue").replace("_", " ").title()
+    if not reason:
+        return label
+    text = str(reason).strip()
+    # Provider errors can be large; the Discord card should remain actionable
+    # without dumping a raw response payload into the administrative UI.
+    if len(text) > 900:
+        text = f"{text[:897]}..."
+    return f"{label}: {text}"
+
+
+def economy_operation_detail_embed(item: dict) -> discord.Embed:
+    """Render one StreamElements operation as a readable audit card."""
+    state = str(item.get("state") or "unknown")
+    embed = discord.Embed(
+        title=f"Economy operation {_operation_short_id(item.get('operation_id'))}",
+        color=ECONOMY_OPERATION_STATUS_COLORS.get(state, discord.Color.blurple()),
+    )
+    embed.add_field(name="Status", value=_operation_state_label(state), inline=True)
+    embed.add_field(
+        name="Type", value=str(item.get("operation_type") or "unknown").title(), inline=True
+    )
+    embed.add_field(name="Time", value=_operation_timestamp(item.get("requested_at")), inline=True)
+    embed.add_field(name="Viewer", value=item.get("username") or "unknown", inline=True)
+
+    mass_lines: list[str] = []
+    if item.get("player_mass_before") is not None or item.get("player_mass_after") is not None:
+        mass_lines.append(
+            f"{_operation_number(item.get('player_mass_before'), suffix=' kg')} → "
+            f"{_operation_number(item.get('player_mass_after'), suffix=' kg')}"
+        )
+    if item.get("mass_delta") is not None:
+        mass_lines.append(
+            f"Change: {_operation_number(item.get('mass_delta'), signed=True, suffix=' kg')}"
+        )
+    if item.get("mass_effective") is not None:
+        mass_lines.append(f"Effective: {_operation_number(item.get('mass_effective'), suffix=' kg')}")
+    embed.add_field(name="Mass", value="\n".join(mass_lines) or "n/a", inline=False)
+
+    points_lines = [
+        f"Change: {_operation_number(item.get('points_delta'), signed=True, suffix=' points')}",
+        f"Calculated: {_operation_number(item.get('points_calculated'), suffix=' points')}",
+    ]
+    if item.get("provider_balance_before") is not None or item.get("provider_balance_after") is not None:
+        points_lines.append(
+            f"Balance: {_operation_number(item.get('provider_balance_before'))} → "
+            f"{_operation_number(item.get('provider_balance_after'))} points"
+        )
+    if item.get("provider_points_cap") is not None:
+        points_lines.append(f"Cap: {_operation_number(item.get('provider_points_cap'))} points")
+    if (
+        item.get("provider_points_headroom_before") is not None
+        or item.get("provider_points_headroom_after") is not None
+    ):
+        points_lines.append(
+            f"Headroom: {_operation_number(item.get('provider_points_headroom_before'))} → "
+            f"{_operation_number(item.get('provider_points_headroom_after'))} points"
+        )
+    embed.add_field(name="Points", value="\n".join(points_lines), inline=False)
+
+    pricing_lines = []
+    if item.get("rate"):
+        pricing_lines.append(f"Rate: {_operation_number(item.get('rate'), suffix=' points/kg')}")
+    if item.get("pricing_mode"):
+        pricing_lines.append(
+            f"Pricing mode: {str(item.get('pricing_mode')).replace('_', ' ').title()}"
+        )
+    if item.get("provider_channel_id"):
+        pricing_lines.append(f"Provider channel: `{item['provider_channel_id']}`")
+    if item.get("started_at"):
+        pricing_lines.append(f"Started: {_operation_timestamp(item.get('started_at'))}")
+    if item.get("completed_at"):
+        pricing_lines.append(f"Completed: {_operation_timestamp(item.get('completed_at'))}")
+    if item.get("attempts") is not None:
+        pricing_lines.append(f"Attempts: {item.get('attempts')}")
+    if item.get("external_applied") is not None:
+        pricing_lines.append(
+            f"Provider mutation: {'applied' if item.get('external_applied') else 'not applied'}"
+        )
+    if pricing_lines:
+        embed.add_field(name="Processing", value="\n".join(pricing_lines), inline=False)
+
+    error_text = _operation_error_text(item)
+    if error_text:
+        embed.add_field(name="Issue", value=error_text, inline=False)
+    return embed
 
 
 def _is_effective_switch_enabled(settings: dict, field: str) -> bool:
@@ -230,17 +379,17 @@ def register_streamelements_group(tree, api, sessions, fish):
     async def operations(interaction: discord.Interaction):
         async def operation():
             result = await api.economy_operations(interaction)
-            embed = discord.Embed(title="Recent economy operations", color=discord.Color.blurple())
-            lines = []
-            for item in result.get("items", []):
-                line = f"`{item.get('operation_id', '')[:8]}` {item.get('operation_type', '').upper()} - {item.get('state', '')} - {item.get('mass_delta', '0')} kg / {item.get('points_delta', 0)} points"
-                if item.get("provider_points_headroom_before") is not None:
-                    line += f"\n  Balance: {item.get('provider_balance_before')} / {item.get('provider_points_cap')} (headroom {item.get('provider_points_headroom_before')})"
-                if item.get("error_code"):
-                    line += f"\n  Reason: `{item['error_code']}`"
-                lines.append(line)
-            embed.description = "\n".join(lines) or "No economy operations found."
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            view = PagedEmbedView(
+                interaction.user.id,
+                "Recent economy operations",
+                result.get("items", []),
+                embed_builder=economy_operation_detail_embed,
+            )
+            await interaction.followup.send(
+                embed=view.embed(),
+                view=view,
+                ephemeral=True,
+            )
 
         await _deferred(interaction, operation)
 
