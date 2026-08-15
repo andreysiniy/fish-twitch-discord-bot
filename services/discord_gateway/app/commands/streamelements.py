@@ -153,6 +153,21 @@ def _status_embed(result: dict) -> discord.Embed:
     embed.add_field(
         name="Last validated", value=str(result.get("last_validated_at", "Never")), inline=False
     )
+    embed.add_field(
+        name="Last check", value=str(result.get("last_check_at", "Never")), inline=True
+    )
+    embed.add_field(
+        name="Next check", value=str(result.get("next_validation_at", "Not scheduled")), inline=True
+    )
+    embed.add_field(
+        name="Failures", value=str(result.get("consecutive_failures", 0)), inline=True
+    )
+    if result.get("validation_latency_ms") is not None:
+        embed.add_field(
+            name="Probe latency",
+            value=f"{result['validation_latency_ms']} ms",
+            inline=True,
+        )
     if result.get("last_error_code"):
         embed.add_field(name="Last error", value=f"`{result['last_error_code']}`", inline=False)
     return embed
