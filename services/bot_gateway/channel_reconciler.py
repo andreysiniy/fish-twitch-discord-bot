@@ -117,6 +117,12 @@ class TwitchChannelReconciler:
             if matching_id is not None:
                 self._joined[twitch_id] = self._joined.pop(matching_id)
                 continue
+            if item.login in actual_logins:
+                # TwitchIO may already be joined after a reconnect or an
+                # externally-triggered join. Track the stable identity without
+                # issuing a duplicate runtime join.
+                self._joined[twitch_id] = item.login
+                continue
             inc("twitch_bot_join_attempts_total")
             await self.bot.join_channels([item.login])
             self._joined[twitch_id] = item.login
@@ -125,10 +131,14 @@ class TwitchChannelReconciler:
                 extra={"action": "twitch_channel_join", "twitch_id": item.twitch_id, "login": item.login},
             )
 
-        for twitch_id in list(self._joined):
-            if twitch_id in desired:
+        desired_logins = {item.login for item in desired.values()}
+        stale_logins = (set(self._joined.values()) | actual_logins) - desired_logins
+        for login in stale_logins:
+            stale_ids = [
+                twitch_id for twitch_id, known_login in self._joined.items() if known_login == login
+            ]
+            if not stale_ids and login not in actual_logins:
                 continue
-            login = self._joined[twitch_id]
             # Bootstrap-only identities are also removed once the database has
             # successfully returned a desired set.
             inc("twitch_bot_part_attempts_total")
@@ -137,7 +147,8 @@ class TwitchChannelReconciler:
             except Exception:
                 inc("twitch_bot_part_failures_total")
                 raise
-            self._joined.pop(twitch_id, None)
+            for twitch_id in stale_ids:
+                self._joined.pop(twitch_id, None)
             logger.info(
                 "Twitch channel parted",
                 extra={"action": "twitch_channel_part", "login": login},

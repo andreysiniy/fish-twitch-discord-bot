@@ -79,3 +79,18 @@ def test_engine_failure_never_parts_current_memberships() -> None:
         assert bot.parts == []
 
     asyncio.run(scenario())
+
+
+def test_reconcile_uses_runtime_membership_for_join_and_part() -> None:
+    async def scenario():
+        bot = FakeBot()
+        bot.connected_channels = ["alpha", "stale"]
+        api = FakeApi([{"channels": [{"twitch_id": "1", "login": "alpha"}]}])
+        reconciler = TwitchChannelReconciler(bot, api, _config())
+
+        assert await reconciler.reconcile_once()
+        assert bot.joins == []
+        assert bot.parts == ["stale"]
+        assert reconciler._joined == {"1": "alpha"}
+
+    asyncio.run(scenario())
