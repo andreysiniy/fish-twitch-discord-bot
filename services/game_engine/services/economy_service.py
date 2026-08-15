@@ -39,6 +39,7 @@ from infrastructure.models import (
     OutboxEvent,
     UserProgress,
 )
+from infrastructure.after_commit import schedule_after_commit
 from infrastructure.redis_client import RedisClient
 from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
@@ -64,6 +65,7 @@ from integrations.streamelements.constants import (
     validate_provider_balance,
 )
 from services.player_modifier_service import PlayerModifierService
+from services.streamelements.health_policy import backoff_seconds
 
 _BuyCallable = TypeVar("_BuyCallable", bound=Callable[..., Coroutine[object, object, FishResponse]])
 _SellCallable = TypeVar(
@@ -321,6 +323,8 @@ class EconomyService:
                 str(integration.provider_channel_id), token, username
             )
         except ProviderAuthenticationError as error:
+            self._record_provider_health(integration, success=False, error=error)
+            self.db.commit()
             raise EconomyDomainError(
                 "STREAM_ELEMENTS_INVALID_CREDENTIALS", "StreamElements credentials are invalid."
             ) from error
@@ -915,18 +919,29 @@ class EconomyService:
                 error, "code", "STREAM_ELEMENTS_PROVIDER_UNAVAILABLE"
             )
             integration.consecutive_failures += 1
-            integration.next_validation_at = now + timedelta(
-                hours=6 if integration.status == "invalid" else 1
+            delay = 6 * 3600 if integration.status == "invalid" else backoff_seconds(
+                integration.consecutive_failures
             )
+            integration.next_validation_at = now + timedelta(seconds=delay)
         integration.validation_latency_ms = latency_ms
         if integration.next_validation_at:
-            try:
-                RedisClient.get_client().zadd(
-                    "fish:se:health:due",
-                    {str(integration.id): integration.next_validation_at.timestamp()},
-                )
-            except RedisError:
-                pass
+            integration_id = str(integration.id)
+            due_at = integration.next_validation_at.timestamp()
+            schedule_after_commit(
+                self.db,
+                lambda: self._enqueue_health_schedule(integration_id, due_at),
+            )
+
+    @staticmethod
+    def _enqueue_health_schedule(integration_id: str, due_at: float) -> None:
+        try:
+            RedisClient.get_client().zadd(
+                "fish:se:health:due", {integration_id: due_at}
+            )
+        except RedisError:
+            # PostgreSQL next_validation_at remains durable; the worker can
+            # rebuild the operational queue after Redis recovers.
+            pass
 
     def _resolve_sell_mass(
         self, parsed: ParsedMassArgument, current_mass: Decimal, settings, provider_balance: int
