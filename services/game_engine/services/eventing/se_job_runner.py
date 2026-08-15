@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from core.messages import MsgKey, resolve_message
-from core.security import decrypt_integration_token, decrypt_token
+from core.security import decrypt_integration_token
 from domain.economy import EconomyDomainError
 from domain.logic.mass import apply_mass_mutation
 from domain.schemas.fishing import FishResponse
@@ -113,7 +113,7 @@ class SEJobRunner:
                 .filter(
                     ChannelIntegration.channel_id == operation.channel_id,
                     ChannelIntegration.provider == "streamelements",
-                    ChannelIntegration.status == "connected",
+                    ChannelIntegration.status.in_(("connected", "degraded")),
                 )
                 .first()
             )
@@ -138,7 +138,16 @@ class SEJobRunner:
                     key_version=integration.credential_key_version,
                 )
             except ValueError:
-                token = decrypt_token(channel.se_token or integration.credential_ciphertext)
+                integration.status = "invalid"
+                integration.last_check_at = datetime.now(timezone.utc)
+                integration.last_error_at = integration.last_check_at
+                integration.last_error_code = "STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED"
+                integration.consecutive_failures += 1
+                integration.next_validation_at = integration.last_check_at + timedelta(hours=6)
+                db.commit()
+                self._finalize_failure(db, event, operation, integration.last_error_code)
+                db.commit()
+                return True
             provider_balance = validate_provider_balance(
                 await self.se_client.get_balance(
                     str(integration.provider_channel_id), token, operation.twitch_username

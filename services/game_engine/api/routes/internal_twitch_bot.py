@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from infrastructure.models import Channel
 from infrastructure.redis_client import RedisClient
 from pydantic import BaseModel, ConfigDict, Field
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 
@@ -76,35 +77,38 @@ def report_status(
 ) -> dict[str, Any]:
     redis = RedisClient.get_client()
     reported_at = report.reported_at.astimezone(timezone.utc).isoformat()
-    redis.setex(
-        f"fish:twitch-bot:instance:{report.instance_id}",
-        90,
-        json.dumps(
-            {
-                "instance_id": report.instance_id,
-                "reported_at": reported_at,
-                "channel_count": len(report.channels),
-            }
-        ),
-    )
-    for item in report.channels:
-        channel = db.query(Channel).filter(Channel.twitch_id == item.twitch_id).first()
-        if not channel:
-            continue
-        payload = {
-            "desired": item.desired,
-            "actual": item.actual,
-            "login": item.login,
-            "instance_id": report.instance_id,
-            "joined_at": reported_at if item.actual == "joined" else None,
-            "last_checked_at": reported_at,
-            "last_error": item.last_error,
-        }
+    try:
         redis.setex(
-            f"fish:twitch-bot:channel:{item.twitch_id}",
+            f"fish:twitch-bot:instance:{report.instance_id}",
             90,
-            json.dumps(payload),
+            json.dumps(
+                {
+                    "instance_id": report.instance_id,
+                    "reported_at": reported_at,
+                    "channel_count": len(report.channels),
+                }
+            ),
         )
+        for item in report.channels:
+            channel = db.query(Channel).filter(Channel.twitch_id == item.twitch_id).first()
+            if not channel:
+                continue
+            payload = {
+                "desired": item.desired,
+                "actual": item.actual,
+                "login": item.login,
+                "instance_id": report.instance_id,
+                "joined_at": reported_at if item.actual == "joined" else None,
+                "last_checked_at": reported_at,
+                "last_error": item.last_error,
+            }
+            redis.setex(
+                f"fish:twitch-bot:channel:{item.twitch_id}",
+                90,
+                json.dumps(payload),
+            )
+    except RedisError:
+        return {"status": "accepted", "reported_at": reported_at, "cache": "unavailable"}
     metrics.set_gauge(
         "twitch_bot_joined_channels",
         sum(item.actual == "joined" for item in report.channels),

@@ -1,5 +1,5 @@
 from domain.schemas.external_actions import ExternalActionRequest, ExternalActionResponse
-from infrastructure.models import EconomyOperation, OutboxEvent, UserProgress
+from infrastructure.models import ChannelIntegration, EconomyOperation, OutboxEvent, UserProgress
 from infrastructure.repositories.channel_repo import ChannelRepository
 
 
@@ -21,7 +21,16 @@ class ExternalActionService:
         channel = self.channel_repo.get_by_twitch_id(data.channel_id)
         if not channel:
             raise ValueError("Channel not found")
-        if not channel.se_token or not channel.se_channel_id:
+        integration = (
+            self.db.query(ChannelIntegration)
+            .filter(
+                ChannelIntegration.channel_id == channel.id,
+                ChannelIntegration.provider == "streamelements",
+                ChannelIntegration.status.in_(("connected", "degraded")),
+            )
+            .first()
+        )
+        if not integration:
             raise ValueError("StreamElements integration is not configured")
         user = (
             self.db.query(UserProgress)
@@ -40,6 +49,8 @@ class ExternalActionService:
             channel_id=channel.id,
             user_id=user.id,
             twitch_username=data.target_username,
+            integration_id=integration.id,
+            provider_channel_id_snapshot=integration.provider_channel_id,
             mass_delta=0,
             points_delta=data.amount,
             state="pending",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from api.discord_dependencies import DiscordServiceContext
@@ -19,6 +19,8 @@ from infrastructure.models import (
     ChannelIntegration,
     EconomyOperation,
 )
+from infrastructure.redis_client import RedisClient
+from redis.exceptions import RedisError
 from infrastructure.se_client import (
     ProviderAuthenticationError,
     ProviderError,
@@ -28,6 +30,8 @@ from services.discord_admin_service import DiscordAdminService
 
 
 class StreamElementsIntegrationService:
+    HEALTH_DUE_KEY = "fish:se:health:due"
+    HEALTH_CACHE_PREFIX = "fish:se:health:status:"
     def __init__(self, db, se_client: SEApiClient | None = None):
         self.db = db
         self.se_client = se_client or SEApiClient()
@@ -90,6 +94,10 @@ class StreamElementsIntegrationService:
                 credential_fingerprint=integration_key_fingerprint(),
                 status="connected",
                 last_validated_at=now,
+                last_check_at=now,
+                last_success_at=now,
+                next_validation_at=now + timedelta(minutes=30),
+                consecutive_failures=0,
             )
             self.db.add(integration)
         else:
@@ -100,8 +108,15 @@ class StreamElementsIntegrationService:
             integration.status = "connected"
             integration.version += 1
             integration.last_validated_at = now
+            integration.last_check_at = now
+            integration.last_success_at = now
+            integration.last_error_at = None
+            integration.next_validation_at = now + timedelta(minutes=30)
+            integration.consecutive_failures = 0
+            integration.validation_latency_ms = None
             integration.last_error_code = None
         self.db.flush()
+        self._schedule_health(integration)
         after = self._serialize(integration)
         self.admin._audit(
             context,
@@ -135,32 +150,57 @@ class StreamElementsIntegrationService:
             context, ChannelPermission.INTEGRATIONS_WRITE, channel_twitch_id
         )
         integration = self._integration(channel.id)
-        token = self._decrypt(integration)
+        try:
+            token = self._decrypt(integration)
+        except ApiProblem:
+            now = datetime.now(timezone.utc)
+            integration.status = "invalid"
+            integration.last_check_at = now
+            integration.last_error_at = now
+            integration.last_error_code = "STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED"
+            integration.consecutive_failures += 1
+            integration.next_validation_at = now + timedelta(hours=6)
+            self.db.flush()
+            self._schedule_health(integration)
+            raise
+        started = datetime.now(timezone.utc)
         try:
             provider_channel_id = await self.se_client.get_channel_id(token)
         except ProviderError as error:
-            integration.status = (
-                "invalid" if isinstance(error, ProviderAuthenticationError) else "error"
-            )
-            integration.last_error_code = error.code
+            self._record_failure(integration, error)
             self.db.flush()
+            self._schedule_health(integration)
             raise ApiProblem(
                 502, error.code, "StreamElements test failed", request_id=context.request_id
             ) from error
         if provider_channel_id != integration.provider_channel_id:
-            integration.status = "invalid"
-            integration.last_error_code = "STREAM_ELEMENTS_CHANNEL_MISMATCH"
+            error = ProviderError("Provider channel identity changed", status_code=409)
+            self._record_failure(
+                integration,
+                error,
+                code="STREAM_ELEMENTS_PROVIDER_IDENTITY_MISMATCH",
+                status="invalid",
+            )
             self.db.flush()
+            self._schedule_health(integration)
             raise ApiProblem(
                 409,
                 "STREAM_ELEMENTS_CHANNEL_MISMATCH",
                 "Provider channel identity changed",
                 request_id=context.request_id,
             )
+        now = datetime.now(timezone.utc)
         integration.status = "connected"
-        integration.last_validated_at = datetime.now(timezone.utc)
+        integration.last_check_at = now
+        integration.last_success_at = now
+        integration.last_validated_at = now
+        integration.last_error_at = None
         integration.last_error_code = None
+        integration.consecutive_failures = 0
+        integration.validation_latency_ms = max(int((now - started).total_seconds() * 1000), 0)
+        integration.next_validation_at = now + timedelta(minutes=30)
         self.db.flush()
+        self._schedule_health(integration)
         self.admin._audit(
             context,
             channel.twitch_id,
@@ -185,7 +225,14 @@ class StreamElementsIntegrationService:
         integration.status = "disconnected"
         integration.version += 1
         integration.last_error_code = None
+        integration.next_validation_at = None
         self.db.flush()
+        try:
+            redis = RedisClient.get_client()
+            redis.zrem(self.HEALTH_DUE_KEY, str(integration.id))
+            redis.delete(f"{self.HEALTH_CACHE_PREFIX}{channel.id}")
+        except RedisError:
+            pass
         after = self._serialize(integration)
         self.admin._audit(
             context,
@@ -273,6 +320,42 @@ class StreamElementsIntegrationService:
         )
         return {"items": [self._serialize_operation(row) for row in rows]}
 
+    def _schedule_health(self, integration: ChannelIntegration) -> None:
+        if integration.next_validation_at is None:
+            return
+        try:
+            RedisClient.get_client().zadd(
+                self.HEALTH_DUE_KEY,
+                {str(integration.id): integration.next_validation_at.timestamp()},
+            )
+        except RedisError:
+            # PostgreSQL remains the source of truth; the worker rebuilds the
+            # operational queue after Redis recovers.
+            pass
+
+    @staticmethod
+    def _record_failure(
+        integration: ChannelIntegration,
+        error: ProviderError,
+        *,
+        code: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        integration.status = status or (
+            "invalid"
+            if isinstance(error, ProviderAuthenticationError)
+            or getattr(error, "status_code", None) in {401, 403}
+            else "degraded"
+        )
+        integration.last_check_at = now
+        integration.last_error_at = now
+        integration.last_error_code = code or error.code
+        integration.consecutive_failures += 1
+        integration.next_validation_at = now + timedelta(
+            hours=6 if integration.status == "invalid" else 1
+        )
+
     def _integration(self, channel_id: int) -> ChannelIntegration:
         row = (
             self.db.query(ChannelIntegration)
@@ -282,7 +365,7 @@ class StreamElementsIntegrationService:
             )
             .first()
         )
-        if not row or row.status != "connected":
+        if not row or row.status in {"invalid", "disconnected"}:
             raise ApiProblem(
                 409, "STREAM_ELEMENTS_NOT_CONFIGURED", "StreamElements integration is not connected"
             )
@@ -331,6 +414,14 @@ class StreamElementsIntegrationService:
             "last_validated_at": row.last_validated_at.isoformat()
             if row.last_validated_at
             else None,
+            "last_check_at": row.last_check_at.isoformat() if row.last_check_at else None,
+            "last_success_at": row.last_success_at.isoformat() if row.last_success_at else None,
+            "last_error_at": row.last_error_at.isoformat() if row.last_error_at else None,
+            "next_validation_at": row.next_validation_at.isoformat()
+            if row.next_validation_at
+            else None,
+            "consecutive_failures": row.consecutive_failures,
+            "validation_latency_ms": row.validation_latency_ms,
             "last_error_code": row.last_error_code,
             "version": row.version,
         }
