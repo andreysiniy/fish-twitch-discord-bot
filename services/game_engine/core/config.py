@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     INTEGRATIONS_ENCRYPTION_KEY_VERSION: int = 1
     BOT_API_KEY: str
     DISCORD_BOT_API_KEY: str
+    # Dedicated least-privilege credential for bot_gateway internal control APIs.
+    # It is intentionally optional for read-only local deployments; requests
+    # are rejected when it is not configured.
+    TWITCH_BOT_SERVICE_KEY: str | None = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 

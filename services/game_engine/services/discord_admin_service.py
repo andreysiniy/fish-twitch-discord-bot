@@ -54,6 +54,7 @@ from infrastructure.models import (
     LootTableEntry,
     LootTableEntryStock,
     Channel,
+    ChannelIntegration,
     DiscordAccountLink,
     DiscordGuildBinding,
     FishingEvent,
@@ -66,6 +67,7 @@ from infrastructure.models import (
     UserProgress,
 )
 from infrastructure.redis_client import RedisClient
+from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.fishing_cast_query_repo import FishingCastQueryRepository
 from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
@@ -241,10 +243,74 @@ class DiscordAdminService:
                 .filter(DiscordGuildBinding.discord_guild_id == context.discord_guild_id)
                 .first()
             )
-        return {
+        result = {
             "linked": bool(link),
             "twitch": ({"id": link.twitch_user_id, "login": link.twitch_login} if link else None),
             "binding": self._serialize_binding(binding) if binding else None,
+        }
+        if binding:
+            channel = binding.channel
+            integration = (
+                self.db.query(ChannelIntegration)
+                .filter(
+                    ChannelIntegration.channel_id == channel.id,
+                    ChannelIntegration.provider == "streamelements",
+                )
+                .first()
+            )
+            economy = channel.economy_settings
+            runtime = self._twitch_runtime_status(channel.twitch_id)
+            result["channel_status"] = {
+                "twitch": {
+                    "channel": channel.name or channel.twitch_id,
+                    "desired": "joined" if channel.twitch_bot_enabled else "parted",
+                    "actual": runtime.get("actual", "unknown"),
+                    "last_sync": runtime.get("last_checked_at"),
+                    "last_error": runtime.get("last_error"),
+                    "gateway_online": bool(runtime),
+                },
+                "streamelements": self._serialize_integration_health(integration)
+                if integration
+                else {"status": "not_configured"},
+                "economy": {
+                    "status": "enabled"
+                    if economy and economy.enabled and economy.buy_enabled and economy.sell_enabled
+                    else "disabled",
+                    "buy_enabled": bool(economy and economy.enabled and economy.buy_enabled),
+                    "sell_enabled": bool(economy and economy.enabled and economy.sell_enabled),
+                    "buy_points_per_kg": _dec(economy.buy_points_per_kg) if economy else None,
+                    "sell_points_per_kg": _dec(economy.sell_points_per_kg) if economy else None,
+                },
+            }
+        return result
+
+    def _twitch_runtime_status(self, twitch_id: str) -> dict[str, Any]:
+        try:
+            raw = self.redis.get(f"fish:twitch-bot:channel:{twitch_id}")
+        except RedisError:
+            return {}
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+
+    @staticmethod
+    def _serialize_integration_health(integration: ChannelIntegration) -> dict[str, Any]:
+        return {
+            "status": integration.status,
+            "provider": integration.provider,
+            "provider_channel_id": integration.provider_channel_id,
+            "credential_configured": bool(integration.credential_ciphertext),
+            "last_check_at": _iso(integration.last_check_at),
+            "last_success_at": _iso(integration.last_success_at),
+            "last_validated_at": _iso(integration.last_validated_at),
+            "last_error_at": _iso(integration.last_error_at),
+            "next_validation_at": _iso(integration.next_validation_at),
+            "consecutive_failures": integration.consecutive_failures,
+            "validation_latency_ms": integration.validation_latency_ms,
+            "last_error_code": integration.last_error_code,
         }
 
     def unlink(self, context: DiscordServiceContext) -> dict[str, Any]:
@@ -289,6 +355,13 @@ class DiscordAdminService:
                 channel = self.channel_repo.create(
                     ChannelCreateDTO(twitch_id=link.twitch_user_id, name=link.twitch_login)
                 )
+            else:
+                channel = (
+                    self.db.query(Channel)
+                    .filter(Channel.id == channel.id)
+                    .with_for_update()
+                    .one()
+                )
             if not self._find_pool(channel.id, "default"):
                 self.db.add(
                     RewardPool(
@@ -322,6 +395,17 @@ class DiscordAdminService:
                     409, "PERMISSION_DENIED", "Guild is already bound; confirmation required"
                 )
             before = self._serialize_binding(existing) if existing else {}
+            previous_channel = None
+            if existing and existing.channel_id != channel.id:
+                previous_channel = (
+                    self.db.query(Channel)
+                    .filter(Channel.id == existing.channel_id)
+                    .with_for_update()
+                    .one()
+                )
+                previous_channel.twitch_bot_enabled = False
+                previous_channel.bot_membership_updated_at = datetime.now(timezone.utc)
+                previous_channel.bot_membership_updated_by_discord_id = context.discord_user_id
             if not existing:
                 existing = DiscordGuildBinding(
                     discord_guild_id=context.discord_guild_id,
@@ -333,6 +417,9 @@ class DiscordAdminService:
                 existing.channel_id = channel.id
                 existing.configured_by_discord_id = context.discord_user_id
             existing.management_channel_id = context.management_channel_id
+            channel.twitch_bot_enabled = True
+            channel.bot_membership_updated_at = datetime.now(timezone.utc)
+            channel.bot_membership_updated_by_discord_id = context.discord_user_id
             self.db.flush()
             after = self._serialize_binding(existing)
             self._audit(
@@ -361,8 +448,17 @@ class DiscordAdminService:
 
         def mutation() -> dict[str, Any]:
             channel, link = self._authorize(context, ChannelPermission.INTEGRATIONS_WRITE)
+            channel = (
+                self.db.query(Channel)
+                .filter(Channel.id == channel.id)
+                .with_for_update()
+                .one()
+            )
             binding = self._get_binding(context)
             before = self._serialize_binding(binding)
+            channel.twitch_bot_enabled = False
+            channel.bot_membership_updated_at = datetime.now(timezone.utc)
+            channel.bot_membership_updated_by_discord_id = context.discord_user_id
             self.db.delete(binding)
             self.db.flush()
             self._audit(
@@ -2536,6 +2632,8 @@ class DiscordAdminService:
             "discord_guild_id": binding.discord_guild_id,
             "channel_twitch_id": binding.channel.twitch_id,
             "channel_name": binding.channel.name,
+            "twitch_bot_enabled": binding.channel.twitch_bot_enabled,
+            "bot_membership_updated_at": _iso(binding.channel.bot_membership_updated_at),
             "management_channel_id": binding.management_channel_id,
             "locale": binding.locale,
         }
