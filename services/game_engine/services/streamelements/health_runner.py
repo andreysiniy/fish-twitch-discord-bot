@@ -130,6 +130,7 @@ class StreamElementsHealthRunner:
             self._reconcile_scheduler()
             self._last_scheduler_reconcile = now
         due = self.redis.zrangebyscore(self.DUE_KEY, "-inf", now, start=0, num=100)
+        metrics.set_gauge("streamelements_health_due_queue_size", len(due))
         processed = 0
         for integration_id in due:
             if not self._acquire_lock(str(integration_id)):
@@ -145,11 +146,13 @@ class StreamElementsHealthRunner:
     def _rebuild_scheduler(self) -> None:
         db = self.db_factory()
         try:
-            rows = (
-                db.query(ChannelIntegration)
-                .filter(ChannelIntegration.status != "disconnected")
-                .all()
-            )
+            all_rows = db.query(ChannelIntegration).all()
+            status_counts: dict[str, int] = {}
+            for row in all_rows:
+                status_counts[row.status] = status_counts.get(row.status, 0) + 1
+            for status, count in status_counts.items():
+                metrics.set_gauge("streamelements_integrations_total", count, {"status": status})
+            rows = [row for row in all_rows if row.status != "disconnected"]
             now = datetime.now(timezone.utc)
             changed = False
             for row in rows:
@@ -323,7 +326,6 @@ class StreamElementsHealthRunner:
                 }
             ),
         )
-
     def _heartbeat(self, *, due_queue_size: int = 0) -> None:
         now = datetime.now(timezone.utc)
         self.redis.setex(
@@ -340,6 +342,8 @@ class StreamElementsHealthRunner:
                 }
             ),
         )
+        metrics.set_gauge("streamelements_health_due_queue_size", due_queue_size)
+        metrics.set_gauge("streamelements_health_worker_heartbeat_age_seconds", 0)
 
     def _acquire_lock(self, integration_id: str) -> bool:
         return bool(

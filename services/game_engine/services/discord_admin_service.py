@@ -66,6 +66,7 @@ from infrastructure.models import (
     RewardPool,
     UserProgress,
 )
+from infrastructure.after_commit import schedule_after_commit
 from infrastructure.redis_client import RedisClient
 from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
@@ -272,6 +273,7 @@ class DiscordAdminService:
                 "streamelements": self._serialize_integration_health(integration)
                 if integration
                 else {"status": "not_configured"},
+                "streamelements_worker": self._streamelements_worker_status(),
                 "economy": {
                     "status": "enabled"
                     if economy and economy.enabled and economy.buy_enabled and economy.sell_enabled
@@ -295,6 +297,22 @@ class DiscordAdminService:
             return json.loads(raw)
         except (TypeError, ValueError):
             return {}
+
+    def _streamelements_worker_status(self) -> dict[str, Any]:
+        try:
+            raw = self.redis.get("fish:worker:se-health")
+        except RedisError:
+            return {"status": "offline"}
+        if not raw:
+            return {"status": "offline"}
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            return {"status": "offline"}
+        if not isinstance(payload, dict):
+            return {"status": "offline"}
+        payload["status"] = "online"
+        return payload
 
     @staticmethod
     def _serialize_integration_health(integration: ChannelIntegration) -> dict[str, Any]:
@@ -420,6 +438,22 @@ class DiscordAdminService:
             channel.twitch_bot_enabled = True
             channel.bot_membership_updated_at = datetime.now(timezone.utc)
             channel.bot_membership_updated_by_discord_id = context.discord_user_id
+            integration = (
+                self.db.query(ChannelIntegration)
+                .filter(
+                    ChannelIntegration.channel_id == channel.id,
+                    ChannelIntegration.provider == "streamelements",
+                )
+                .first()
+            )
+            if integration and integration.status != "disconnected":
+                integration.next_validation_at = datetime.now(timezone.utc)
+                integration_id = str(integration.id)
+                due_at = integration.next_validation_at.timestamp()
+                schedule_after_commit(
+                    self.db,
+                    lambda: self._enqueue_stream_elements_health(integration_id, due_at),
+                )
             self.db.flush()
             after = self._serialize_binding(existing)
             self._audit(
@@ -441,6 +475,14 @@ class DiscordAdminService:
             context.request_id,
             mutation,
         )
+
+    def _enqueue_stream_elements_health(self, integration_id: str, due_at: float) -> None:
+        try:
+            self.redis.zadd("fish:se:health:due", {integration_id: due_at})
+        except RedisError:
+            # PostgreSQL next_validation_at remains durable; the worker will
+            # rebuild the Redis scheduler when it becomes available.
+            return
 
     def remove_guild_binding(self, context: DiscordServiceContext) -> dict[str, Any]:
         if not context.discord_guild_id or not context.can_manage_guild:

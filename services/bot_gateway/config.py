@@ -18,14 +18,9 @@ class BotConfig:
     bot_instance_id: str = ""
     command_prefix: str = "!"
 
-    @property
-    def initial_channels(self) -> List[str]:
-        """Compatibility alias for integrations still reading the old name."""
-        return self.bootstrap_channels
-
     @classmethod
     def from_env(cls) -> "BotConfig":
-        channels_raw = os.getenv("BOOTSTRAP_CHANNELS") or os.getenv("INITIAL_CHANNELS", "")
+        channels_raw = os.getenv("BOOTSTRAP_CHANNELS", "")
         channels = [channel.strip() for channel in channels_raw.split(",") if channel.strip()]
         source = os.getenv("TWITCH_CHANNEL_SOURCE", "database").strip().lower()
         if source not in {"database", "bootstrap"}:
