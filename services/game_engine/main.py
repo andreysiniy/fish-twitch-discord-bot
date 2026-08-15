@@ -12,6 +12,7 @@ from api.routes import (
     economy,
     fishing,
     inventory,
+    internal_twitch_bot,
 )
 from api.dependencies import _SE_CLIENT
 from core.api_errors import ApiProblem
@@ -50,6 +51,7 @@ app.include_router(auth.router, prefix="/v1/auth", tags=["Auth"])
 app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
+app.include_router(internal_twitch_bot.router, prefix="/v1", tags=["Internal Twitch Bot"])
 app.include_router(economy.router, prefix="/v1", tags=["Economy"])
 app.include_router(actions.router, prefix="/v1/actions", tags=["External Actions"])
 app.include_router(

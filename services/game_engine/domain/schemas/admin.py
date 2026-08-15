@@ -24,8 +24,6 @@ class ChannelCreateDTO(BaseModel):
 class ChannelUpdateDTO(BaseModel):
     is_active: Optional[bool] = None
     config: Optional[Dict[str, Any]] = None
-    se_token: Optional[str] = None
-    se_channel_id: Optional[str] = None
 
 class ChannelResponseDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -34,7 +32,6 @@ class ChannelResponseDTO(BaseModel):
     name: str
     is_active: bool
     config: Dict[str, Any]
-    se_channel_id: Optional[str] = None
 
 
 

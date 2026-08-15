@@ -18,7 +18,7 @@ from core.messages import (
     resolve_message,
 )
 from core.metrics import count_economy_provider_cap_rejection, count_economy_reconciliation
-from core.security import decrypt_integration_token, decrypt_token
+from core.security import decrypt_integration_token
 from domain.economy import (
     MASS_QUANTUM,
     EconomyDomainError,
@@ -40,6 +40,7 @@ from infrastructure.models import (
     UserProgress,
 )
 from infrastructure.redis_client import RedisClient
+from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.user_repo import UserRepository
 from infrastructure.se_client import (
@@ -428,6 +429,7 @@ class EconomyService:
                     str(integration.provider_channel_id), token, operation.twitch_username
                 )
             balance_after = validate_provider_balance(balance_after)
+            self._record_provider_health(integration, success=True)
             operation.provider_balance_after = balance_after
             operation.provider_status_code = result.status_code
             operation.provider_points_headroom_after = provider_headroom(balance_after)
@@ -462,6 +464,7 @@ class EconomyService:
             ProviderValidationError,
             ProviderRateLimitError,
         ) as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "rejected", error=error)
             if isinstance(error, ProviderRateLimitError):
                 return self._queue_retry(operation, channel, error, "sell")
@@ -493,6 +496,7 @@ class EconomyService:
                     str(integration.provider_channel_id), token, operation.twitch_username
                 )
             balance_after = validate_provider_balance(balance_after)
+            self._record_provider_health(integration, success=True)
             operation.provider_balance_after = balance_after
             operation.provider_status_code = result.status_code
             operation.provider_points_headroom_after = provider_headroom(balance_after)
@@ -538,6 +542,7 @@ class EconomyService:
             ProviderValidationError,
             ProviderRateLimitError,
         ) as error:
+            self._record_provider_health(integration, success=False, error=error)
             self._finish_attempt(operation, "rejected", error=error)
             if isinstance(error, ProviderRateLimitError):
                 return self._queue_retry(operation, channel, error, "buy")
@@ -724,9 +729,14 @@ class EconomyService:
             )
             .first()
         )
-        if not integration or integration.status != "connected":
+        if not integration or integration.status == "disconnected":
             raise EconomyDomainError(
                 "STREAM_ELEMENTS_NOT_CONFIGURED", "StreamElements integration is not configured."
+            )
+        if integration.status == "invalid":
+            raise EconomyDomainError(
+                "STREAM_ELEMENTS_INVALID_CREDENTIALS",
+                "StreamElements integration is unavailable. The channel owner needs to reconnect it.",
             )
         settings = self._settings(channel)
         return user, channel, integration, settings
@@ -828,14 +838,56 @@ class EconomyService:
             return decrypt_integration_token(
                 integration.credential_ciphertext, key_version=integration.credential_key_version
             )
-        except ValueError:
+        except ValueError as error:
+            raise EconomyDomainError(
+                "STREAM_ELEMENTS_INVALID_CREDENTIALS",
+                "StreamElements credentials are unavailable.",
+            ) from error
+
+    def _record_provider_health(
+        self,
+        integration: ChannelIntegration,
+        *,
+        success: bool,
+        error: ProviderError | None = None,
+        latency_ms: int | None = None,
+    ) -> None:
+        """Feed confirmed economy calls into the same durable health state."""
+
+        now = datetime.now(timezone.utc)
+        integration.last_check_at = now
+        if success:
+            integration.status = "connected"
+            integration.last_success_at = now
+            integration.last_validated_at = now
+            integration.last_error_at = None
+            integration.last_error_code = None
+            integration.consecutive_failures = 0
+            integration.next_validation_at = now + timedelta(minutes=30)
+        else:
+            integration.status = (
+                "invalid"
+                if isinstance(error, ProviderAuthenticationError)
+                or getattr(error, "status_code", None) in {401, 403}
+                else "degraded"
+            )
+            integration.last_error_at = now
+            integration.last_error_code = getattr(
+                error, "code", "STREAM_ELEMENTS_PROVIDER_UNAVAILABLE"
+            )
+            integration.consecutive_failures += 1
+            integration.next_validation_at = now + timedelta(
+                hours=6 if integration.status == "invalid" else 1
+            )
+        integration.validation_latency_ms = latency_ms
+        if integration.next_validation_at:
             try:
-                return decrypt_token(channel.se_token or integration.credential_ciphertext)
-            except ValueError as error:
-                raise EconomyDomainError(
-                    "STREAM_ELEMENTS_INVALID_CREDENTIALS",
-                    "StreamElements credentials are unavailable.",
-                ) from error
+                RedisClient.get_client().zadd(
+                    "fish:se:health:due",
+                    {str(integration.id): integration.next_validation_at.timestamp()},
+                )
+            except RedisError:
+                pass
 
     def _resolve_sell_mass(
         self, parsed: ParsedMassArgument, current_mass: Decimal, settings, provider_balance: int

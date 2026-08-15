@@ -31,9 +31,15 @@ class Channel(Base):
     twitch_id = Column(String, nullable=False)
     name = Column(String)
     is_active = Column(Boolean, default=True, nullable=False)
-    se_token = Column(String, nullable=True)
-    se_channel_id = Column(String, nullable=True)
-
+    # Durable desired membership for the Twitch bot.  This is intentionally
+    # separate from ``is_active`` which controls the game's configuration.
+    twitch_bot_enabled = Column(Boolean, default=False, nullable=False)
+    bot_membership_updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    bot_membership_updated_by_discord_id = Column(String, nullable=True)
     config = Column(JSONB, default=dict, nullable=False)
     config_version = Column(Integer, default=1, nullable=False)
     config_updated_at = Column(
@@ -68,10 +74,18 @@ class ChannelIntegration(Base):
         UniqueConstraint("channel_id", "provider", name="uq_channel_integrations_channel_provider"),
         CheckConstraint("provider = 'streamelements'", name="ck_channel_integrations_provider"),
         CheckConstraint(
-            "status IN ('connected','disconnected','invalid','error')",
+            "status IN ('connected','degraded','invalid','disconnected')",
             name="ck_channel_integrations_status",
         ),
         CheckConstraint("credential_key_version >= 1", name="ck_channel_integrations_key_version"),
+        CheckConstraint(
+            "consecutive_failures >= 0",
+            name="ck_channel_integrations_failures_nonnegative",
+        ),
+        CheckConstraint(
+            "validation_latency_ms IS NULL OR validation_latency_ms >= 0",
+            name="ck_channel_integrations_latency_nonnegative",
+        ),
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -86,6 +100,12 @@ class ChannelIntegration(Base):
     status = Column(String, nullable=False, default="connected")
     version = Column(Integer, nullable=False, default=1)
     last_validated_at = Column(DateTime(timezone=True), nullable=True)
+    last_check_at = Column(DateTime(timezone=True), nullable=True)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_at = Column(DateTime(timezone=True), nullable=True)
+    next_validation_at = Column(DateTime(timezone=True), nullable=True)
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+    validation_latency_ms = Column(Integer, nullable=True)
     last_error_code = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

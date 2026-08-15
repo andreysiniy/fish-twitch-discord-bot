@@ -4,6 +4,8 @@
 import discord
 from discord import app_commands
 
+from app.presentation.embeds import control_plane_status_embed
+
 
 from app.commands.shared import (  # noqa: F401  (shared helpers)
     BREAK_POLICY_CHOICES,
@@ -36,8 +38,13 @@ def register_setup_group(tree, api, sessions, fish, account_status=None) -> None
 
         @setup.command(name="status", description="Show the current server binding")
         async def setup_status(interaction: discord.Interaction) -> None:
-            if account_status is not None:
-                await account_status.callback(interaction)
+            async def operation() -> None:
+                result = await api.setup_status(interaction)
+                await interaction.followup.send(
+                    embed=control_plane_status_embed(result), ephemeral=True
+                )
+
+            await _deferred(interaction, operation)
 
         @setup.command(name="bind", description="Bind this server to your Twitch channel")
         @app_commands.guild_only()

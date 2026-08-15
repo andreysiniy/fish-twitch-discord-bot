@@ -88,6 +88,59 @@ def status_embed(status: dict[str, Any]) -> discord.Embed:
     return embed
 
 
+def control_plane_status_embed(status: dict[str, Any]) -> discord.Embed:
+    """Render desired/actual Twitch, provider health, and economy blocks."""
+
+    embed = info_embed("Channel Status")
+    channel_status = status.get("channel_status") or {}
+    twitch = channel_status.get("twitch") or {}
+    if not twitch:
+        embed.add_field(name="Twitch Channel", value="Not configured", inline=False)
+    else:
+        desired = str(twitch.get("desired", "unknown")).title()
+        actual = str(twitch.get("actual", "unknown")).title()
+        lines = [
+            f"Channel: {twitch.get('channel', 'unknown')}",
+            f"Desired State: {desired}",
+            f"Bot Status: {actual}",
+        ]
+        if twitch.get("last_sync"):
+            lines.append(f"Last Sync: {twitch['last_sync']}")
+        if twitch.get("last_error"):
+            lines.append(f"Last Error: {twitch['last_error']}")
+        if twitch.get("gateway_online") is False:
+            lines.append("Bot Gateway: Offline")
+        embed.add_field(name="Twitch Channel", value="\n".join(lines), inline=False)
+
+    se = channel_status.get("streamelements") or {"status": "not_configured"}
+    se_status = str(se.get("status", "not_configured")).replace("_", " ").title()
+    se_lines = [f"Status: {se_status}"]
+    if se.get("provider_channel_id"):
+        se_lines.append(f"Channel ID: `{se['provider_channel_id']}`")
+    se_lines.append(f"Credential: {'Configured' if se.get('credential_configured') else 'Not configured'}")
+    if se.get("last_check_at"):
+        se_lines.append(f"Last Check: {se['last_check_at']}")
+    if se.get("next_validation_at"):
+        se_lines.append(f"Next Check: {se['next_validation_at']}")
+    se_lines.append(f"Failures: {se.get('consecutive_failures', 0)}")
+    if se.get("last_error_code"):
+        se_lines.append(f"Error: {se['last_error_code']}")
+    embed.add_field(name="StreamElements", value="\n".join(se_lines), inline=False)
+
+    economy = channel_status.get("economy") or {}
+    economy_lines = [
+        f"Status: {str(economy.get('status', 'unavailable')).title()}",
+        f"Buying: {'Enabled' if economy.get('buy_enabled') else 'Disabled'}",
+        f"Selling: {'Enabled' if economy.get('sell_enabled') else 'Disabled'}",
+    ]
+    if economy.get("buy_points_per_kg") is not None:
+        economy_lines.append(f"Buy Rate: 1 kg = {_compact_decimal(economy['buy_points_per_kg'])} points")
+    if economy.get("sell_points_per_kg") is not None:
+        economy_lines.append(f"Sell Rate: 1 kg = {_compact_decimal(economy['sell_points_per_kg'])} points")
+    embed.add_field(name="Economy", value="\n".join(economy_lines), inline=False)
+    return embed
+
+
 def config_embed(config: dict[str, Any], section: str | None = None) -> discord.Embed:
     section_label = _CONFIG_SECTION_LABELS.get(section or "", section)
     title = f"Configuration: {section_label}" if section_label else "Configuration"
