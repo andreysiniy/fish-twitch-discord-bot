@@ -23,6 +23,7 @@ from infrastructure.se_client import (
     SEApiClient,
 )
 from redis.exceptions import RedisError
+from services.streamelements.health_policy import backoff_seconds, regular_interval_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +53,6 @@ def classify_probe_error(error: Exception) -> tuple[str, str]:
     if isinstance(error, ValueError):
         return "invalid", "STREAM_ELEMENTS_CREDENTIAL_DECRYPTION_FAILED"
     return "degraded", getattr(error, "code", "STREAM_ELEMENTS_PROVIDER_UNAVAILABLE")
-
-
-def backoff_seconds(failures: int, *, rng: Callable[[float, float], float] = random.uniform) -> float:
-    normalized = max(failures, 1)
-    base = 1800 if normalized >= 5 else {1: 60, 2: 120, 3: 300, 4: 900}[normalized]
-    return base * rng(0.9, 1.1)
-
-
-def regular_interval_seconds(*, rng: Callable[[float, float], float] = random.uniform) -> float:
-    return 1800 * rng(0.9, 1.1)
 
 
 class StreamElementsHealthRunner:
