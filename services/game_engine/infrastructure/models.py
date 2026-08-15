@@ -40,9 +40,6 @@ class Channel(Base):
         nullable=False,
     )
     bot_membership_updated_by_discord_id = Column(String, nullable=True)
-    se_token = Column(String, nullable=True)
-    se_channel_id = Column(String, nullable=True)
-
     config = Column(JSONB, default=dict, nullable=False)
     config_version = Column(Integer, default=1, nullable=False)
     config_updated_at = Column(

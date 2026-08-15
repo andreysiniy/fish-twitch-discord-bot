@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from core.security import encrypt_token
 from domain.event_review import event_review_error_message
 from domain.schemas.admin import ChannelCreateDTO, ChannelUpdateDTO
 from infrastructure.models import (
@@ -86,13 +85,6 @@ class ChannelRepository:
             channel.is_active = data.is_active
         if data.config is not None:
             channel.config = data.config
-        if self._field_is_set(data, "se_token"):
-            normalized_token = str(data.se_token).strip() if data.se_token is not None else ""
-            channel.se_token = encrypt_token(normalized_token) if normalized_token else None
-        if self._field_is_set(data, "se_channel_id"):
-            normalized_channel_id = str(data.se_channel_id).strip() if data.se_channel_id is not None else ""
-            channel.se_channel_id = normalized_channel_id or None
-            
         self.db.flush()
         self.db.refresh(channel)
         return channel
