@@ -42,7 +42,7 @@ class BotConfig:
             bot_nick=os.getenv("BOT_NICK", ""),
             bootstrap_channels=channels,
             engine_url=os.getenv("ENGINE_URL", "http://localhost:8000"),
-            service_api_key=os.getenv("TWITCH_BOT_SERVICE_KEY") or os.getenv("BOT_API_KEY", ""),
+            service_api_key=os.getenv("TWITCH_BOT_SERVICE_KEY", ""),
             channel_source=source,
             channel_reconcile_seconds=reconcile_seconds,
             bot_instance_id=os.getenv("BOT_INSTANCE_ID") or socket.gethostname(),
