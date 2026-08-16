@@ -86,6 +86,20 @@ def test_engine_failure_never_parts_current_memberships() -> None:
     asyncio.run(scenario())
 
 
+def test_database_membership_does_not_treat_bootstrap_entry_as_joined() -> None:
+    async def scenario():
+        bot = FakeBot()
+        api = FakeApi([{"channels": [{"twitch_id": "1", "login": "alpha"}]}])
+        config = _config()
+        config.bootstrap_channels = ["alpha"]
+        reconciler = TwitchChannelReconciler(bot, api, config)
+
+        assert await reconciler.reconcile_once()
+        assert bot.joins == ["alpha"]
+
+    asyncio.run(scenario())
+
+
 def test_reconcile_uses_runtime_membership_for_join_and_part() -> None:
     async def scenario():
         bot = FakeBot()
@@ -121,5 +135,6 @@ def test_start_wakes_existing_loop_after_twitch_reconnect() -> None:
         await reconciler.stop()
 
         assert api.calls == 2
+        assert bot.joins == ["alpha", "alpha"]
 
     asyncio.run(scenario())
