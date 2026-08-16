@@ -23,8 +23,13 @@ class FakeApi:
     def __init__(self, payloads):
         self.payloads = iter(payloads)
         self.reports = []
+        self.calls = 0
+        self.second_call = asyncio.Event()
 
     async def desired_twitch_channels(self):
+        self.calls += 1
+        if self.calls == 2:
+            self.second_call.set()
         payload = next(self.payloads)
         if isinstance(payload, Exception):
             raise payload
@@ -92,5 +97,29 @@ def test_reconcile_uses_runtime_membership_for_join_and_part() -> None:
         assert bot.joins == []
         assert bot.parts == ["stale"]
         assert reconciler._joined == {"1": "alpha"}
+
+    asyncio.run(scenario())
+
+
+def test_start_wakes_existing_loop_after_twitch_reconnect() -> None:
+    async def scenario():
+        bot = FakeBot()
+        api = FakeApi(
+            [
+                {"channels": [{"twitch_id": "1", "login": "alpha"}]},
+                {"channels": [{"twitch_id": "1", "login": "alpha"}]},
+            ]
+        )
+        config = _config()
+        config.channel_reconcile_seconds = 60
+        reconciler = TwitchChannelReconciler(bot, api, config)
+
+        await reconciler.start()
+        assert api.calls == 1
+        await reconciler.start()
+        await asyncio.wait_for(api.second_call.wait(), timeout=1)
+        await reconciler.stop()
+
+        assert api.calls == 2
 
     asyncio.run(scenario())

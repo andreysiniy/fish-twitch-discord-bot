@@ -39,16 +39,23 @@ class TwitchChannelReconciler:
         self._last_reconcile_error: str | None = None
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        self._wake_event = asyncio.Event()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
+            # event_ready is also dispatched after a Twitch websocket
+            # reconnect. Wake the existing loop so it re-applies joins to the
+            # fresh IRC session instead of waiting for the normal interval.
+            self._wake_event.set()
             return
         self._stop_event.clear()
+        self._wake_event.clear()
         await self.reconcile_once()
         self._task = asyncio.create_task(self._run(), name="twitch-channel-reconciler")
 
     async def stop(self) -> None:
         self._stop_event.set()
+        self._wake_event.set()
         if self._task:
             await self._task
             self._task = None
@@ -57,9 +64,13 @@ class TwitchChannelReconciler:
         while not self._stop_event.is_set():
             try:
                 await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self.config.channel_reconcile_seconds
+                    self._wake_event.wait(), timeout=self.config.channel_reconcile_seconds
                 )
             except asyncio.TimeoutError:
+                pass
+            else:
+                self._wake_event.clear()
+            if not self._stop_event.is_set():
                 await self.reconcile_once()
 
     async def reconcile_once(self) -> bool:
@@ -71,7 +82,10 @@ class TwitchChannelReconciler:
         except Exception as error:  # control-plane failures are fail-safe
             inc("twitch_bot_reconcile_failures_total")
             self._last_reconcile_error = "control_plane_unavailable"
-            logger.warning("Twitch membership control-plane unavailable", extra={"error": type(error).__name__})
+            logger.warning(
+                "Twitch membership control-plane unavailable",
+                extra={"error": type(error).__name__},
+            )
             # Never interpret an unavailable engine as an empty desired set.
             # Bootstrap channels are a transitional startup fallback only.
             if self._last_desired is None and self.config.bootstrap_channels:
@@ -97,11 +111,17 @@ class TwitchChannelReconciler:
         except Exception as error:
             inc("twitch_bot_reconcile_failures_total")
             self._last_reconcile_error = type(error).__name__
-            logger.warning("Twitch membership reconciliation failed", extra={"error": type(error).__name__})
+            logger.warning(
+                "Twitch membership reconciliation failed",
+                extra={"error": type(error).__name__},
+            )
             await self._report_status(desired)
             return False
         finally:
-            set_gauge("twitch_bot_reconcile_duration_seconds", asyncio.get_running_loop().time() - started)
+            set_gauge(
+                "twitch_bot_reconcile_duration_seconds",
+                asyncio.get_running_loop().time() - started,
+            )
 
     async def _apply(self, desired: dict[str, DesiredChannel]) -> None:
         actual_logins = self._connected_logins()
@@ -246,4 +266,7 @@ class TwitchChannelReconciler:
                 }
             )
         except Exception as error:
-            logger.warning("Unable to report Twitch membership status", extra={"error": type(error).__name__})
+            logger.warning(
+                "Unable to report Twitch membership status",
+                extra={"error": type(error).__name__},
+            )
