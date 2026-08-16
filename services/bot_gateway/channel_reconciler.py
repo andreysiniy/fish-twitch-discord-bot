@@ -40,12 +40,16 @@ class TwitchChannelReconciler:
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._wake_event = asyncio.Event()
+        self._force_rejoin = False
 
     async def start(self) -> None:
         if self._task and not self._task.done():
             # event_ready is also dispatched after a Twitch websocket
             # reconnect. Wake the existing loop so it re-applies joins to the
             # fresh IRC session instead of waiting for the normal interval.
+            # TwitchIO may retain stale connected_channels across reconnects,
+            # so the next reconciliation must issue a real JOIN command.
+            self._force_rejoin = True
             self._wake_event.set()
             return
         self._stop_event.clear()
@@ -104,7 +108,8 @@ class TwitchChannelReconciler:
             return False
 
         try:
-            await self._apply(desired)
+            await self._apply(desired, force_rejoin=self._force_rejoin)
+            self._force_rejoin = False
             self._last_reconcile_error = None
             inc("twitch_bot_reconcile_runs_total")
             return True
@@ -123,33 +128,21 @@ class TwitchChannelReconciler:
                 asyncio.get_running_loop().time() - started,
             )
 
-    async def _apply(self, desired: dict[str, DesiredChannel]) -> None:
+    async def _apply(
+        self, desired: dict[str, DesiredChannel], *, force_rejoin: bool = False
+    ) -> None:
         actual_logins = self._connected_logins()
         # A renamed login retains its stable Twitch identity when the runtime
         # already reports that login as joined.
         for twitch_id, item in desired.items():
+            if force_rejoin:
+                await self._join_channel(item)
+                self._joined[twitch_id] = item.login
+                continue
             if twitch_id in self._joined:
                 self._joined[twitch_id] = item.login
                 if item.login not in actual_logins:
-                    inc("twitch_bot_join_attempts_total")
-                    started = asyncio.get_running_loop().time()
-                    try:
-                        await self.bot.join_channels([item.login])
-                    except Exception:
-                        inc("twitch_bot_join_failures_total")
-                        raise
-                    logger.info(
-                        "Twitch channel joined",
-                        extra={
-                            "action": "twitch_channel_join",
-                            "twitch_id": item.twitch_id,
-                            "login": item.login,
-                            "result": "success",
-                            "latency_ms": int(
-                                (asyncio.get_running_loop().time() - started) * 1000
-                            ),
-                        },
-                    )
+                    await self._join_channel(item)
                 continue
             matching_id = next(
                 (known_id for known_id, login in self._joined.items() if login == item.login),
@@ -157,6 +150,11 @@ class TwitchChannelReconciler:
             )
             if matching_id is not None:
                 self._joined[twitch_id] = self._joined.pop(matching_id)
+                if item.login not in actual_logins:
+                    # A bootstrap entry is only bookkeeping when database
+                    # membership is enabled; it does not prove that the
+                    # current IRC session has actually joined the channel.
+                    await self._join_channel(item)
                 continue
             if item.login in actual_logins:
                 # TwitchIO may already be joined after a reconnect or an
@@ -164,26 +162,8 @@ class TwitchChannelReconciler:
                 # issuing a duplicate runtime join.
                 self._joined[twitch_id] = item.login
                 continue
-            inc("twitch_bot_join_attempts_total")
-            started = asyncio.get_running_loop().time()
-            try:
-                await self.bot.join_channels([item.login])
-            except Exception:
-                inc("twitch_bot_join_failures_total")
-                raise
+            await self._join_channel(item)
             self._joined[twitch_id] = item.login
-            logger.info(
-                "Twitch channel joined",
-                extra={
-                    "action": "twitch_channel_join",
-                    "twitch_id": item.twitch_id,
-                    "login": item.login,
-                    "result": "success",
-                    "latency_ms": int(
-                        (asyncio.get_running_loop().time() - started) * 1000
-                    ),
-                },
-            )
 
         desired_logins = {item.login for item in desired.values()}
         stale_logins = (set(self._joined.values()) | actual_logins) - desired_logins
@@ -219,6 +199,25 @@ class TwitchChannelReconciler:
         set_gauge("twitch_bot_desired_channels", len(desired))
         set_gauge("twitch_bot_joined_channels", len(self._joined))
         await self._report_status(desired)
+
+    async def _join_channel(self, item: DesiredChannel) -> None:
+        inc("twitch_bot_join_attempts_total")
+        started = asyncio.get_running_loop().time()
+        try:
+            await self.bot.join_channels([item.login])
+        except Exception:
+            inc("twitch_bot_join_failures_total")
+            raise
+        logger.info(
+            "Twitch channel joined",
+            extra={
+                "action": "twitch_channel_join",
+                "twitch_id": item.twitch_id,
+                "login": item.login,
+                "result": "success",
+                "latency_ms": int((asyncio.get_running_loop().time() - started) * 1000),
+            },
+        )
 
     def _parse_desired(self, payload: dict[str, Any]) -> dict[str, DesiredChannel]:
         result: dict[str, DesiredChannel] = {}
