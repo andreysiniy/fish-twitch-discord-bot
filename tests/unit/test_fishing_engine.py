@@ -61,6 +61,23 @@ def test_item_gate_success_without_eligible_candidates_is_recorded() -> None:
     assert result.item_drop_resolution.selection_success is False
 
 
+def test_controlled_fixture_selects_requested_reward_type() -> None:
+    result = FishingEngine().calculate_result(
+        user=make_user(),
+        loot_pool=[
+            {"type": "nothing", "weight": 100, "xp": 0},
+            {"type": "fish", "weight": 1, "fixed_mass": "5", "xp": 0},
+        ],
+        item_pool=[],
+        items_drop_rate=0,
+        custom_params={},
+        controlled_fixture={"fixture_id": "fixture-1", "outcome": "fish"},
+    )
+
+    assert result.loot["type"] == "fish"
+    assert result.rng_stages[-1]["stage"] == "controlled_fixture"
+
+
 def test_v2_luck_reduction_scales_positive_mass_down() -> None:
     result = formulas.apply_fish_reward_modifiers(
         raw_delta=Decimal("10"),

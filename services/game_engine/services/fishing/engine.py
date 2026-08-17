@@ -92,6 +92,7 @@ class FishingEngine:
         behavioral_effects: Optional[list[Dict[str, Any]]] = None,
         negative_mass_floor: Decimal = ZERO_MASS,
         roulette_mass_floor: Decimal = ZERO_MASS,
+        controlled_fixture: Optional[Dict[str, Any]] = None,
     ) -> FishingResult:
         player_stats = calculate_player_stats(user)
         typed_modifiers = modifier_values is not None
@@ -167,6 +168,7 @@ class FishingEngine:
         else:
             # Neutral selection: fish luck never changes reward probabilities.
             catch = rng.roll_loot(loot_pool)
+        catch = self._apply_controlled_outcome(catch, loot_pool, controlled_fixture, rng_stages)
         empty_reroll_chance = min(
             max(
                 to_decimal(modifiers.get("empty_catch_reroll_chance_pct", 0)),
@@ -425,6 +427,31 @@ class FishingEngine:
             reward_roll_trace=reward_trace.as_dict(),
             rng_stages=rng_stages,
         )
+
+    @staticmethod
+    def _apply_controlled_outcome(
+        catch: Dict[str, Any],
+        loot_pool: list[Dict[str, Any]],
+        fixture: Optional[Dict[str, Any]],
+        rng_stages: list[dict],
+    ) -> Dict[str, Any]:
+        if not fixture or not fixture.get("outcome"):
+            return catch
+        requested = str(fixture["outcome"]).strip().lower()
+        selected = next(
+            (entry for entry in loot_pool if str(entry.get("type", "")).lower() == requested),
+            None,
+        )
+        if selected is None:
+            return catch
+        rng_stages.append(
+            {
+                "stage": "controlled_fixture",
+                "outcome": requested,
+                "fixture_id": str(fixture.get("fixture_id", "")),
+            }
+        )
+        return dict(selected)
 
     def calculate_mass_robbery(
         self,
