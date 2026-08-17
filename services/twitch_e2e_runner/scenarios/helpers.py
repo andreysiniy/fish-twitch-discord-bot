@@ -23,7 +23,11 @@ async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] |
         await ctx.stub.set_balance(
             actor.user_id,
             CONTROLLED_POINTS_BALANCE,
-            channel_id=ctx.cfg.channel_id or "stub-channel",
+            channel_id=(
+                ctx.cfg.provider_channel_id
+                or ctx.cfg.channel_id
+                or "stub-channel"
+            ),
         )
     return {
         "points_balance_seeded": CONTROLLED_POINTS_BALANCE,
