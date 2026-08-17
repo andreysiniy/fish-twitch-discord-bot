@@ -65,10 +65,34 @@ class RunnerSettings(BaseSettings):
         validation_alias="TWITCH_E2E_RESULT_DB",
     )
     command_timeout_seconds: float = Field(
-        default=20.0, validation_alias="TWITCH_E2E_COMMAND_TIMEOUT"
+        default=60.0,
+        gt=0,
+        le=300,
+        validation_alias="TWITCH_E2E_COMMAND_TIMEOUT",
+    )
+    echo_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+        validation_alias="TWITCH_E2E_ECHO_TIMEOUT",
     )
     actor_start_timeout_seconds: float = Field(
-        default=30.0, validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT"
+        default=90.0,
+        gt=0,
+        le=300,
+        validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT",
+    )
+    send_interval_seconds: float = Field(
+        default=3.2,
+        ge=0,
+        le=30,
+        validation_alias="TWITCH_E2E_SEND_INTERVAL",
+    )
+    irc_retry_limit: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        validation_alias="TWITCH_E2E_IRC_RETRY_LIMIT",
     )
     max_concurrency: int = Field(
         default=8, ge=1, le=32, validation_alias="TWITCH_E2E_MAX_CONCURRENCY"

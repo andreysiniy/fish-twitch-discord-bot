@@ -19,6 +19,10 @@ def _load(name: str, path: Path):
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "services" / "twitch_e2e_runner"))
 runner_config = _load("twitch_e2e_config_test", ROOT / "services/twitch_e2e_runner/config.py")
+sys.modules["config"] = runner_config
+runner_client = _load(
+    "twitch_e2e_client_test", ROOT / "services/twitch_e2e_runner/twitch_client.py"
+)
 runner_manager = _load(
     "twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py"
 )
@@ -38,6 +42,8 @@ seed_stub_points = runner_scenario_helpers.seed_stub_points
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
+_irc_retry_delay = runner_client._irc_retry_delay
+_wire_command = runner_client._wire_command
 
 
 def test_race_catalog_covers_all_r_scenarios_without_unrouted_ids() -> None:
@@ -67,6 +73,32 @@ def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:
 def test_runner_transport_is_explicitly_configured(monkeypatch) -> None:
     monkeypatch.setenv("TWITCH_E2E_TRANSPORT", "real")
     assert RunnerSettings().transport_enabled is True
+
+
+def test_runner_defaults_allow_delayed_real_twitch_replies() -> None:
+    settings = RunnerSettings(_env_file=None)
+
+    assert settings.command_timeout_seconds == 60
+    assert settings.echo_timeout_seconds == 3
+    assert settings.actor_start_timeout_seconds == 90
+    assert settings.send_interval_seconds == 3.2
+    assert settings.irc_retry_limit == 3
+
+
+def test_irc_retry_delay_honors_twitch_server_interval() -> None:
+    assert _irc_retry_delay(
+        RuntimeError("IRC Message rate limit reached; try again in 5.76s"), 0
+    ) == 6.01
+
+
+def test_irc_retry_delay_has_backoff_when_server_omits_interval() -> None:
+    assert _irc_retry_delay(RuntimeError("IRC cooldown"), 2) == 3.0
+
+
+def test_repeated_twitch_command_gets_distinct_wire_spacing() -> None:
+    assert _wire_command("!fishbuy 5", 0) == "!fishbuy 5"
+    assert _wire_command("!fishbuy 5", 1) == "!fishbuy\u00a0\u00a05"
+    assert _wire_command("!fishbuy", 2) == "!fishbuy\u00a0\u00a0\u00a0"
 
 
 def test_permission_assertion_accepts_backend_access_denied_message() -> None:

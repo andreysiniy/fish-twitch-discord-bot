@@ -1,12 +1,10 @@
 import logging
 from datetime import datetime, timezone
 
-from twitchio.ext import commands
-from twitchio import User
-
-from heplers.context_tool import get_channel_id
-
 from api_client import EngineApiError
+from heplers.context_tool import get_channel_id
+from twitchio import User
+from twitchio.ext import commands
 
 
 class FishingCog(commands.Cog):
@@ -14,7 +12,13 @@ class FishingCog(commands.Cog):
         self.bot = bot
 
     @commands.command(name="fish")
-    async def fish(self, ctx: commands.Context) -> None:
+    async def fish(self, ctx: commands.Context, marker: str | None = None) -> None:
+        # The E2E runner uses a distinct marker for repeated same-user
+        # messages because Twitch de-duplicates identical chat payloads.
+        # It must never alter normal fishing behavior or accept arbitrary args.
+        if marker is not None and not marker.startswith("e2e-duplicate-"):
+            await ctx.send("Usage: !fish")
+            return
         channel_id = await get_channel_id(ctx)
         message_id = getattr(getattr(ctx, "message", None), "id", None)
         source_request_id = f"twitch-{message_id}" if message_id else None

@@ -111,6 +111,34 @@ async def test_fish_command_passes_stable_source_request_id(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_fish_command_accepts_only_e2e_duplicate_marker(monkeypatch) -> None:
+    api_client = SimpleNamespace(fish=AsyncMock(return_value={"actions": []}))
+    bot = SimpleNamespace(
+        api_client=api_client,
+        action_handler=SimpleNamespace(handle_engine_response=AsyncMock()),
+    )
+    from commands.fishing import FishingCog
+
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(
+            id="123", name="angler", is_mod=False, is_subscriber=False, badges={}
+        ),
+        message=SimpleNamespace(id="msg-marker"),
+        send=AsyncMock(),
+    )
+    monkeypatch.setattr("commands.fishing.get_channel_id", AsyncMock(return_value="456"))
+    fish_callback = FishingCog.fish._callback
+    cog = FishingCog(bot)
+
+    await fish_callback(cog, ctx, "e2e-duplicate-1")
+    assert api_client.fish.await_count == 1
+
+    await fish_callback(cog, ctx, "unexpected")
+    assert api_client.fish.await_count == 1
+    ctx.send.assert_awaited_with("Usage: !fish")
+
+
+@pytest.mark.asyncio
 async def test_fishevent_empty_duration_starts_indefinitely(monkeypatch) -> None:
     from commands.admin import AdminCog
 
