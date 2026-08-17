@@ -28,6 +28,9 @@ runner_catalog = _load(
 runner_permissions = _load(
     "twitch_e2e_permissions_test", ROOT / "services/twitch_e2e_runner/assertions/permissions.py"
 )
+runner_economy = _load(
+    "twitch_e2e_economy_test", ROOT / "services/twitch_e2e_runner/assertions/economy.py"
+)
 runner_scenario_helpers = _load(
     "twitch_e2e_scenario_helpers_test", ROOT / "services/twitch_e2e_runner/scenarios/helpers.py"
 )
@@ -70,6 +73,22 @@ def test_permission_assertion_accepts_backend_access_denied_message() -> None:
     runner_permissions.assert_permission_rejected({"text": "Access denied for this channel"})
 
 
+def test_successful_buy_assertion_uses_durable_operation_evidence() -> None:
+    runner_economy.assert_successful_buy(
+        {
+            "evidence": [
+                {
+                    "state": "completed",
+                    "points_delta": "-120",
+                    "mass_delta": "1.00",
+                    "response_payload": {"chat_message": "You bought 1kg of fish."},
+                }
+            ]
+        },
+        0,
+    )
+
+
 def test_stub_points_fixture_seeds_every_requested_actor() -> None:
     class Stub:
         def __init__(self) -> None:
@@ -89,8 +108,8 @@ def test_stub_points_fixture_seeds_every_requested_actor() -> None:
             channel_id="test-channel",
             provider_channel_id="provider-channel",
             actors=lambda: [
-                SimpleNamespace(name="viewer1", user_id="viewer-one"),
-                SimpleNamespace(name="viewer2", user_id="viewer-two"),
+                SimpleNamespace(name="viewer1", user_id="viewer-one-id", login="viewer-one"),
+                SimpleNamespace(name="viewer2", user_id="viewer-two-id", login="viewer-two"),
             ],
         ),
         pool=Pool(),
