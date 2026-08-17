@@ -272,7 +272,12 @@ class ActorClient(Client):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError(f"No production bot reply for actor {self.actor.name}")
-            message = await asyncio.wait_for(self.messages.get(), timeout=remaining)
+            try:
+                message = await asyncio.wait_for(self.messages.get(), timeout=remaining)
+            except asyncio.TimeoutError as error:
+                raise TimeoutError(
+                    f"No production bot reply for actor {self.actor.name}"
+                ) from error
             if (
                 self.cfg.production_bot_login
                 and message.author_login.lower() != self.cfg.production_bot_login.lower()
@@ -327,6 +332,53 @@ class ActorPool:
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
 
+    async def _wait_for_replies(
+        self, clients: list[ActorClient], count: int
+    ) -> list[ChatMessage]:
+        """Collect replies from all actor queues and deduplicate Twitch broadcasts."""
+
+        deadline = time.monotonic() + self.cfg.command_timeout_seconds
+        replies: list[ChatMessage] = []
+        seen: set[tuple[str, str, str]] = set()
+        while len(replies) < count:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Received {len(replies)} of {count} production bot replies"
+                )
+            tasks = {
+                asyncio.create_task(client.wait_for_bot_reply(timeout=remaining)): client
+                for client in clients
+            }
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                try:
+                    message = task.result()
+                except TimeoutError as error:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"Received {len(replies)} of {count} production bot replies"
+                        ) from error
+                    continue
+                key = (
+                    message.message_id,
+                    message.author_login,
+                    message.text,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                replies.append(message)
+                if len(replies) >= count:
+                    break
+        return replies
+
     async def _send_paced(self, client: ActorClient, command: str) -> str:
         """Rate-limit all test actors against the production bot's IRC budget."""
 
@@ -357,13 +409,13 @@ class ActorPool:
         source_request_ids = await asyncio.gather(
             *(send(index, actor, command) for index, (actor, command) in enumerate(commands))
         )
-        # Twitch broadcasts each bot response to every joined actor session.
-        # Consume one central queue; otherwise two actors can both claim the
-        # same response and evidence becomes associated with the wrong user.
-        central_client = self.clients[commands[0][0]]
-        replies = [
-            await central_client.wait_for_bot_reply() for _ in range(len(commands))
-        ]
+        # A bot response may arrive only on the originating actor session or
+        # on every joined session, depending on Twitch's delivery path. Read
+        # all participating queues and deduplicate broadcast message IDs.
+        participating_clients = list(
+            dict.fromkeys(self.clients[actor] for actor, _ in commands)
+        )
+        replies = await self._wait_for_replies(participating_clients, len(commands))
         return [
             replace(reply, source_request_id=source_request_ids[index], sent_at=sent_at[index])
             for index, reply in enumerate(replies)
