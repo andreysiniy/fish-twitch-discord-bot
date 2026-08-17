@@ -195,38 +195,24 @@ class ActorPool:
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
         await self.start(*(actor for actor, _ in commands))
-        for actor_name in {actor for actor, _ in commands}:
-            self._drain_messages(self.clients[actor_name])
+        for client in self.clients.values():
+            self._drain_messages(client)
 
         sent_at = [time.time() for _ in commands]
         source_request_ids = await asyncio.gather(
             *(self.clients[actor].send_command(command) for actor, command in commands)
         )
-        counts: dict[str, int] = {}
-        for actor_name, _ in commands:
-            counts[actor_name] = counts.get(actor_name, 0) + 1
-
-        async def collect(actor_name: str, count: int) -> list[ChatMessage]:
-            return [
-                await self.clients[actor_name].wait_for_bot_reply() for _ in range(count)
-            ]
-
-        grouped = await asyncio.gather(
-            *(collect(actor_name, count) for actor_name, count in counts.items())
-        )
-        replies_by_actor = dict(zip(counts, grouped))
-        positions = {actor_name: 0 for actor_name in counts}
-        replies: list[ChatMessage] = []
-        for index, ((actor_name, _), source_request_id) in enumerate(
-            zip(commands, source_request_ids)
-        ):
-            position = positions[actor_name]
-            reply = replies_by_actor[actor_name][position]
-            positions[actor_name] += 1
-            replies.append(
-                replace(reply, source_request_id=source_request_id, sent_at=sent_at[index])
-            )
-        return replies
+        # Twitch broadcasts each bot response to every joined actor session.
+        # Consume one central queue; otherwise two actors can both claim the
+        # same response and evidence becomes associated with the wrong user.
+        central_client = self.clients[commands[0][0]]
+        replies = [
+            await central_client.wait_for_bot_reply() for _ in range(len(commands))
+        ]
+        return [
+            replace(reply, source_request_id=source_request_ids[index], sent_at=sent_at[index])
+            for index, reply in enumerate(replies)
+        ]
 
     @staticmethod
     def _drain_messages(client: ActorClient) -> None:
