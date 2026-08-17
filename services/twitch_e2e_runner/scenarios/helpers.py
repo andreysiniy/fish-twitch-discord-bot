@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 try:
@@ -102,34 +104,41 @@ async def resolve_durable_evidence(
     recent_count = 0
     if sent_at and ctx.cfg.channel_id:
         actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
-        recent: list[dict[str, Any]] = []
         # A concurrent Twitch response can be delivered through another
         # actor's IRC session.  Search the participating actors rather than
         # trusting response arrival order to identify the sender.
         search_names = actor_names or [actor_name]
-        for search_name in search_names:
-            actor = actors_by_name[search_name]
-            recent.extend(
-                await ctx.engine.recent_evidence(
-                    channel_id=ctx.cfg.channel_id,
-                    twitch_user_id=actor.user_id,
-                    login=actor.login,
-                    since_epoch=sent_at,
+        recent_deadline = time.monotonic() + min(
+            5.0, max(0.5, float(ctx.cfg.command_timeout_seconds))
+        )
+        while True:
+            recent: list[dict[str, Any]] = []
+            for search_name in search_names:
+                actor = actors_by_name[search_name]
+                recent.extend(
+                    await ctx.engine.recent_evidence(
+                        channel_id=ctx.cfg.channel_id,
+                        twitch_user_id=actor.user_id,
+                        login=actor.login,
+                        since_epoch=sent_at,
+                    )
                 )
-            )
-        recent_count = len(recent)
-        recent.sort(key=lambda item: item.get("requested_at") or "")
-        for item in recent:
-            candidate = str(item.get("source_request_id") or "")
-            if not candidate or candidate in used_source_ids:
-                continue
-            evidence = await ctx.engine.wait_for_evidence(
-                candidate,
-                timeout_seconds=ctx.cfg.command_timeout_seconds,
-            )
-            if evidence.get("available"):
-                used_source_ids.add(candidate)
-                return evidence, candidate
+            recent_count = len(recent)
+            recent.sort(key=lambda item: item.get("requested_at") or "")
+            for item in recent:
+                candidate = str(item.get("source_request_id") or "")
+                if not candidate or candidate in used_source_ids:
+                    continue
+                evidence = await ctx.engine.wait_for_evidence(
+                    candidate,
+                    timeout_seconds=ctx.cfg.command_timeout_seconds,
+                )
+                if evidence.get("available"):
+                    used_source_ids.add(candidate)
+                    return evidence, candidate
+            if time.monotonic() >= recent_deadline:
+                break
+            await asyncio.sleep(0.25)
 
     # Preserve the original delayed-evidence behavior as a final fallback.
     # This path is reached only when the test index has not observed the row
