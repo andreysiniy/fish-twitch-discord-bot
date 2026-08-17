@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # It is intentionally optional for read-only local deployments; requests
     # are rejected when it is not configured.
     TWITCH_BOT_SERVICE_KEY: str | None = None
+    TESTING_API_ENABLED: bool = False
+    TESTING_API_KEY: str | None = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
@@ -45,6 +47,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     RUN_BACKGROUND_WORKERS: bool = False
     STREAM_ELEMENTS_ECONOMY_ENABLED: bool = True
+    # Override the provider API only in controlled test environments. The
+    # production default remains the real StreamElements API.
+    STREAMELEMENTS_API_BASE_URL: str = "https://api.streamelements.com"
     LOG_LEVEL: str = "INFO"
 
     # Retention policy (days); 0 disables that category.

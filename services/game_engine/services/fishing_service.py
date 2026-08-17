@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import time
@@ -28,6 +29,7 @@ from domain.schemas.fishing import (
 from infrastructure.after_commit import schedule_after_commit
 from infrastructure.database import SessionLocal
 from infrastructure.models import FishingCast, LootTable, RewardPool, UserProgress
+from infrastructure.redis_client import RedisClient
 from infrastructure.repositories import ChannelRepository, ConfigRepository, UserRepository
 from infrastructure.repositories.cooldown_repo import CooldownRepository
 from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
@@ -264,6 +266,7 @@ class FishingService:
             loot_pool = _without_timeout_rewards(loot_pool)
 
         behavioral_effects = list(fishing_modifiers.effects)
+        controlled_fixture = self._consume_controlled_fixture(channel_id, twitch_id)
         result = self.engine.calculate_result(
             user=user,
             loot_pool=loot_pool,
@@ -275,6 +278,7 @@ class FishingService:
             behavioral_effects=behavioral_effects,
             negative_mass_floor=fishing_modifiers.mass_floor("negative_rewards"),
             roulette_mass_floor=fishing_modifiers.mass_floor("roulette"),
+            controlled_fixture=controlled_fixture,
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
@@ -507,6 +511,29 @@ class FishingService:
                 },
             )
         return response
+
+    @staticmethod
+    def _consume_controlled_fixture(channel_id: str, twitch_id: str) -> dict | None:
+        """Consume a one-shot RNG/outcome fixture only when testing is enabled."""
+
+        if not settings.TESTING_API_ENABLED:
+            return None
+        key = f"fish:e2e:next-cast:{channel_id}:{twitch_id}"
+        try:
+            redis = RedisClient.get_client()
+            raw = redis.eval(
+                "local value = redis.call('get', KEYS[1]); "
+                "if value then redis.call('del', KEYS[1]); end; return value",
+                1,
+                key,
+            )
+            if not raw:
+                return None
+            payload = json.loads(raw)
+            return payload if isinstance(payload, dict) else None
+        except Exception:  # pragma: no cover - fixture failures must not affect production casts
+            logger.warning("Unable to consume controlled cast fixture", exc_info=True)
+            return None
 
     def _strip_undelivered_item_xp(self, result, user: UserProgress, custom_params: dict) -> None:
         """Zero the item XP when a selected drop was not actually delivered.

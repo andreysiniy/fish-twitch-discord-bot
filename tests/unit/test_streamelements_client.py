@@ -25,6 +25,20 @@ async def test_provider_client_reuses_managed_async_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_client_uses_configured_base_url() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"points": 7})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SEApiClient(client=client, base_url="http://stub.local")
+        assert await provider.get_balance("channel", "secret", "viewer") == 7
+    assert calls == ["http://stub.local/kappa/v2/points/channel/viewer"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "error_type"),
     [(401, ProviderAuthenticationError), (429, ProviderRateLimitError)],

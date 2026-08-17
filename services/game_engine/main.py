@@ -2,6 +2,7 @@ import logging
 import uuid
 
 import uvicorn
+from api.dependencies import _SE_CLIENT
 from api.routes import (
     actions,
     admin,
@@ -11,13 +12,13 @@ from api.routes import (
     discord_streamelements,
     economy,
     fishing,
-    inventory,
+    internal_e2e,
     internal_twitch_bot,
+    inventory,
 )
-from api.dependencies import _SE_CLIENT
+from core import metrics as metrics_module
 from core.api_errors import ApiProblem
 from core.config import settings
-from core import metrics as metrics_module
 from core.logging_config import configure_logging, reset_request_id, set_request_id
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -52,6 +53,8 @@ app.include_router(fishing.router, prefix="/v1", tags=["Fishing"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin Panel"])
 app.include_router(inventory.router, prefix="/v1/inventory", tags=["Inventory"])
 app.include_router(internal_twitch_bot.router, prefix="/v1", tags=["Internal Twitch Bot"])
+app.include_router(internal_e2e.router)
+app.include_router(internal_e2e.testing_router, prefix="/v1")
 app.include_router(economy.router, prefix="/v1", tags=["Economy"])
 app.include_router(actions.router, prefix="/v1/actions", tags=["External Actions"])
 app.include_router(
