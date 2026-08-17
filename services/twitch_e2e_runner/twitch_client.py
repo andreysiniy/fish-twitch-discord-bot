@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 try:
     from .config import ActorConfig, RunnerSettings
@@ -41,6 +41,7 @@ class ChatMessage:
     text: str
     message_id: str
     received_at: float
+    source_request_id: str = ""
 
 
 class ActorClient(Client):
@@ -57,6 +58,7 @@ class ActorClient(Client):
         self.cfg = cfg
         self.ready = asyncio.Event()
         self.messages: asyncio.Queue[ChatMessage] = asyncio.Queue()
+        self.echoes: asyncio.Queue[ChatMessage] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
 
     async def event_ready(self) -> None:
@@ -66,18 +68,18 @@ class ActorClient(Client):
         logger.info("E2E actor session ready role=%s login=%s", self.actor.role, self.actor.login)
 
     async def event_message(self, message) -> None:  # TwitchIO callback signature
-        if getattr(message, "echo", False):
-            return
         author = getattr(message, "author", None)
-        await self.messages.put(
-            ChatMessage(
-                author_login=str(getattr(author, "name", "")),
-                author_id=str(getattr(author, "id", "")),
-                text=str(getattr(message, "content", "")),
-                message_id=str(getattr(message, "id", "")),
-                received_at=time.monotonic(),
-            )
+        chat_message = ChatMessage(
+            author_login=str(getattr(author, "name", "")),
+            author_id=str(getattr(author, "id", "")),
+            text=str(getattr(message, "content", "")),
+            message_id=str(getattr(message, "id", "")),
+            received_at=time.monotonic(),
         )
+        if getattr(message, "echo", False):
+            await self.echoes.put(chat_message)
+        else:
+            await self.messages.put(chat_message)
 
     async def start_background(self) -> None:
         if self._task is None:
@@ -96,8 +98,19 @@ class ActorClient(Client):
         channel = self.get_channel(self.cfg.channel)
         if channel is None:
             raise RuntimeError(f"Actor {self.actor.name} is not joined to the test channel")
-        message_id = await channel.send(command)
-        return str(message_id or "")
+        sent = await channel.send(command)
+        message_id = str(getattr(sent, "id", sent or ""))
+        if message_id:
+            return message_id
+        try:
+            while True:
+                echo = await asyncio.wait_for(
+                    self.echoes.get(), timeout=self.cfg.command_timeout_seconds
+                )
+                if echo.text == command:
+                    return echo.message_id
+        except asyncio.TimeoutError:
+            return ""
 
     async def wait_for_bot_reply(self, *, timeout: float | None = None) -> ChatMessage:
         deadline = time.monotonic() + (timeout or self.cfg.command_timeout_seconds)
@@ -144,8 +157,9 @@ class ActorPool:
 
     async def send_and_wait(self, actor_name: str, command: str) -> ChatMessage:
         client = self.clients[actor_name]
-        await client.send_command(command)
-        return await client.wait_for_bot_reply()
+        source_request_id = await client.send_command(command)
+        reply = await client.wait_for_bot_reply()
+        return replace(reply, source_request_id=source_request_id)
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
         async def one(actor_name: str, command: str) -> ChatMessage:

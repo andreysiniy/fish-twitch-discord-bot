@@ -20,4 +20,9 @@ async def run_smoke(ctx) -> dict[str, Any]:
         [("viewer1", "!fishstats"), ("viewer1", "!fishrate")]
     )
     checks["replies"] = [assert_bot_reply(reply) for reply in replies]
+    checks["evidence"] = [
+        await ctx.engine.get_evidence(reply.source_request_id)
+        for reply in replies
+        if reply.source_request_id
+    ]
     return {"status": "passed", "checks": checks}

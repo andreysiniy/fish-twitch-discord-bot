@@ -8,16 +8,19 @@ def assert_bot_reply(message: Any, expected: str | None = None) -> dict[str, Any
         text = str(message.get("text", ""))
         message_id = str(message.get("message_id", ""))
         author_login = str(message.get("author_login", ""))
+        source_request_id = str(message.get("source_request_id", ""))
     else:
         text = str(getattr(message, "text", ""))
         message_id = str(getattr(message, "message_id", ""))
         author_login = str(getattr(message, "author_login", ""))
+        source_request_id = str(getattr(message, "source_request_id", ""))
     if expected and expected.lower() not in text.lower():
         raise AssertionError(f"Expected bot reply to contain {expected!r}")
     return {
         "message_id": message_id,
         "text": text,
         "author_login": author_login,
+        "source_request_id": source_request_id,
     }
 
 
