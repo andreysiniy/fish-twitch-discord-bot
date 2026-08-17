@@ -44,6 +44,9 @@ class RunnerSettings(BaseSettings):
     )
     channel: str = Field(default="", validation_alias="TWITCH_E2E_CHANNEL")
     channel_id: str = Field(default="", validation_alias="TWITCH_E2E_CHANNEL_ID")
+    provider_channel_id: str = Field(
+        default="", validation_alias="TWITCH_E2E_PROVIDER_CHANNEL_ID"
+    )
     production_bot_login: str = Field(default="", validation_alias="TWITCH_E2E_BOT_LOGIN")
     production_bot_user_id: str = Field(default="", validation_alias="TWITCH_E2E_BOT_USER_ID")
     twitch_client_id: str = Field(default="", validation_alias="TWITCH_E2E_CLIENT_ID")

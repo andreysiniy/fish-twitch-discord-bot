@@ -87,6 +87,7 @@ def test_stub_points_fixture_seeds_every_requested_actor() -> None:
         cfg=SimpleNamespace(
             mode="stub",
             channel_id="test-channel",
+            provider_channel_id="provider-channel",
             actors=lambda: [
                 SimpleNamespace(name="viewer1", user_id="viewer-one"),
                 SimpleNamespace(name="viewer2", user_id="viewer-two"),
@@ -103,8 +104,8 @@ def test_stub_points_fixture_seeds_every_requested_actor() -> None:
         "points_actors": ["viewer1", "viewer2"],
     }
     assert stub.calls == [
-        ("viewer-one", 100_000, "test-channel"),
-        ("viewer-two", 100_000, "test-channel"),
+        ("viewer-one", 100_000, "provider-channel"),
+        ("viewer-two", 100_000, "provider-channel"),
     ]
 
 
