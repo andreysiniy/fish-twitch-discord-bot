@@ -17,8 +17,15 @@ def _load(name: str, path: Path):
 
 ROOT = Path(__file__).resolve().parents[2]
 runner_config = _load("twitch_e2e_config_test", ROOT / "services/twitch_e2e_runner/config.py")
-runner_manager = _load("twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py")
-runner_catalog = _load("twitch_e2e_catalog_test", ROOT / "services/twitch_e2e_runner/scenarios/catalog.py")
+runner_manager = _load(
+    "twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py"
+)
+runner_catalog = _load(
+    "twitch_e2e_catalog_test", ROOT / "services/twitch_e2e_runner/scenarios/catalog.py"
+)
+runner_permissions = _load(
+    "twitch_e2e_permissions_test", ROOT / "services/twitch_e2e_runner/assertions/permissions.py"
+)
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
@@ -51,6 +58,10 @@ def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:
 def test_runner_transport_is_explicitly_configured(monkeypatch) -> None:
     monkeypatch.setenv("TWITCH_E2E_TRANSPORT", "real")
     assert RunnerSettings().transport_enabled is True
+
+
+def test_permission_assertion_accepts_backend_access_denied_message() -> None:
+    runner_permissions.assert_permission_rejected({"text": "Access denied for this channel"})
 
 
 def test_run_manager_persists_redacted_result(tmp_path) -> None:

@@ -60,10 +60,41 @@ class AdminCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _resolve_actor_id(self, ctx: commands.Context) -> str:
+        """Resolve the Twitch user id used for backend authorization.
+
+        TwitchIO can expose a ``Chatter`` without an id when IRC tags are
+        incomplete. Prefer the parsed IRC tag and fall back to TwitchIO's
+        user lookup before sending an admin request with an empty actor id.
+        """
+
+        author = getattr(ctx, "author", None)
+        actor_id = getattr(author, "id", None)
+        if actor_id:
+            return str(actor_id)
+
+        message = getattr(ctx, "message", None)
+        tags = getattr(message, "tags", None)
+        if isinstance(tags, dict) and tags.get("user-id"):
+            return str(tags["user-id"])
+
+        lookup = getattr(author, "user", None)
+        if lookup is not None:
+            try:
+                user = await lookup()
+            except Exception:  # noqa: BLE001 - identity lookup is best effort
+                logger.warning("Could not resolve Twitch actor id", exc_info=True)
+            else:
+                actor_id = getattr(user, "id", None)
+                if actor_id:
+                    return str(actor_id)
+
+        return ""
+
     @commands.command(name="fishmods")
     async def fishmods(self, ctx: commands.Context) -> None:
         channel_id = await get_channel_id(ctx)
-        actor_id = str(ctx.author.id)
+        actor_id = await self._resolve_actor_id(ctx)
 
         try:
             response = await self.bot.api_client.admin_list_moderators(
@@ -94,7 +125,7 @@ class AdminCog(commands.Cog):
         role: str = "moderator"
     ) -> None:
         channel_id = await get_channel_id(ctx)
-        actor_id = str(ctx.author.id)
+        actor_id = await self._resolve_actor_id(ctx)
         if not self._is_channel_owner(actor_id, channel_id):
             await ctx.send("Only channel owner can use this command")
             return
@@ -129,7 +160,7 @@ class AdminCog(commands.Cog):
     @commands.command(name="fishmoddel")
     async def fishmoddel(self, ctx: commands.Context, user: User | None = None) -> None:
         channel_id = await get_channel_id(ctx)
-        actor_id = str(ctx.author.id)
+        actor_id = await self._resolve_actor_id(ctx)
         if not self._is_channel_owner(actor_id, channel_id):
             await ctx.send("Only channel owner can use this command")
             return
@@ -181,7 +212,7 @@ class AdminCog(commands.Cog):
             try:
                 response = await self.bot.api_client.admin_set_fish_cooldown(
                     channel_id=channel_id,
-                    actor_twitch_id=str(ctx.author.id),
+                    actor_twitch_id=await self._resolve_actor_id(ctx),
                     seconds=seconds_value,
                     scope=normalized_scope or None
                 )
@@ -217,7 +248,7 @@ class AdminCog(commands.Cog):
     @commands.command(name="fishevent")
     async def fishevent(self, ctx: commands.Context, *args: str) -> None:
         channel_id = await get_channel_id(ctx)
-        actor_id = str(ctx.author.id)
+        actor_id = await self._resolve_actor_id(ctx)
         arg1 = args[0] if args else None
         arg2 = args[1] if len(args) > 1 else None
 
@@ -285,7 +316,12 @@ class AdminCog(commands.Cog):
         """Toggle StreamElements economy switches for the channel."""
         channel_id = await get_channel_id(ctx)
         action = "_".join(part.strip().lower() for part in args if part.strip())
-        aliases = {"buy_on": "buy_on", "buy_off": "buy_off", "sell_on": "sell_on", "sell_off": "sell_off"}
+        aliases = {
+            "buy_on": "buy_on",
+            "buy_off": "buy_off",
+            "sell_on": "sell_on",
+            "sell_off": "sell_off",
+        }
         if action in {"on", "off", "status"}:
             normalized = action
         else:
@@ -298,7 +334,7 @@ class AdminCog(commands.Cog):
         try:
             result = await self.bot.api_client.admin_economy_switch(
                 channel_id=channel_id,
-                actor_twitch_id=str(ctx.author.id),
+                actor_twitch_id=await self._resolve_actor_id(ctx),
                 action=normalized,
             )
             conversions_enabled, buy_enabled, sell_enabled = _effective_economy_switches(result)

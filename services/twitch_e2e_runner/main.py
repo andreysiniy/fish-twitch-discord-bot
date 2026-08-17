@@ -75,6 +75,7 @@ except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from twitch_client import ActorPool
 
 logger = logging.getLogger(__name__)
+_CHANNEL_STATE_MUTATING_SCENARIOS = {"permissions", "R48", "R116", "R117"}
 
 
 class RunRequest(BaseModel):
@@ -188,6 +189,70 @@ async def _run_scenario(scenario: str) -> dict[str, Any]:
     }
 
 
+async def _restore_channel_state(context: ScenarioContext) -> dict[str, Any]:
+    """Restore shared Twitch fixtures after a stateful scenario or before a suite.
+
+    The race suite intentionally exercises destructive owner operations.  The
+    commands are sent through the production bot so this reset validates the
+    same authorization and command path as the scenarios, while preventing a
+    failed/interrupted run from leaking a closed market or stale access role
+    into the next scenario.
+    """
+
+    replies: list[str] = []
+    try:
+        context.pool.require("owner")
+        for command in (
+            "!fishmoddel viewer1",
+            "!fishmodadd editor editor",
+            "!fisheconomy on",
+            "!fisheconomy buy on",
+            "!fisheconomy sell on",
+        ):
+            reply = await context.pool.send_and_wait("owner", command)
+            replies.append(reply.text)
+    except Exception as error:  # noqa: BLE001 - cleanup must be reported to the suite
+        logger.exception("Economy state cleanup failed")
+        return {
+            "status": "failed",
+            "error": type(error).__name__,
+            "message": "Could not restore shared Twitch channel state",
+            "replies": replies,
+        }
+    return {"status": "passed", "replies": replies}
+
+
+async def _run_scenario_isolated(scenario: str) -> dict[str, Any]:
+    if scenario not in _CHANNEL_STATE_MUTATING_SCENARIOS:
+        return await _run_scenario(scenario)
+
+    result: dict[str, Any] | None = None
+    scenario_error: Exception | None = None
+    try:
+        result = await _run_scenario(scenario)
+    except Exception as error:  # noqa: BLE001 - cleanup must run after failed scenarios
+        scenario_error = error
+
+    cleanup = await _restore_channel_state(_context())
+    if scenario_error is not None:
+        if cleanup["status"] == "failed":
+            logger.error("Shared Twitch channel state was not restored after a failed scenario")
+        raise scenario_error
+
+    assert result is not None
+    checks = result.setdefault("checks", {})
+    if isinstance(checks, dict):
+        checks["channel_state_cleanup"] = cleanup
+    if cleanup["status"] == "failed":
+        result["status"] = "failed"
+        result["error"] = {
+            "stage": "cleanup",
+            "code": "CHANNEL_STATE_NOT_RESTORED",
+            "message": cleanup["message"],
+        }
+    return result
+
+
 @app.post("/internal/e2e/run/{scenario}", dependencies=[Depends(require_runner_key)])
 async def run_one(scenario: str, request: RunRequest | None = None) -> dict[str, Any]:
     scenario = scenario.strip()
@@ -199,7 +264,7 @@ async def run_one(scenario: str, request: RunRequest | None = None) -> dict[str,
         "manual", scenario, settings.channel, actor, secondary_actor
     )
     try:
-        result = redact_result(await _run_scenario(scenario))
+        result = redact_result(await _run_scenario_isolated(scenario))
     except Exception as error:
         logger.exception("E2E scenario failed scenario=%s run_id=%s", scenario, run_id)
         result = {
@@ -226,12 +291,20 @@ async def run_suite(suite: str, request: RunRequest | None = None) -> dict[str, 
     if scenarios is None:
         raise HTTPException(status_code=404, detail="Unknown E2E suite")
     actor = request.actor if request else "viewer1"
+    setup = await _restore_channel_state(_context())
+    if setup["status"] == "failed":
+        return {
+            "suite": suite,
+            "status": "failed",
+            "setup": setup,
+            "results": [],
+        }
     results = []
     for scenario in scenarios:
         secondary_actor = request.secondary_actor if request else None
         run_id = await manager.start(suite, scenario, settings.channel, actor, secondary_actor)
         try:
-            result = redact_result(await _run_scenario(scenario))
+            result = redact_result(await _run_scenario_isolated(scenario))
         except Exception as error:  # noqa: BLE001 - persist a safe scenario failure
             result = {
                 "status": "failed",
@@ -240,7 +313,7 @@ async def run_suite(suite: str, request: RunRequest | None = None) -> dict[str, 
             }
         await manager.finish(run_id, result)
         results.append({"run_id": run_id, "scenario": scenario, **result})
-    return {"suite": suite, "results": results}
+    return {"suite": suite, "setup": setup, "results": results}
 
 
 @app.get("/internal/e2e/runs/{run_id}", dependencies=[Depends(require_runner_key)])

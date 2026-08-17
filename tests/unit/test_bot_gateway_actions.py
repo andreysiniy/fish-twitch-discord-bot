@@ -6,6 +6,39 @@ from action_handler import ActionHandler
 
 
 @pytest.mark.asyncio
+async def test_admin_actor_id_uses_irc_user_tag_when_chatter_id_is_missing() -> None:
+    from commands.admin import AdminCog
+
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(id=None, user=AsyncMock()),
+        message=SimpleNamespace(tags={"user-id": "1529850124"}),
+    )
+
+    actor_id = await AdminCog(SimpleNamespace())._resolve_actor_id(ctx)
+
+    assert actor_id == "1529850124"
+    ctx.author.user.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_admin_actor_id_falls_back_to_twitch_user_lookup() -> None:
+    from commands.admin import AdminCog
+
+    ctx = SimpleNamespace(
+        author=SimpleNamespace(
+            id=None,
+            user=AsyncMock(return_value=SimpleNamespace(id="1529850124")),
+        ),
+        message=SimpleNamespace(tags={}),
+    )
+
+    actor_id = await AdminCog(SimpleNamespace())._resolve_actor_id(ctx)
+
+    assert actor_id == "1529850124"
+    ctx.author.user.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_dupe_executes_extra_casts_without_recursing(monkeypatch) -> None:
     api_client = SimpleNamespace(
         fish=AsyncMock(
