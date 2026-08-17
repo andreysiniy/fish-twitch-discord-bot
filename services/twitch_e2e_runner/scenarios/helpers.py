@@ -73,6 +73,7 @@ async def resolve_durable_evidence(
     ctx: Any,
     *,
     actor_name: str,
+    actor_names: list[str] | None = None,
     command: str,
     source_request_id: str,
     sent_at: float,
@@ -100,13 +101,22 @@ async def resolve_durable_evidence(
 
     if sent_at and ctx.cfg.channel_id:
         actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
-        actor = actors_by_name[actor_name]
-        recent = await ctx.engine.recent_evidence(
-            channel_id=ctx.cfg.channel_id,
-            twitch_user_id=actor.user_id,
-            login=actor.login,
-            since_epoch=sent_at,
-        )
+        recent: list[dict[str, Any]] = []
+        # A concurrent Twitch response can be delivered through another
+        # actor's IRC session.  Search the participating actors rather than
+        # trusting response arrival order to identify the sender.
+        search_names = actor_names or [actor_name]
+        for search_name in search_names:
+            actor = actors_by_name[search_name]
+            recent.extend(
+                await ctx.engine.recent_evidence(
+                    channel_id=ctx.cfg.channel_id,
+                    twitch_user_id=actor.user_id,
+                    login=actor.login,
+                    since_epoch=sent_at,
+                )
+            )
+        recent.sort(key=lambda item: item.get("requested_at") or "")
         for item in recent:
             candidate = str(item.get("source_request_id") or "")
             if not candidate or candidate in used_source_ids:
@@ -154,6 +164,7 @@ async def execute_commands(
         evidence_item, resolved_source_id = await resolve_durable_evidence(
             ctx,
             actor_name=commands[index][0],
+            actor_names=actors,
             command=commands[index][1],
             source_request_id=source_request_id,
             sent_at=float(getattr(reply, "sent_at", 0) or 0),
