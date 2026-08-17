@@ -132,6 +132,7 @@ class ActorClient(Client):
                 continue
             if (
                 self.cfg.production_bot_user_id
+                and message.author_id
                 and message.author_id != self.cfg.production_bot_user_id
             ):
                 continue
