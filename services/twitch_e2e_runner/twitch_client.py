@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - script-style Docker entrypoint
 
 try:
     from twitchio import Client
+    from twitchio.channel import Channel
 except ModuleNotFoundError:  # pragma: no cover - Docker installs the pinned dependency
     class Client:  # type: ignore[no-redef]
         def __init__(self, **_: object):
@@ -31,7 +32,13 @@ except ModuleNotFoundError:  # pragma: no cover - Docker installs the pinned dep
         def get_channel(self, channel: str) -> object | None:
             return self._channels.get(channel)
 
+    class Channel:  # type: ignore[no-redef]
+        def __init__(self, name: str, websocket: object):
+            self.name = name
+            self._ws = websocket
+
 logger = logging.getLogger(__name__)
+_CONCURRENT_SEND_STAGGER_SECONDS = 0.05
 
 
 def _text(value: object) -> str:
@@ -80,10 +87,23 @@ class ActorClient(Client):
         deadline = time.monotonic() + self.cfg.actor_start_timeout_seconds
         while time.monotonic() < deadline:
             pending = getattr(self._connection, "_join_pending", {})
-            if channel_name not in pending and self.get_channel(channel_name) is not None:
+            cache = getattr(self._connection, "_cache", {})
+            if channel_name not in pending and channel_name in cache:
                 return
             await asyncio.sleep(0.1)
         raise TimeoutError(f"Actor {self.actor.name} did not join {channel_name}")
+
+    def _channel(self) -> Channel:
+        """Return a channel bound to this actor's websocket connection.
+
+        TwitchIO's ``Client.get_channel`` uses a process-wide id cache.  With
+        multiple actor clients that cache can return another actor's Channel,
+        making a command authenticate as the wrong Twitch user.  Constructing
+        the lightweight Channel value directly keeps each send on its own IRC
+        connection.
+        """
+
+        return Channel(name=self.cfg.channel.lstrip("#").lower(), websocket=self._connection)
 
     async def event_message(self, message) -> None:  # TwitchIO callback signature
         author = getattr(message, "author", None)
@@ -114,13 +134,15 @@ class ActorClient(Client):
 
     async def send_command(self, command: str) -> str:
         deadline = time.monotonic() + self.cfg.command_timeout_seconds
-        channel = self.get_channel(self.cfg.channel)
-        while channel is None and time.monotonic() < deadline:
+        channel_name = self.cfg.channel.lstrip("#").lower()
+        while (
+            channel_name not in getattr(self._connection, "_cache", {})
+            and time.monotonic() < deadline
+        ):
             await asyncio.sleep(0.1)
-            channel = self.get_channel(self.cfg.channel)
-        if channel is None:
+        if channel_name not in getattr(self._connection, "_cache", {}):
             raise RuntimeError(f"Actor {self.actor.name} is not joined to the test channel")
-        sent = await channel.send(command)
+        sent = await self._channel().send(command)
         message_id = _text(getattr(sent, "id", None) if sent is not None else None)
         if message_id:
             return message_id
@@ -199,8 +221,18 @@ class ActorPool:
             self._drain_messages(client)
 
         sent_at = [time.time() for _ in commands]
+
+        async def send(index: int, actor: str, command: str) -> str:
+            # Twitch IRC can drop one of two PRIVMSG frames written at the
+            # exact same instant from independent sessions.  A tiny stagger
+            # keeps the messages concurrent at the backend while allowing
+            # Twitch to process each actor's frame reliably.
+            if index:
+                await asyncio.sleep(index * _CONCURRENT_SEND_STAGGER_SECONDS)
+            return await self.clients[actor].send_command(command)
+
         source_request_ids = await asyncio.gather(
-            *(self.clients[actor].send_command(command) for actor, command in commands)
+            *(send(index, actor, command) for index, (actor, command) in enumerate(commands))
         )
         # Twitch broadcasts each bot response to every joined actor session.
         # Consume one central queue; otherwise two actors can both claim the
