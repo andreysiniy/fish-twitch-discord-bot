@@ -34,6 +34,10 @@ except ModuleNotFoundError:  # pragma: no cover - Docker installs the pinned dep
 logger = logging.getLogger(__name__)
 
 
+def _text(value: object) -> str:
+    return "" if value is None else str(value)
+
+
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     author_login: str
@@ -72,10 +76,10 @@ class ActorClient(Client):
     async def event_message(self, message) -> None:  # TwitchIO callback signature
         author = getattr(message, "author", None)
         chat_message = ChatMessage(
-            author_login=str(getattr(author, "name", "")),
-            author_id=str(getattr(author, "id", "")),
-            text=str(getattr(message, "content", "")),
-            message_id=str(getattr(message, "id", "")),
+            author_login=_text(getattr(author, "name", "")),
+            author_id=_text(getattr(author, "id", "")),
+            text=_text(getattr(message, "content", "")),
+            message_id=_text(getattr(message, "id", "")),
             received_at=time.monotonic(),
         )
         if getattr(message, "echo", False):
@@ -105,7 +109,7 @@ class ActorClient(Client):
         if channel is None:
             raise RuntimeError(f"Actor {self.actor.name} is not joined to the test channel")
         sent = await channel.send(command)
-        message_id = str(getattr(sent, "id", sent or ""))
+        message_id = _text(getattr(sent, "id", None) if sent is not None else None)
         if message_id:
             return message_id
         try:
@@ -171,14 +175,45 @@ class ActorPool:
     async def send_and_wait(self, actor_name: str, command: str) -> ChatMessage:
         await self.start(actor_name)
         client = self.clients[actor_name]
+        self._drain_messages(client)
         source_request_id = await client.send_command(command)
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id)
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
         await self.start(*(actor for actor, _ in commands))
+        for actor_name in {actor for actor, _ in commands}:
+            self._drain_messages(self.clients[actor_name])
 
-        async def one(actor_name: str, command: str) -> ChatMessage:
-            return await self.send_and_wait(actor_name, command)
+        source_request_ids = await asyncio.gather(
+            *(self.clients[actor].send_command(command) for actor, command in commands)
+        )
+        counts: dict[str, int] = {}
+        for actor_name, _ in commands:
+            counts[actor_name] = counts.get(actor_name, 0) + 1
 
-        return list(await asyncio.gather(*(one(actor, command) for actor, command in commands)))
+        async def collect(actor_name: str, count: int) -> list[ChatMessage]:
+            return [
+                await self.clients[actor_name].wait_for_bot_reply() for _ in range(count)
+            ]
+
+        grouped = await asyncio.gather(
+            *(collect(actor_name, count) for actor_name, count in counts.items())
+        )
+        replies_by_actor = dict(zip(counts, grouped))
+        positions = {actor_name: 0 for actor_name in counts}
+        replies: list[ChatMessage] = []
+        for (actor_name, _), source_request_id in zip(commands, source_request_ids):
+            position = positions[actor_name]
+            reply = replies_by_actor[actor_name][position]
+            positions[actor_name] += 1
+            replies.append(replace(reply, source_request_id=source_request_id))
+        return replies
+
+    @staticmethod
+    def _drain_messages(client: ActorClient) -> None:
+        while True:
+            try:
+                client.messages.get_nowait()
+            except asyncio.QueueEmpty:
+                return

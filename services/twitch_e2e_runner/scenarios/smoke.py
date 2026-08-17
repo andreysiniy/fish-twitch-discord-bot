@@ -22,7 +22,10 @@ async def run_smoke(ctx) -> dict[str, Any]:
         await ctx.pool.send_and_wait("viewer1", "!fishstats"),
         await ctx.pool.send_and_wait("viewer1", "!fishrate"),
     ]
-    checks["replies"] = [assert_bot_reply(reply) for reply in replies]
+    checks["replies"] = [
+        assert_bot_reply(replies[0]),
+        assert_bot_reply(replies[1], "Fish rate"),
+    ]
     checks["evidence"] = [
         await ctx.engine.get_evidence(reply.source_request_id)
         for reply in replies
