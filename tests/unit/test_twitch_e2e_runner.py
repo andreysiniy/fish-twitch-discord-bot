@@ -78,7 +78,7 @@ def test_runner_transport_is_explicitly_configured(monkeypatch) -> None:
 def test_runner_defaults_allow_delayed_real_twitch_replies() -> None:
     settings = RunnerSettings(_env_file=None)
 
-    assert settings.command_timeout_seconds == 45
+    assert settings.command_timeout_seconds == 60
     assert settings.echo_timeout_seconds == 3
     assert settings.actor_start_timeout_seconds == 90
     assert settings.send_interval_seconds == 3.2

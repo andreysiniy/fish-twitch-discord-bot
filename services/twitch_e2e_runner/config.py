@@ -65,7 +65,7 @@ class RunnerSettings(BaseSettings):
         validation_alias="TWITCH_E2E_RESULT_DB",
     )
     command_timeout_seconds: float = Field(
-        default=45.0,
+        default=60.0,
         gt=0,
         le=300,
         validation_alias="TWITCH_E2E_COMMAND_TIMEOUT",
