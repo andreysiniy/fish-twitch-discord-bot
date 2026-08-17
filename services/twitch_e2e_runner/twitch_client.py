@@ -329,8 +329,11 @@ class ActorPool:
         await self.start(actor_name)
         client = self.clients[actor_name]
         self._drain_messages(client)
-        sent_at = time.time()
         source_request_id = await self._send_paced(client, command)
+        # Record the timestamp after the shared IRC pacing lock releases;
+        # evidence lookup must not include records created while this command
+        # was waiting behind the previous scenario's message.
+        sent_at = time.time()
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
 
@@ -404,8 +407,8 @@ class ActorPool:
             # Twitch to process each actor's frame reliably.
             if index:
                 await asyncio.sleep(index * _CONCURRENT_SEND_STAGGER_SECONDS)
-            sent_at = time.time()
             source_request_id = await self._send_paced(self.clients[actor], command)
+            sent_at = time.time()
             return source_request_id, sent_at
 
         send_results = await asyncio.gather(
