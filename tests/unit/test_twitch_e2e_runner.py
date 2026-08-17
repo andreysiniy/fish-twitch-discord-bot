@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import sys
+from pathlib import Path
 
-sys.path.insert(0, "services/twitch_e2e_runner")
 
-from config import RunnerSettings
-from run_manager import RunManager, redact_result
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ROOT = Path(__file__).resolve().parents[2]
+runner_config = _load("twitch_e2e_config_test", ROOT / "services/twitch_e2e_runner/config.py")
+runner_manager = _load("twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py")
+RunnerSettings = runner_config.RunnerSettings
+RunManager = runner_manager.RunManager
+redact_result = runner_manager.redact_result
 
 
 def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:
@@ -33,4 +47,3 @@ def test_run_manager_persists_redacted_result(tmp_path) -> None:
         assert stored["checks"]["authorization"] == "[REDACTED]"
 
     asyncio.run(scenario())
-

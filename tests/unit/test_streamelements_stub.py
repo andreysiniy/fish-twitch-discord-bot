@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 
 import httpx
 import pytest
 
-
-sys.path.insert(0, "services/streamelements_stub")
-
-from main import app  # noqa: E402
+_spec = spec_from_file_location(
+    "streamelements_stub_test", Path(__file__).resolve().parents[2] / "services/streamelements_stub/main.py"
+)
+assert _spec and _spec.loader
+_module = module_from_spec(_spec)
+sys.modules["streamelements_stub_test"] = _module
+_spec.loader.exec_module(_module)
+app = _module.app
 
 
 @pytest.mark.asyncio
@@ -34,4 +40,3 @@ async def test_stub_can_program_ambiguous_write_without_logging_tokens() -> None
         assert state.json()["balances"]["channel:viewer1"] == 90
         requests = await client.get("/internal/test/requests")
         assert "authorization" not in requests.text.lower()
-
