@@ -41,6 +41,7 @@ runner_scenario_helpers = _load(
 seed_stub_points = runner_scenario_helpers.seed_stub_points
 stub_provider_channel_id = runner_scenario_helpers.stub_provider_channel_id
 command_requires_durable_evidence = runner_scenario_helpers.command_requires_durable_evidence
+expected_evidence_kind = runner_scenario_helpers.expected_evidence_kind
 execute_commands = runner_scenario_helpers.execute_commands
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
@@ -190,6 +191,9 @@ def test_evidence_requirement_matches_persisted_command_outcomes() -> None:
     assert not command_requires_durable_evidence(
         "!fishtravel 1", {"text": "You traveled to Default."}
     )
+    assert expected_evidence_kind("!fish") == "cast"
+    assert expected_evidence_kind("!fishbuy 1") == "economy"
+    assert expected_evidence_kind("!fishtravel 1") is None
 
 
 def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:

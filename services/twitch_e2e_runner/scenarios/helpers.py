@@ -61,6 +61,15 @@ def command_requires_durable_evidence(command: str, reply: dict[str, Any]) -> bo
     return False
 
 
+def expected_evidence_kind(command: str) -> str | None:
+    command_name = command.strip().split(maxsplit=1)[0].lower() if command.strip() else ""
+    if command_name == "!fish":
+        return "cast"
+    if command_name in {"!fishbuy", "!fishsell"}:
+        return "economy"
+    return None
+
+
 async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] | None:
     """Seed a deterministic provider balance for scenarios requiring a BUY success."""
 
@@ -150,6 +159,7 @@ async def resolve_durable_evidence(
         target_actor = actors_by_name.get(actor_name)
         target_login = target_actor.login.lower() if target_actor else ""
         target_user_id = str(target_actor.user_id) if target_actor else ""
+        target_kind = expected_evidence_kind(command)
         # A concurrent Twitch response can be delivered through another
         # actor's IRC session.  Search the participating actors rather than
         # trusting response arrival order to identify the sender.
@@ -177,6 +187,9 @@ async def resolve_durable_evidence(
                     continue
                 item_login = str(item.get("login") or "").lower()
                 item_user_id = str(item.get("twitch_user_id") or "")
+                item_kind = str(item.get("kind") or "")
+                if target_kind and item_kind and item_kind != target_kind:
+                    continue
                 if (item_login or item_user_id) and not (
                     (target_login and item_login == target_login)
                     or (target_user_id and item_user_id == target_user_id)
