@@ -99,6 +99,7 @@ async def resolve_durable_evidence(
             used_source_ids.add(candidate)
             return evidence, candidate
 
+    recent_count = 0
     if sent_at and ctx.cfg.channel_id:
         actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
         recent: list[dict[str, Any]] = []
@@ -116,6 +117,7 @@ async def resolve_durable_evidence(
                     since_epoch=sent_at,
                 )
             )
+        recent_count = len(recent)
         recent.sort(key=lambda item: item.get("requested_at") or "")
         for item in recent:
             candidate = str(item.get("source_request_id") or "")
@@ -141,7 +143,13 @@ async def resolve_durable_evidence(
             used_source_ids.add(source_request_id)
             return evidence, source_request_id
         return evidence, source_request_id
-    return {"available": False, "reason": "Twitch message ID unavailable"}, ""
+    return {
+        "available": False,
+        "reason": (
+            "No durable evidence candidate found "
+            f"(recent_items={recent_count}, sent_at={sent_at:.3f})"
+        ),
+    }, ""
 
 
 async def execute_commands(
