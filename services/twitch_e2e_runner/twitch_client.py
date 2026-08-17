@@ -51,7 +51,6 @@ class ActorClient(Client):
             token = f"oauth:{token}"
         super().__init__(
             token=token or None,
-            client_id=cfg.twitch_client_id or None,
             client_secret=cfg.twitch_client_secret or None,
         )
         self.actor = actor
