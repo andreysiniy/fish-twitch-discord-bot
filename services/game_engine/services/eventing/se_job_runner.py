@@ -32,6 +32,7 @@ from integrations.streamelements.constants import (
     validate_debit,
     validate_provider_balance,
 )
+from services.economy_reconciliation import apply_confirmed_buy_mass
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ class SEJobRunner:
             event.state = "processed"
             event.processed_at = datetime.now(timezone.utc)
             event.lease_expires_at = None
-            operation.state = "completed"
+            operation.state = "external_applied"
             operation.external_applied = True
             operation.external_applied_at = datetime.now(timezone.utc)
             operation.provider_balance_after = result.balance_after
@@ -232,8 +233,10 @@ class SEJobRunner:
                 operation,
                 "provider_write_confirmed",
                 "processing",
-                "completed",
+                "external_applied" if operation.operation_type == "buy" else "completed",
             )
+            apply_confirmed_buy_mass(db, operation, actor_type="worker")
+            operation.state = "completed"
             operation.completed_at = datetime.now(timezone.utc)
             operation.last_error = None
             db.commit()
