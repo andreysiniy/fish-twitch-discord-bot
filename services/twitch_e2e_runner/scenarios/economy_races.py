@@ -4,10 +4,10 @@ from typing import Any
 
 try:
     from ..assertions.economy import assert_at_most_one_provider_write
-    from .helpers import execute_commands, stub_provider_channel_id, transport_unavailable
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from assertions.economy import assert_at_most_one_provider_write
-    from scenarios.helpers import execute_commands, stub_provider_channel_id, transport_unavailable
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R01": [("viewer1", "!fishbuy 5"), ("viewer1", "!fishsell 5")],
@@ -38,13 +38,7 @@ async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
     ctx.pool.require(*actors)
     if ctx.cfg.mode == "stub":
         await ctx.stub.reset()
-        for actor in actors:
-            actor_config = next(item for item in ctx.cfg.actors() if item.name == actor)
-            await ctx.stub.set_balance(
-                actor_config.user_id,
-                100_000,
-                channel_id=stub_provider_channel_id(ctx),
-            )
+        await seed_stub_points(ctx, actors)
     checks = await execute_commands(ctx, scenario, commands)
     if ctx.cfg.mode == "stub":
         requests = await ctx.stub.requests()

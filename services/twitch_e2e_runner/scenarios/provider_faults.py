@@ -4,10 +4,10 @@ from typing import Any
 
 try:
     from ..assertions.reconciliation import assert_reconciliation_required
-    from .helpers import execute_commands, stub_provider_channel_id, transport_unavailable
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from assertions.reconciliation import assert_reconciliation_required
-    from scenarios.helpers import execute_commands, stub_provider_channel_id, transport_unavailable
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 
 FAULT_COMMANDS: dict[str, tuple[str, str]] = {
@@ -46,12 +46,7 @@ async def run_provider_fault(ctx, scenario: str) -> dict[str, Any]:
         }
     ctx.pool.require(command[0])
     await ctx.stub.reset()
-    actor = next(item for item in ctx.cfg.actors() if item.name == command[0])
-    await ctx.stub.set_balance(
-        actor.user_id,
-        100_000,
-        channel_id=stub_provider_channel_id(ctx),
-    )
+    await seed_stub_points(ctx, [command[0]])
     if scenario in {"R09", "R10", "R11", "R12", "R69", "R71"}:
         steps = [{"action": "apply_write"}, {"action": "drop_connection"}]
     elif scenario in {"R68"}:
