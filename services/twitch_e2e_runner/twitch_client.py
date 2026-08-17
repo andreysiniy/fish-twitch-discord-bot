@@ -68,6 +68,8 @@ def _wire_command(command: str, duplicate_count: int) -> str:
 
     if duplicate_count <= 0:
         return command
+    if command.strip().lower() == "!fish":
+        return f'!fish "e2e-duplicate-{duplicate_count}"'
     # Twitch normalizes runs of ASCII spaces while de-duplicating chat
     # messages.  NBSP is still whitespace to TwitchIO's parser, but remains a
     # distinct IRC payload so two identical race commands are both delivered.
