@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, replace
 
@@ -39,10 +40,27 @@ except ModuleNotFoundError:  # pragma: no cover - Docker installs the pinned dep
 
 logger = logging.getLogger(__name__)
 _CONCURRENT_SEND_STAGGER_SECONDS = 0.05
+_DEFAULT_IRC_RETRY_SECONDS = 1.0
+_IRC_RETRY_PATTERN = re.compile(r"try again in\s+(?P<seconds>[0-9]+(?:\.[0-9]+)?)s", re.IGNORECASE)
 
 
 def _text(value: object) -> str:
     return "" if value is None else str(value)
+
+
+def _irc_retry_delay(error: Exception, attempt: int) -> float:
+    """Return a bounded delay for Twitch IRC rate-limit responses.
+
+    TwitchIO includes the server-provided retry interval in
+    ``IRCCooldownError``.  Parsing the human-readable text keeps the runner
+    compatible with TwitchIO 2.x without importing a private exception type.
+    A small fallback backoff handles versions that omit that text.
+    """
+
+    match = _IRC_RETRY_PATTERN.search(str(error))
+    if match:
+        return max(float(match.group("seconds")) + 0.25, _DEFAULT_IRC_RETRY_SECONDS)
+    return _DEFAULT_IRC_RETRY_SECONDS * (attempt + 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +89,8 @@ class ActorClient(Client):
         self.messages: asyncio.Queue[ChatMessage] = asyncio.Queue()
         self.echoes: asyncio.Queue[ChatMessage] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
+        self._send_lock = asyncio.Lock()
+        self._last_send_at = 0.0
 
     async def event_ready(self) -> None:
         if self.cfg.channel:
@@ -120,8 +140,38 @@ class ActorClient(Client):
             await self.messages.put(chat_message)
 
     async def start_background(self) -> None:
+        if self._task is not None and self._task.done():
+            error = self._task.exception()
+            self._task = None
+            self.ready.clear()
+            if error is not None:
+                logger.warning(
+                    "E2E actor session will be restarted role=%s login=%s previous_error=%s",
+                    self.actor.role,
+                    self.actor.login,
+                    type(error).__name__,
+                )
         if self._task is None:
             self._task = asyncio.create_task(self.start())
+
+    async def wait_ready(self, timeout: float) -> None:
+        """Wait for readiness while surfacing a failed connection immediately."""
+
+        deadline = time.monotonic() + timeout
+        while not self.ready.is_set():
+            if self._task is not None and self._task.done():
+                error = self._task.exception()
+                if error is not None:
+                    raise RuntimeError(
+                        f"Actor {self.actor.name} failed to connect: {type(error).__name__}"
+                    ) from error
+                raise RuntimeError(f"Actor {self.actor.name} session stopped before ready")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Actor {self.actor.name} did not become ready within {timeout:.1f}s"
+                )
+            await asyncio.sleep(min(0.1, remaining))
 
     async def stop_background(self) -> None:
         if self._task is not None:
@@ -133,28 +183,60 @@ class ActorClient(Client):
             self._task = None
 
     async def send_command(self, command: str) -> str:
-        deadline = time.monotonic() + self.cfg.command_timeout_seconds
-        channel_name = self.cfg.channel.lstrip("#").lower()
-        while (
-            channel_name not in getattr(self._connection, "_cache", {})
-            and time.monotonic() < deadline
-        ):
-            await asyncio.sleep(0.1)
-        if channel_name not in getattr(self._connection, "_cache", {}):
-            raise RuntimeError(f"Actor {self.actor.name} is not joined to the test channel")
-        sent = await self._channel().send(command)
-        message_id = _text(getattr(sent, "id", None) if sent is not None else None)
-        if message_id:
-            return message_id
-        try:
-            while True:
-                echo = await asyncio.wait_for(
-                    self.echoes.get(), timeout=self.cfg.command_timeout_seconds
+        async with self._send_lock:
+            deadline = time.monotonic() + self.cfg.command_timeout_seconds
+            channel_name = self.cfg.channel.lstrip("#").lower()
+            while (
+                channel_name not in getattr(self._connection, "_cache", {})
+                and time.monotonic() < deadline
+            ):
+                await asyncio.sleep(0.1)
+            if channel_name not in getattr(self._connection, "_cache", {}):
+                raise RuntimeError(f"Actor {self.actor.name} is not joined to the test channel")
+
+            elapsed = time.monotonic() - self._last_send_at
+            if elapsed < self.cfg.send_interval_seconds:
+                await asyncio.sleep(self.cfg.send_interval_seconds - elapsed)
+
+            for attempt in range(self.cfg.irc_retry_limit + 1):
+                try:
+                    sent = await self._channel().send(command)
+                    self._last_send_at = time.monotonic()
+                    break
+                except Exception as error:  # noqa: BLE001 - TwitchIO type differs by release
+                    if (
+                        type(error).__name__ != "IRCCooldownError"
+                        or attempt >= self.cfg.irc_retry_limit
+                    ):
+                        raise
+                    delay = _irc_retry_delay(error, attempt)
+                    logger.info(
+                        "Twitch IRC cooldown actor=%s retry=%s delay=%.2fs",
+                        self.actor.name,
+                        attempt + 1,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+            else:  # pragma: no cover - loop either sends or raises
+                raise RuntimeError("Twitch command send retry loop ended unexpectedly")
+
+            message_id = _text(getattr(sent, "id", None) if sent is not None else None)
+            if message_id:
+                return message_id
+            try:
+                while True:
+                    echo = await asyncio.wait_for(
+                        self.echoes.get(), timeout=self.cfg.command_timeout_seconds
+                    )
+                    if echo.text == command:
+                        return echo.message_id
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timed out waiting for Twitch echo actor=%s command=%s",
+                    self.actor.name,
+                    command,
                 )
-                if echo.text == command:
-                    return echo.message_id
-        except asyncio.TimeoutError:
-            return ""
+                return ""
 
     async def wait_for_bot_reply(self, *, timeout: float | None = None) -> ChatMessage:
         deadline = time.monotonic() + (timeout or self.cfg.command_timeout_seconds)
@@ -198,7 +280,7 @@ class ActorPool:
         await asyncio.gather(*(client.start_background() for client in selected))
         await asyncio.gather(
             *(
-                asyncio.wait_for(client.ready.wait(), timeout=self.cfg.actor_start_timeout_seconds)
+                client.wait_ready(self.cfg.actor_start_timeout_seconds)
                 for client in selected
             )
         )
