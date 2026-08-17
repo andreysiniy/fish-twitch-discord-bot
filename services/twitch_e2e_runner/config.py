@@ -70,6 +70,12 @@ class RunnerSettings(BaseSettings):
         le=300,
         validation_alias="TWITCH_E2E_COMMAND_TIMEOUT",
     )
+    echo_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+        validation_alias="TWITCH_E2E_ECHO_TIMEOUT",
+    )
     actor_start_timeout_seconds: float = Field(
         default=90.0,
         gt=0,

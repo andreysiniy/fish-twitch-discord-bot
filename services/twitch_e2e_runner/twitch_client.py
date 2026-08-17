@@ -224,9 +224,13 @@ class ActorClient(Client):
             if message_id:
                 return message_id
             try:
+                echo_deadline = time.monotonic() + self.cfg.echo_timeout_seconds
                 while True:
+                    remaining = echo_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
                     echo = await asyncio.wait_for(
-                        self.echoes.get(), timeout=self.cfg.command_timeout_seconds
+                        self.echoes.get(), timeout=remaining
                     )
                     if echo.text == command:
                         return echo.message_id

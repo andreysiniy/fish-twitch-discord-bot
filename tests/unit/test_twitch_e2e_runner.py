@@ -78,6 +78,7 @@ def test_runner_defaults_allow_delayed_real_twitch_replies() -> None:
     settings = RunnerSettings(_env_file=None)
 
     assert settings.command_timeout_seconds == 45
+    assert settings.echo_timeout_seconds == 3
     assert settings.actor_start_timeout_seconds == 90
     assert settings.send_interval_seconds == 1.6
     assert settings.irc_retry_limit == 3
