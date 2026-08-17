@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,7 +46,10 @@ class RunnerSettings(BaseSettings):
     )
     stub_control_key: str = Field(default="", validation_alias="TWITCH_E2E_STUB_CONTROL_KEY")
     runner_api_key: str = Field(default="", validation_alias="TWITCH_E2E_RUNNER_API_KEY")
-    result_db_path: str = Field(default="./twitch_e2e_runs.sqlite3", validation_alias="TWITCH_E2E_RESULT_DB")
+    result_db_path: str = Field(
+        default_factory=lambda: str(Path(tempfile.gettempdir()) / "twitch_e2e_runs.sqlite3"),
+        validation_alias="TWITCH_E2E_RESULT_DB",
+    )
     command_timeout_seconds: float = Field(default=20.0, validation_alias="TWITCH_E2E_COMMAND_TIMEOUT")
     actor_start_timeout_seconds: float = Field(default=30.0, validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT")
     max_concurrency: int = Field(default=8, ge=1, le=32, validation_alias="TWITCH_E2E_MAX_CONCURRENCY")

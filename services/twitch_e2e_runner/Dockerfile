@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && addgroup --system fisher \
     && adduser --system --ingroup fisher fisher
 COPY --chown=fisher:fisher . .
+RUN chown -R fisher:fisher /app
 USER fisher
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090"]
-
