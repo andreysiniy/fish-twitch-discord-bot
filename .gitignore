@@ -34,6 +34,9 @@ ENV/
 .env
 .env.*
 !.env.example
+!.env.e2e.example
+.env.e2e
+.env.e2e.local
 *.ini
 !services/game_engine/alembic.ini
 *.cfg
