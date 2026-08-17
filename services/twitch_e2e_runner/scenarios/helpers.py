@@ -232,6 +232,14 @@ async def execute_commands(
     evidence = []
     used_source_ids: set[str] = set()
     for index, reply in enumerate(replies):
+        if not command_requires_durable_evidence(commands[index][1], checks["replies"][index]):
+            evidence.append(
+                {
+                    "available": False,
+                    "reason": "No durable evidence expected for this command outcome",
+                }
+            )
+            continue
         source_request_id = getattr(reply, "source_request_id", "")
         evidence_item, resolved_source_id = await resolve_durable_evidence(
             ctx,
