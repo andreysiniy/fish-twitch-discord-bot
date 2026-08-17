@@ -13,10 +13,8 @@ from core.game_params import GParam, resolve_param
 from core.messages import MsgKey, format_large_number_mass, resolve_message
 from core.version import ENGINE_VERSION
 from domain.item_schema import ModifierScope, StatKey
-from domain.logic.loot_selection import ItemDropResolution
 from domain.logic.formulas import calculate_xp_required
-
-
+from domain.logic.loot_selection import ItemDropResolution
 from domain.logic.mass import ZERO_MASS, apply_mass_mutation, quantize_mass, to_decimal
 from domain.logic.stats_calculator import calculate_player_stats
 from domain.schemas.fishing import (
@@ -283,7 +281,10 @@ class FishingService:
 
         if result.loot.get("type") == ActionType.ROBBERY:
             result.robbery_result = self._handle_robbery(
-                result.loot, user, rng_stages=result.rng_stages
+                result.loot,
+                user,
+                rng_stages=result.rng_stages,
+                controlled_fixture=controlled_fixture,
             )
             if result.robbery_result.roll is not None:
                 result.rng_stages.append(
@@ -722,7 +723,11 @@ class FishingService:
         return max(int(resolve_param(custom_params, cooldown_key)), 0)
 
     def _handle_robbery(
-        self, loot: dict, user: UserProgress, rng_stages: list | None = None
+        self,
+        loot: dict,
+        user: UserProgress,
+        rng_stages: list | None = None,
+        controlled_fixture: dict | None = None,
     ) -> RobberyResultDTO:
         lookup_range = loot.get("range", 3)
         channel_config = user.channel.config or {}
@@ -738,6 +743,7 @@ class FishingService:
                 victim=None,
                 channel_config=channel_config,
                 catch=loot,
+                random_source=self._controlled_random_source(controlled_fixture, "robbery_roll"),
             )
             robbery_result.modifier_snapshot = {
                 "attacker": self._robbery_modifier_snapshot(attacker_modifiers),
@@ -789,6 +795,7 @@ class FishingService:
             attacker_modifiers=attacker_modifiers.values,
             victim_modifiers=victim_modifiers.values,
             protected_mass_floor=victim_modifiers.mass_floor("robbery"),
+            random_source=self._controlled_random_source(controlled_fixture, "robbery_roll"),
         )
         robbery_result.counter_actions = counter_actions
         robbery_result.modifier_snapshot = modifier_snapshot
@@ -834,6 +841,19 @@ class FishingService:
         user.current_mass = attacker.current_mass
         user.total_mass_stat = attacker.total_mass_stat
         return robbery_result
+
+    @staticmethod
+    def _controlled_random_source(fixture: dict | None, key: str):
+        if not isinstance(fixture, dict) or not isinstance(fixture.get("rng"), dict):
+            return None
+        value = fixture["rng"].get(key)
+        if value is None:
+            return None
+        try:
+            normalized = min(max(float(value), 0.0), 0.999999999)
+        except (TypeError, ValueError):
+            return None
+        return lambda: normalized
 
     @staticmethod
     def _empty_robbery_modifier_snapshot() -> dict[str, object]:

@@ -149,7 +149,11 @@ def calculate_chance_traced(
     return roll < _to_decimal(chance), roll
 
 
-def is_russian_roulette_hit_traced(bullets: int, chambers: int) -> tuple[bool, Decimal]:
+def is_russian_roulette_hit_traced(
+    bullets: int,
+    chambers: int,
+    random_source: Callable[[], float] = random.random,
+) -> tuple[bool, Decimal]:
     if chambers <= 0:
         return False, Decimal("0")
-    return calculate_chance_traced(bullets / chambers)
+    return calculate_chance_traced(bullets / chambers, random_source=random_source)

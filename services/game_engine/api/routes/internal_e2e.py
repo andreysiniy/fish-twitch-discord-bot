@@ -13,7 +13,14 @@ from typing import Any
 from api.dependencies import get_db
 from core.config import settings
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from infrastructure.models import EconomyOperation, FishingCast
+from infrastructure.models import (
+    EconomyOperation,
+    EconomyOperationEvent,
+    EconomyProviderAttempt,
+    FishingCast,
+    OutboxEvent,
+    UserProgress,
+)
 from infrastructure.redis_client import RedisClient
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -69,6 +76,14 @@ def evidence(
                 "mass_delta": str(cast.mass_delta_applied),
                 "xp_before": cast.xp_before,
                 "xp_after": cast.xp_after,
+                "location_id": cast.location_id,
+                "reward_type": cast.reward_type,
+                "reward_id": cast.reward_id,
+                "rng_trace": cast.rng_trace,
+                "special_result": cast.special_result,
+                "item_drop": cast.result_snapshot.get("item_drop")
+                if isinstance(cast.result_snapshot, dict)
+                else None,
             }
         )
     if operation is not None:
@@ -80,8 +95,63 @@ def evidence(
                 "points_delta": str(operation.points_delta),
                 "provider_channel_id_snapshot": operation.provider_channel_id_snapshot,
                 "response_payload": operation.response_payload,
+                "attempts": operation.attempts,
+                "external_applied": operation.external_applied,
+                "provider_status_code": operation.provider_status_code,
+                "provider_balance_before": operation.provider_balance_before,
+                "provider_balance_after": operation.provider_balance_after,
             }
         )
+        result["operation_events"] = [
+            {
+                "sequence_no": event.sequence_no,
+                "event_type": event.event_type,
+                "from_state": event.from_state,
+                "to_state": event.to_state,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in (
+                db.query(EconomyOperationEvent)
+                .filter(EconomyOperationEvent.operation_id == operation.id)
+                .order_by(EconomyOperationEvent.sequence_no.asc())
+                .all()
+            )
+        ]
+        result["provider_attempts"] = [
+            {
+                "attempt_no": attempt.attempt_no,
+                "request_kind": attempt.request_kind,
+                "outcome": attempt.outcome,
+                "http_status": attempt.http_status,
+                "error_code": attempt.error_code,
+            }
+            for attempt in (
+                db.query(EconomyProviderAttempt)
+                .filter(EconomyProviderAttempt.operation_id == operation.id)
+                .order_by(EconomyProviderAttempt.attempt_no.asc())
+                .all()
+            )
+        ]
+        outbox = (
+            db.query(OutboxEvent)
+            .filter(OutboxEvent.idempotency_key == f"economy:{operation.id}")
+            .first()
+        )
+        result["outbox"] = (
+            {
+                "state": outbox.state,
+                "attempts": outbox.attempts,
+                "last_error": outbox.last_error,
+            }
+            if outbox
+            else None
+        )
+        progress = (
+            db.query(UserProgress)
+            .filter(UserProgress.id == operation.user_id)
+            .first()
+        )
+        result["current_mass"] = str(progress.current_mass) if progress else None
     return result
 
 

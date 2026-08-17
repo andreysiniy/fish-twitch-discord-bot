@@ -8,12 +8,12 @@ from core.action_types import ActionType
 from core.game_params import GParam, resolve_param
 from domain.logic import formulas, rng
 from domain.logic.loot_selection import GATE_FAILED, NO_CANDIDATES, ItemDropResolution
+from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.logic.outcome_classifier import classify_outcome, normalize_outcome_target
 from domain.logic.stats_calculator import calculate_player_stats
-from services.loot_table_service import LootTableRollService
-from domain.logic.mass import ZERO_MASS, quantize_mass, to_decimal
 from domain.schemas.fishing import FishingResult, RobberyResultDTO, RussianRouletteResultDTO
 from infrastructure.models import UserProgress
+from services.loot_table_service import LootTableRollService
 
 
 def _as_catch(entry: dict) -> Dict[str, Any]:
@@ -149,10 +149,38 @@ class FishingEngine:
         strategy = calculation_strategy or self._default_strategy
 
         rng_stages: list[dict] = []
-        reward_trace = rng.roll_loot_traced(
-            loot_pool,
-            weight_transform=lambda entry: rng._default_entry_weight(entry),
+        fixture_rng = (
+            controlled_fixture.get("rng", {})
+            if isinstance(controlled_fixture, dict)
+            else {}
         )
+
+        def controlled_value(name: str, *aliases: str) -> float | None:
+            for key in (name, *aliases):
+                value = fixture_rng.get(key) if isinstance(fixture_rng, dict) else None
+                if value is not None:
+                    try:
+                        return min(max(float(value), 0.0), 0.999999999)
+                    except (TypeError, ValueError):
+                        break
+            return None
+
+        def controlled_source(name: str, *aliases: str):
+            value = controlled_value(name, *aliases)
+            return (lambda: value) if value is not None else None
+
+        reward_source = controlled_source("reward_roll", "roll")
+        if reward_source is None:
+            reward_trace = rng.roll_loot_traced(
+                loot_pool,
+                weight_transform=lambda entry: rng._default_entry_weight(entry),
+            )
+        else:
+            reward_trace = rng.roll_loot_traced(
+                loot_pool,
+                weight_transform=lambda entry: rng._default_entry_weight(entry),
+                random_source=reward_source,
+            )
         rng_stages.append(
             {
                 "stage": "ordinary_reward",
@@ -167,7 +195,7 @@ class FishingEngine:
             catch = _as_catch(reward_trace.selected)
         else:
             # Neutral selection: fish luck never changes reward probabilities.
-            catch = rng.roll_loot(loot_pool)
+            catch = rng.roll_loot(loot_pool, random_source=reward_source or random.random)
         catch = self._apply_controlled_outcome(catch, loot_pool, controlled_fixture, rng_stages)
         empty_reroll_chance = min(
             max(
@@ -177,7 +205,13 @@ class FishingEngine:
             Decimal("1"),
         )
         if catch.get("type") == ActionType.NOTHING:
-            reroll_gate_roll = Decimal(str(random.random()))
+            reroll_gate_roll = Decimal(
+                str(
+                    controlled_value("reroll_gate_roll", "empty_catch_roll")
+                    if controlled_value("reroll_gate_roll", "empty_catch_roll") is not None
+                    else random.random()
+                )
+            )
             reroll_gate_success = reroll_gate_roll < empty_reroll_chance
             rng_stages.append(
                 {
@@ -188,10 +222,18 @@ class FishingEngine:
                 }
             )
             if reroll_gate_success:
-                reroll_trace = rng.roll_loot_traced(
-                    loot_pool,
-                    weight_transform=lambda entry: rng._default_entry_weight(entry),
-                )
+                reroll_source = controlled_source("reroll_roll")
+                if reroll_source is None:
+                    reroll_trace = rng.roll_loot_traced(
+                        loot_pool,
+                        weight_transform=lambda entry: rng._default_entry_weight(entry),
+                    )
+                else:
+                    reroll_trace = rng.roll_loot_traced(
+                        loot_pool,
+                        weight_transform=lambda entry: rng._default_entry_weight(entry),
+                        random_source=reroll_source,
+                    )
                 rng_stages.append(
                     {
                         "stage": "empty_reward_reroll",
@@ -205,7 +247,7 @@ class FishingEngine:
                 else:
                     # Empty or traced-less pool: fall back to the legacy picker so
                     # injected rolls keep working during tests and migrations.
-                    catch = rng.roll_loot(loot_pool)
+                    catch = rng.roll_loot(loot_pool, random_source=reroll_source or random.random)
         catch = self._reroll_reward_effects(
             catch,
             loot_pool,
@@ -229,7 +271,10 @@ class FishingEngine:
         item_drop_probability: Decimal | None = None
         item_drop_roll: Decimal | None = None
         if item_pool:
-            gate_roll = Decimal(str(random.random()))
+            item_drop_roll_value = controlled_value("item_drop_roll")
+            gate_roll = Decimal(
+                str(item_drop_roll_value if item_drop_roll_value is not None else random.random())
+            )
             item_gate_succeeded = gate_roll < item_drop_chance
             item_drop_probability = item_drop_chance
             item_drop_roll = gate_roll
@@ -242,10 +287,11 @@ class FishingEngine:
                 }
             )
             if item_gate_succeeded:
+                item_selection_source = controlled_source("item_selection_roll")
                 item_resolution = LootTableRollService.select(
                     item_pool,
                     rarity_luck=rarity_luck,
-                    random_source=random.random,
+                    random_source=item_selection_source or random.random,
                 )
                 if item_resolution is None:
                     item_resolution = ItemDropResolution(
@@ -380,6 +426,7 @@ class FishingEngine:
                 calculation_strategy=strategy,
                 modifier_values=resolved_mods,
                 mass_floor=roulette_mass_floor,
+                random_source=controlled_source("roulette_roll", "roulette_hit"),
             )
             if roulette_result.roll is not None:
                 rng_stages.append(
@@ -462,6 +509,7 @@ class FishingEngine:
         attacker_modifiers: Optional[Dict[str, Decimal]] = None,
         victim_modifiers: Optional[Dict[str, Decimal]] = None,
         protected_mass_floor: Decimal = ZERO_MASS,
+        random_source=None,
     ) -> RobberyResultDTO:
         if victim is None:
             return RobberyResultDTO(
@@ -500,7 +548,9 @@ class FishingEngine:
             min_chance=to_decimal(min_chance),
             max_chance=to_decimal(max_chance),
         )
-        is_success, roll = rng.calculate_chance_traced(float(final_chance))
+        is_success, roll = rng.calculate_chance_traced(
+            float(final_chance), random_source=random_source or random.random
+        )
         if not is_success:
             final_amount = ZERO_MASS
 
@@ -522,11 +572,14 @@ class FishingEngine:
         calculation_strategy: Optional[CalculationStrategy] = None,
         modifier_values: Optional[Dict[str, Decimal]] = None,
         mass_floor: Decimal = ZERO_MASS,
+        random_source=None,
     ) -> RussianRouletteResultDTO:
         bullets = max(int(catch.get("bullets", 1)), 0)
         chambers = max(int(catch.get("chambers", 6)), 1)
         is_hit, roulette_roll = rng.is_russian_roulette_hit_traced(
-            bullets=bullets, chambers=chambers
+            bullets=bullets,
+            chambers=chambers,
+            random_source=random_source or random.random,
         )
 
         message = catch.get("shot_message" if is_hit else "safe_message")

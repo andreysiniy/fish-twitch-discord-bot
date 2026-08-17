@@ -78,6 +78,33 @@ def test_controlled_fixture_selects_requested_reward_type() -> None:
     assert result.rng_stages[-1]["stage"] == "controlled_fixture"
 
 
+def test_controlled_fixture_controls_roulette_roll() -> None:
+    result = FishingEngine().calculate_result(
+        user=make_user(),
+        loot_pool=[
+            {
+                "type": "russian_roulette",
+                "weight": 1,
+                "bullets": 1,
+                "chambers": 1,
+                "penalty": {"type": "add_mass", "mass": "-2"},
+            }
+        ],
+        item_pool=[],
+        items_drop_rate=0,
+        custom_params={},
+        controlled_fixture={
+            "fixture_id": "roulette-fixture",
+            "outcome": "russian_roulette",
+            "rng": {"roulette_roll": 0.0},
+        },
+    )
+
+    assert result.roulette_result is not None
+    assert result.roulette_result.is_hit is True
+    assert any(stage.get("stage") == "roulette_hit" for stage in result.rng_stages)
+
+
 def test_v2_luck_reduction_scales_positive_mass_down() -> None:
     result = formulas.apply_fish_reward_modifiers(
         raw_delta=Decimal("10"),

@@ -108,21 +108,39 @@ class SEJobRunner:
                 return True
 
             channel = db.query(Channel).filter(Channel.id == operation.channel_id).first()
-            integration = (
-                db.query(ChannelIntegration)
-                .filter(
-                    ChannelIntegration.channel_id == operation.channel_id,
-                    ChannelIntegration.provider == "streamelements",
-                    ChannelIntegration.status.in_(("connected", "degraded")),
-                )
-                .first()
+            integration_query = db.query(ChannelIntegration).filter(
+                ChannelIntegration.channel_id == operation.channel_id,
+                ChannelIntegration.provider == "streamelements",
+                ChannelIntegration.status.in_(("connected", "degraded")),
             )
+            if operation.integration_id is not None:
+                integration_query = integration_query.filter(
+                    ChannelIntegration.id == operation.integration_id
+                )
+            integration = integration_query.first()
             if not channel or not integration:
                 self._finalize_failure(
                     db,
                     event,
                     operation,
                     "StreamElements integration not configured",
+                )
+                db.commit()
+                return True
+
+            # A reconnect/rebind may replace the provider channel while an
+            # older outbox operation is waiting. Never debit or credit the
+            # replacement identity: the operation snapshot is its tenant
+            # boundary and must be reconciled instead.
+            if (
+                operation.provider_channel_id_snapshot
+                and operation.provider_channel_id_snapshot
+                != integration.provider_channel_id
+            ):
+                self._set_reconciliation(
+                    db,
+                    event,
+                    "STREAM_ELEMENTS_PROVIDER_IDENTITY_MISMATCH",
                 )
                 db.commit()
                 return True
