@@ -280,12 +280,10 @@ class FishingService:
         )
 
         if result.loot.get("type") == ActionType.ROBBERY:
-            result.robbery_result = self._handle_robbery(
-                result.loot,
-                user,
-                rng_stages=result.rng_stages,
-                controlled_fixture=controlled_fixture,
-            )
+            robbery_kwargs = {"rng_stages": result.rng_stages}
+            if controlled_fixture is not None:
+                robbery_kwargs["controlled_fixture"] = controlled_fixture
+            result.robbery_result = self._handle_robbery(result.loot, user, **robbery_kwargs)
             if result.robbery_result.roll is not None:
                 result.rng_stages.append(
                     {
