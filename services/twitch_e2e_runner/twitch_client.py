@@ -68,11 +68,22 @@ class ActorClient(Client):
     async def event_ready(self) -> None:
         if self.cfg.channel:
             await self.join_channels([self.cfg.channel])
+            await self._wait_for_channel_join()
         # Do not release the startup barrier until TwitchIO has accepted the
         # join request. ``get_channel`` can still be populated asynchronously,
         # so ``send_command`` also waits for the channel object below.
         self.ready.set()
         logger.info("E2E actor session ready role=%s login=%s", self.actor.role, self.actor.login)
+
+    async def _wait_for_channel_join(self) -> None:
+        channel_name = self.cfg.channel.lstrip("#").lower()
+        deadline = time.monotonic() + self.cfg.actor_start_timeout_seconds
+        while time.monotonic() < deadline:
+            pending = getattr(self._connection, "_join_pending", {})
+            if channel_name not in pending and self.get_channel(channel_name) is not None:
+                return
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"Actor {self.actor.name} did not join {channel_name}")
 
     async def event_message(self, message) -> None:  # TwitchIO callback signature
         author = getattr(message, "author", None)
