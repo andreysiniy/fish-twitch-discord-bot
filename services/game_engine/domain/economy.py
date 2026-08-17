@@ -10,20 +10,22 @@ import re
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 
-
 MASS_QUANTUM = Decimal("0.01")
-MAX_MASS_INPUT = Decimal("1E24")
+# Economy mass is persisted in NUMERIC(18, 2) columns.  Keep parser input
+# within that representable range so an oversized request becomes a domain
+# error instead of a database overflow and HTTP 500.
+MAX_MASS_INPUT = Decimal("9999999999999999.99")
 
 _MASS_PATTERN = re.compile(
     r"^(?P<amount>(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+))(?P<unit>kg|t|kt|mt|gt)?$"
 )
 MASS_UNIT_MULTIPLIERS: dict[str | None, Decimal] = {
-    None: Decimal("1"),
-    "kg": Decimal("1"),
-    "t": Decimal("1000"),
-    "kt": Decimal("1000000"),
-    "mt": Decimal("1000000000"),
-    "gt": Decimal("1000000000000"),
+    None: Decimal(1),
+    "kg": Decimal(1),
+    "t": Decimal(1000),
+    "kt": Decimal(1000000),
+    "mt": Decimal(1000000000),
+    "gt": Decimal(1000000000000),
 }
 
 
@@ -55,7 +57,7 @@ def parse_mass_argument(raw: str | None, *, allow_all: bool = True) -> ParsedMas
 
     normalized = str(raw or "").strip().lower()
     if allow_all and normalized == "all":
-        return ParsedMassArgument("all", "all", None, Decimal("1"), None)
+        return ParsedMassArgument("all", "all", None, Decimal(1), None)
     if not normalized or normalized == "all":
         raise EconomyDomainError(
             "ECONOMY_INVALID_MASS", "Enter a positive mass such as 5kg or 1.5t."

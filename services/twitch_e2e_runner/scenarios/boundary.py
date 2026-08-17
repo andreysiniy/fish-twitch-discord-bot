@@ -55,4 +55,8 @@ async def run_boundary(ctx: Any, scenario: str) -> dict[str, Any]:
         checks["points_actors"] = balance_fixture["points_actors"]
     if scenario in BALANCE_REQUIRED_SCENARIOS:
         assert_successful_buy(checks, 0)
+    if scenario == "E09":
+        reply = str(checks["replies"][0].get("text", "")).lower()
+        if "internal server error" in reply:
+            raise AssertionError("Oversized mass must return a user-facing validation error")
     return {"status": "passed", "checks": checks}
