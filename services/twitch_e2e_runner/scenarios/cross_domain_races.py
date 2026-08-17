@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from .helpers import execute_commands, transport_unavailable
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from scenarios.helpers import execute_commands, transport_unavailable
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 
 CROSS_DOMAIN_COMMANDS: dict[str, list[tuple[str, str]]] = {
@@ -37,6 +37,25 @@ async def run_cross_domain_race(ctx, scenario: str) -> dict[str, Any]:
     skipped = transport_unavailable(ctx, scenario)
     if skipped:
         return skipped
+    if scenario == "R39":
+        if ctx.cfg.mode != "stub":
+            return {
+                "status": "skipped",
+                "checks": {
+                    "scenario": scenario,
+                    "reason": "R39 requires a controlled provider balance fixture; use stub mode",
+                },
+            }
+        balance_fixture = await seed_stub_points(ctx, ["viewer1"])
+    else:
+        balance_fixture = None
     checks = await execute_commands(ctx, scenario, commands)
+    if balance_fixture:
+        checks["points_balance_seeded"] = balance_fixture["points_balance_seeded"]
+        checks["points_actors"] = balance_fixture["points_actors"]
+    if scenario == "R39":
+        buy_text = checks["replies"][1]["text"].lower()
+        if "bought" not in buy_text:
+            raise AssertionError("R39 requires a successful !fishbuy command")
     return {"status": "passed", "checks": checks}
 

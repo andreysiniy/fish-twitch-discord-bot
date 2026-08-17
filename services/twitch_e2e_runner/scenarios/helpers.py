@@ -9,6 +9,27 @@ try:
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from assertions.common import assert_bot_reply
 
+CONTROLLED_POINTS_BALANCE = 100_000
+
+
+async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] | None:
+    """Seed a deterministic provider balance for scenarios requiring a BUY success."""
+
+    if ctx.cfg.mode != "stub":
+        return None
+    ctx.pool.require(*actor_names)
+    for actor_name in actor_names:
+        actor = next(item for item in ctx.cfg.actors() if item.name == actor_name)
+        await ctx.stub.set_balance(
+            actor.user_id,
+            CONTROLLED_POINTS_BALANCE,
+            channel_id=ctx.cfg.channel_id or "stub-channel",
+        )
+    return {
+        "points_balance_seeded": CONTROLLED_POINTS_BALANCE,
+        "points_actors": actor_names,
+    }
+
 
 def transport_unavailable(ctx: Any, scenario: str) -> dict[str, Any] | None:
     if ctx.cfg.transport_enabled:

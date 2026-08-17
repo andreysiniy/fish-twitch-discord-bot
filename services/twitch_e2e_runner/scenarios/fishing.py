@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from .helpers import execute_commands, transport_unavailable
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from scenarios.helpers import execute_commands, transport_unavailable
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 
 FISHING_COMMANDS: dict[str, list[tuple[str, str]]] = {
@@ -24,6 +24,18 @@ FISHING_COMMANDS: dict[str, list[tuple[str, str]]] = {
 
 
 async def _prepare_fixture(ctx: Any, scenario: str) -> dict[str, Any] | None:
+    if scenario == "R102":
+        if ctx.cfg.mode != "stub":
+            return {
+                "skip": True,
+                "reason": "R102 requires a controlled provider balance fixture; use stub mode",
+            }
+        balance_fixture = await seed_stub_points(ctx, ["viewer2"])
+        return {
+            "points_balance_seeded": balance_fixture["points_balance_seeded"],
+            "points_actor": "viewer2",
+        }
+
     if scenario not in {"R100", "R103"} or ctx.cfg.mode != "stub":
         return None
     actor = next(item for item in ctx.cfg.actors() if item.name == "viewer1")
@@ -46,8 +58,18 @@ async def run_fishing_race(ctx, scenario: str) -> dict[str, Any]:
     if skipped:
         return skipped
     fixture = await _prepare_fixture(ctx, scenario)
+    if fixture and fixture.get("skip"):
+        return {"status": "skipped", "checks": {"scenario": scenario, **fixture}}
     checks = await execute_commands(ctx, scenario, commands)
     if fixture:
-        checks["fixture_id"] = fixture.get("fixture_id")
+        if fixture.get("fixture_id"):
+            checks["fixture_id"] = fixture["fixture_id"]
+        if fixture.get("points_balance_seeded"):
+            checks["points_balance_seeded"] = fixture["points_balance_seeded"]
+            checks["points_actor"] = fixture["points_actor"]
+    if scenario == "R102":
+        buy_text = checks["replies"][1]["text"].lower()
+        if "bought" not in buy_text:
+            raise AssertionError("R102 requires a successful !fishbuy command")
     return {"status": "passed", "checks": checks}
 
