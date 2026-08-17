@@ -68,10 +68,14 @@ def _wire_command(command: str, duplicate_count: int) -> str:
 
     if duplicate_count <= 0:
         return command
-    head, separator, tail = command.partition(" ")
-    if not separator:
-        return f"{head}{' ' * (duplicate_count + 1)}"
-    return f"{head}{' ' * (duplicate_count + 1)}{tail.lstrip()}"
+    # Twitch normalizes runs of ASCII spaces while de-duplicating chat
+    # messages.  NBSP is still whitespace to TwitchIO's parser, but remains a
+    # distinct IRC payload so two identical race commands are both delivered.
+    nbsp_separator = "\u00a0" * (duplicate_count + 1)
+    head, delimiter, tail = command.partition(" ")
+    if not delimiter:
+        return f"{head}{nbsp_separator}"
+    return f"{head}{nbsp_separator}{tail.lstrip()}"
 
 
 @dataclass(frozen=True, slots=True)

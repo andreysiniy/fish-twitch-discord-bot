@@ -97,8 +97,8 @@ def test_irc_retry_delay_has_backoff_when_server_omits_interval() -> None:
 
 def test_repeated_twitch_command_gets_distinct_wire_spacing() -> None:
     assert _wire_command("!fishbuy 5", 0) == "!fishbuy 5"
-    assert _wire_command("!fishbuy 5", 1) == "!fishbuy  5"
-    assert _wire_command("!fishbuy", 2) == "!fishbuy   "
+    assert _wire_command("!fishbuy 5", 1) == "!fishbuy\u00a0\u00a05"
+    assert _wire_command("!fishbuy", 2) == "!fishbuy\u00a0\u00a0\u00a0"
 
 
 def test_permission_assertion_accepts_backend_access_denied_message() -> None:
