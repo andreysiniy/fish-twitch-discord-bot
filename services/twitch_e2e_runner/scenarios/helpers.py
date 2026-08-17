@@ -166,5 +166,22 @@ async def execute_commands(
         checks["evidence"] = evidence
         missing = [item for item in evidence if not item.get("available")]
         if missing:
-            raise AssertionError("A production Twitch command has no durable engine evidence")
+            missing_details = []
+            for index, item in enumerate(evidence):
+                if item.get("available"):
+                    continue
+                reply = checks["replies"][index]
+                reply_text = " ".join(str(reply.get("text", "")).split())
+                if len(reply_text) > 180:
+                    reply_text = f"{reply_text[:177]}..."
+                missing_details.append(
+                    f"command {index + 1} {commands[index][1]!r}: "
+                    f"echo={reply.get('source_request_id') or '<none>'}, "
+                    f"reply={reply_text!r}, "
+                    f"reason={item.get('reason') or 'record not found'}"
+                )
+            raise AssertionError(
+                "A production Twitch command has no durable engine evidence: "
+                + "; ".join(missing_details)
+            )
     return checks
