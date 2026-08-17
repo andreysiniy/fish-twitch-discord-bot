@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 try:
@@ -47,6 +49,118 @@ def transport_unavailable(ctx: Any, scenario: str) -> dict[str, Any] | None:
     }
 
 
+def _source_id_variants(source_request_id: str, command: str) -> list[str]:
+    """Return the identifiers that the Twitch gateway may persist.
+
+    TwitchIO does not expose a stable outgoing message id on every transport
+    path.  In addition, the fishing command deliberately prefixes Twitch
+    message ids with ``twitch-`` while economy operations keep the raw id.
+    The runner must validate an id before trusting it instead of assuming the
+    echo id is durable evidence.
+    """
+
+    source_request_id = str(source_request_id or "")
+    if not source_request_id:
+        return []
+    variants = [source_request_id]
+    command_name = command.strip().split(maxsplit=1)[0].lower() if command.strip() else ""
+    if command_name == "!fish" and not source_request_id.startswith("twitch-"):
+        variants.append(f"twitch-{source_request_id}")
+    elif command_name == "!fish" and source_request_id.startswith("twitch-"):
+        variants.append(source_request_id.removeprefix("twitch-"))
+    return list(dict.fromkeys(variants))
+
+
+async def resolve_durable_evidence(
+    ctx: Any,
+    *,
+    actor_name: str,
+    actor_names: list[str] | None = None,
+    command: str,
+    source_request_id: str,
+    sent_at: float,
+    used_source_ids: set[str],
+) -> tuple[dict[str, Any], str]:
+    """Resolve a Twitch reply to durable evidence without false negatives.
+
+    A Twitch echo id is only a hint: TwitchIO may return an id that differs
+    from the id persisted by the gateway, or no id at all.  Probe the hinted
+    variants briefly, then use the test-only actor/time index to discover the
+    durable id and wait for that record.  The long wait is intentionally used
+    only after an actual candidate has been found.
+    """
+
+    candidates = _source_id_variants(source_request_id, command)
+    probe_timeout = min(2.0, max(0.5, float(ctx.cfg.command_timeout_seconds)))
+    for candidate in candidates:
+        evidence = await ctx.engine.wait_for_evidence(
+            candidate,
+            timeout_seconds=probe_timeout,
+        )
+        if evidence.get("available"):
+            used_source_ids.add(candidate)
+            return evidence, candidate
+
+    recent_count = 0
+    if sent_at and ctx.cfg.channel_id:
+        actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
+        # A concurrent Twitch response can be delivered through another
+        # actor's IRC session.  Search the participating actors rather than
+        # trusting response arrival order to identify the sender.
+        search_names = actor_names or [actor_name]
+        recent_deadline = time.monotonic() + min(
+            5.0, max(0.5, float(ctx.cfg.command_timeout_seconds))
+        )
+        while True:
+            recent: list[dict[str, Any]] = []
+            for search_name in search_names:
+                actor = actors_by_name[search_name]
+                recent.extend(
+                    await ctx.engine.recent_evidence(
+                        channel_id=ctx.cfg.channel_id,
+                        twitch_user_id=actor.user_id,
+                        login=actor.login,
+                        since_epoch=sent_at,
+                    )
+                )
+            recent_count = len(recent)
+            recent.sort(key=lambda item: item.get("requested_at") or "")
+            for item in recent:
+                candidate = str(item.get("source_request_id") or "")
+                if not candidate or candidate in used_source_ids:
+                    continue
+                evidence = await ctx.engine.wait_for_evidence(
+                    candidate,
+                    timeout_seconds=ctx.cfg.command_timeout_seconds,
+                )
+                if evidence.get("available"):
+                    used_source_ids.add(candidate)
+                    return evidence, candidate
+            if time.monotonic() >= recent_deadline:
+                break
+            await asyncio.sleep(0.25)
+
+    # Preserve the original delayed-evidence behavior as a final fallback.
+    # This path is reached only when the test index has not observed the row
+    # yet (for example, during a slow database commit).
+    if source_request_id:
+        evidence = await ctx.engine.wait_for_evidence(
+            source_request_id,
+            timeout_seconds=ctx.cfg.command_timeout_seconds,
+        )
+        if evidence.get("available"):
+            used_source_ids.add(source_request_id)
+            return evidence, source_request_id
+        return evidence, source_request_id
+    return {
+        "available": False,
+        "reason": (
+            "No durable evidence candidate found "
+            f"(recent_items={recent_count}, sent_at={sent_at:.3f})"
+        ),
+    }, ""
+
+
 async def execute_commands(
     ctx: Any,
     scenario: str,
@@ -62,43 +176,40 @@ async def execute_commands(
     }
     evidence = []
     used_source_ids: set[str] = set()
-    actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
     for index, reply in enumerate(replies):
         source_request_id = getattr(reply, "source_request_id", "")
-        if not source_request_id and getattr(reply, "sent_at", 0) and ctx.cfg.channel_id:
-            actor_name = commands[index][0]
-            actor = actors_by_name[actor_name]
-            recent = await ctx.engine.recent_evidence(
-                channel_id=ctx.cfg.channel_id,
-                twitch_user_id=actor.user_id,
-                login=actor.login,
-                since_epoch=reply.sent_at,
-            )
-            candidate = next(
-                (
-                    item.get("source_request_id")
-                    for item in recent
-                    if item.get("source_request_id")
-                    and item["source_request_id"] not in used_source_ids
-                ),
-                "",
-            )
-            source_request_id = str(candidate or "")
-            if source_request_id:
-                used_source_ids.add(source_request_id)
-                checks["replies"][index]["source_request_id"] = source_request_id
-        if source_request_id:
-            evidence.append(
-                await ctx.engine.wait_for_evidence(
-                    source_request_id,
-                    timeout_seconds=ctx.cfg.command_timeout_seconds,
-                )
-            )
-        else:
-            evidence.append({"available": False, "reason": "Twitch message ID unavailable"})
+        evidence_item, resolved_source_id = await resolve_durable_evidence(
+            ctx,
+            actor_name=commands[index][0],
+            actor_names=actors,
+            command=commands[index][1],
+            source_request_id=source_request_id,
+            sent_at=float(getattr(reply, "sent_at", 0) or 0),
+            used_source_ids=used_source_ids,
+        )
+        if resolved_source_id:
+            checks["replies"][index]["source_request_id"] = resolved_source_id
+        evidence.append(evidence_item)
     if evidence:
         checks["evidence"] = evidence
         missing = [item for item in evidence if not item.get("available")]
         if missing:
-            raise AssertionError("A production Twitch command has no durable engine evidence")
+            missing_details = []
+            for index, item in enumerate(evidence):
+                if item.get("available"):
+                    continue
+                reply = checks["replies"][index]
+                reply_text = " ".join(str(reply.get("text", "")).split())
+                if len(reply_text) > 180:
+                    reply_text = f"{reply_text[:177]}..."
+                missing_details.append(
+                    f"command {index + 1} {commands[index][1]!r}: "
+                    f"echo={reply.get('source_request_id') or '<none>'}, "
+                    f"reply={reply_text!r}, "
+                    f"reason={item.get('reason') or 'record not found'}"
+                )
+            raise AssertionError(
+                "A production Twitch command has no durable engine evidence: "
+                + "; ".join(missing_details)
+            )
     return checks

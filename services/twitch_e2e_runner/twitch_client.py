@@ -229,7 +229,7 @@ class ActorClient(Client):
                     sent = await self._channel().send(wire_command)
                     self._last_send_at = time.monotonic()
                     break
-                except Exception as error:  # noqa: BLE001 - TwitchIO type differs by release
+                except Exception as error:
                     if (
                         type(error).__name__ != "IRCCooldownError"
                         or attempt >= self.cfg.irc_retry_limit
@@ -397,20 +397,22 @@ class ActorPool:
         for client in self.clients.values():
             self._drain_messages(client)
 
-        sent_at = [time.time() for _ in commands]
-
-        async def send(index: int, actor: str, command: str) -> str:
+        async def send(index: int, actor: str, command: str) -> tuple[str, float]:
             # Twitch IRC can drop one of two PRIVMSG frames written at the
             # exact same instant from independent sessions.  A tiny stagger
             # keeps the messages concurrent at the backend while allowing
             # Twitch to process each actor's frame reliably.
             if index:
                 await asyncio.sleep(index * _CONCURRENT_SEND_STAGGER_SECONDS)
-            return await self._send_paced(self.clients[actor], command)
+            sent_at = time.time()
+            source_request_id = await self._send_paced(self.clients[actor], command)
+            return source_request_id, sent_at
 
-        source_request_ids = await asyncio.gather(
+        send_results = await asyncio.gather(
             *(send(index, actor, command) for index, (actor, command) in enumerate(commands))
         )
+        source_request_ids = [result[0] for result in send_results]
+        sent_at = [result[1] for result in send_results]
         # A bot response may arrive only on the originating actor session or
         # on every joined session, depending on Twitch's delivery path. Read
         # all participating queues and deduplicate broadcast message IDs.

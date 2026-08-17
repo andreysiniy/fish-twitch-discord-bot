@@ -39,6 +39,7 @@ runner_scenario_helpers = _load(
     "twitch_e2e_scenario_helpers_test", ROOT / "services/twitch_e2e_runner/scenarios/helpers.py"
 )
 seed_stub_points = runner_scenario_helpers.seed_stub_points
+execute_commands = runner_scenario_helpers.execute_commands
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
@@ -158,6 +159,61 @@ def test_stub_points_fixture_seeds_every_requested_actor() -> None:
         ("viewer-one", 100_000, "provider-channel"),
         ("viewer-two", 100_000, "provider-channel"),
     ]
+
+
+def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
+    class Pool:
+        def require(self, *names: str) -> None:
+            assert names == ("viewer1",)
+
+        async def send_concurrent(self, commands: list[tuple[str, str]]):
+            assert commands == [("viewer1", "!fishbuy 5")]
+            return [
+                SimpleNamespace(
+                    text="You bought fish.",
+                    message_id="reply-1",
+                    author_login="fishdaddy",
+                    source_request_id="twitch-echo-id",
+                    sent_at=123.0,
+                )
+            ]
+
+    class Engine:
+        async def wait_for_evidence(self, source_request_id: str, *, timeout_seconds: float):
+            del timeout_seconds
+            if source_request_id == "durable-operation-id":
+                return {
+                    "available": True,
+                    "state": "completed",
+                    "source_request_id": source_request_id,
+                }
+            return {"available": False}
+
+        async def recent_evidence(self, **kwargs):
+            assert kwargs["twitch_user_id"] == "viewer-one-id"
+            assert kwargs["login"] == "viewer-one"
+            return [{"source_request_id": "durable-operation-id"}]
+
+    ctx = SimpleNamespace(
+        cfg=SimpleNamespace(
+            channel_id="channel-id",
+            command_timeout_seconds=60,
+            actors=lambda: [
+                SimpleNamespace(
+                    name="viewer1",
+                    user_id="viewer-one-id",
+                    login="viewer-one",
+                )
+            ],
+        ),
+        pool=Pool(),
+        engine=Engine(),
+    )
+
+    checks = asyncio.run(execute_commands(ctx, "R-test", [("viewer1", "!fishbuy 5")]))
+
+    assert checks["replies"][0]["source_request_id"] == "durable-operation-id"
+    assert checks["evidence"][0]["available"] is True
 
 
 def test_run_manager_persists_redacted_result(tmp_path) -> None:
