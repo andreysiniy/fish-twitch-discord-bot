@@ -14,6 +14,7 @@ from api.dependencies import get_db
 from core.config import settings
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from infrastructure.models import (
+    Channel,
     EconomyOperation,
     EconomyOperationEvent,
     EconomyProviderAttempt,
@@ -157,7 +158,7 @@ def evidence(
 
 @router.get("/recent", dependencies=[Depends(require_testing_api)])
 def recent_evidence(
-    channel_id: int = Query(ge=1),
+    channel_id: str = Query(min_length=1, max_length=120),
     twitch_user_id: str = Query(min_length=1, max_length=120),
     login: str = Query(min_length=1, max_length=120),
     since: float = Query(ge=0),
@@ -172,10 +173,20 @@ def recent_evidence(
     """
 
     since_at = datetime.fromtimestamp(since, tz=timezone.utc)
+    channel = (
+        db.query(Channel)
+        .filter(Channel.twitch_id == channel_id)
+        .first()
+    )
+    if channel is None and channel_id.isdigit():
+        channel = db.query(Channel).filter(Channel.id == int(channel_id)).first()
+    if channel is None:
+        return {"items": []}
+    internal_channel_id = channel.id
     casts = (
         db.query(FishingCast)
         .filter(
-            FishingCast.channel_id == channel_id,
+            FishingCast.channel_id == internal_channel_id,
             FishingCast.twitch_user_id_snapshot == twitch_user_id,
             FishingCast.requested_at >= since_at,
         )
@@ -184,7 +195,7 @@ def recent_evidence(
     operations = (
         db.query(EconomyOperation)
         .filter(
-            EconomyOperation.channel_id == channel_id,
+            EconomyOperation.channel_id == internal_channel_id,
             EconomyOperation.twitch_username == login.lower(),
             EconomyOperation.requested_at >= since_at,
         )
