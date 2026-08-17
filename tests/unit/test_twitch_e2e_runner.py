@@ -39,6 +39,7 @@ runner_scenario_helpers = _load(
     "twitch_e2e_scenario_helpers_test", ROOT / "services/twitch_e2e_runner/scenarios/helpers.py"
 )
 seed_stub_points = runner_scenario_helpers.seed_stub_points
+stub_provider_channel_id = runner_scenario_helpers.stub_provider_channel_id
 execute_commands = runner_scenario_helpers.execute_commands
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
@@ -159,6 +160,17 @@ def test_stub_points_fixture_seeds_every_requested_actor() -> None:
         ("viewer-one", 100_000, "provider-channel"),
         ("viewer-two", 100_000, "provider-channel"),
     ]
+
+
+def test_stub_provider_channel_id_prefers_provider_namespace() -> None:
+    ctx = SimpleNamespace(
+        cfg=SimpleNamespace(
+            channel_id="twitch-channel",
+            provider_channel_id="streamelements-channel",
+        )
+    )
+
+    assert stub_provider_channel_id(ctx) == "streamelements-channel"
 
 
 def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
