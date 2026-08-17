@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def _load(name: str, path: Path):
@@ -16,6 +17,7 @@ def _load(name: str, path: Path):
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "services" / "twitch_e2e_runner"))
 runner_config = _load("twitch_e2e_config_test", ROOT / "services/twitch_e2e_runner/config.py")
 runner_manager = _load(
     "twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py"
@@ -26,6 +28,10 @@ runner_catalog = _load(
 runner_permissions = _load(
     "twitch_e2e_permissions_test", ROOT / "services/twitch_e2e_runner/assertions/permissions.py"
 )
+runner_scenario_helpers = _load(
+    "twitch_e2e_scenario_helpers_test", ROOT / "services/twitch_e2e_runner/scenarios/helpers.py"
+)
+seed_stub_points = runner_scenario_helpers.seed_stub_points
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
@@ -62,6 +68,44 @@ def test_runner_transport_is_explicitly_configured(monkeypatch) -> None:
 
 def test_permission_assertion_accepts_backend_access_denied_message() -> None:
     runner_permissions.assert_permission_rejected({"text": "Access denied for this channel"})
+
+
+def test_stub_points_fixture_seeds_every_requested_actor() -> None:
+    class Stub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int, str]] = []
+
+        async def set_balance(self, user_id: str, balance: int, channel_id: str) -> None:
+            self.calls.append((user_id, balance, channel_id))
+
+    class Pool:
+        def require(self, *names: str) -> None:
+            assert names == ("viewer1", "viewer2")
+
+    stub = Stub()
+    ctx = SimpleNamespace(
+        cfg=SimpleNamespace(
+            mode="stub",
+            channel_id="test-channel",
+            actors=lambda: [
+                SimpleNamespace(name="viewer1", user_id="viewer-one"),
+                SimpleNamespace(name="viewer2", user_id="viewer-two"),
+            ],
+        ),
+        pool=Pool(),
+        stub=stub,
+    )
+
+    fixture = asyncio.run(seed_stub_points(ctx, ["viewer1", "viewer2"]))
+
+    assert fixture == {
+        "points_balance_seeded": 100_000,
+        "points_actors": ["viewer1", "viewer2"],
+    }
+    assert stub.calls == [
+        ("viewer-one", 100_000, "test-channel"),
+        ("viewer-two", 100_000, "test-channel"),
+    ]
 
 
 def test_run_manager_persists_redacted_result(tmp_path) -> None:

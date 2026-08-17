@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from .helpers import execute_commands, transport_unavailable
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from scenarios.helpers import execute_commands, transport_unavailable
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 
 BOUNDARY_COMMANDS: dict[str, list[tuple[str, str]]] = {
@@ -20,6 +20,7 @@ BOUNDARY_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "E09": [("viewer1", "!fishbuy 999999999999999999999999")],
     "E10": [("viewer1", "!fishsell all")],
 }
+BALANCE_REQUIRED_SCENARIOS = {"E01", "E02", "E05", "E08"}
 
 
 async def run_boundary(ctx: Any, scenario: str) -> dict[str, Any]:
@@ -32,5 +33,26 @@ async def run_boundary(ctx: Any, scenario: str) -> dict[str, Any]:
     skipped = transport_unavailable(ctx, scenario)
     if skipped:
         return skipped
+    if scenario in BALANCE_REQUIRED_SCENARIOS:
+        if ctx.cfg.mode != "stub":
+            return {
+                "status": "skipped",
+                "checks": {
+                    "scenario": scenario,
+                    "reason": (
+                        "Scenario requires a controlled provider balance fixture; use stub mode"
+                    ),
+                },
+            }
+        balance_fixture = await seed_stub_points(ctx, ["viewer1"])
+    else:
+        balance_fixture = None
     checks = await execute_commands(ctx, scenario, commands)
+    if balance_fixture:
+        checks["points_balance_seeded"] = balance_fixture["points_balance_seeded"]
+        checks["points_actors"] = balance_fixture["points_actors"]
+    if scenario in BALANCE_REQUIRED_SCENARIOS:
+        buy_text = checks["replies"][0]["text"].lower()
+        if "bought" not in buy_text:
+            raise AssertionError(f"{scenario} requires a successful !fishbuy command")
     return {"status": "passed", "checks": checks}
