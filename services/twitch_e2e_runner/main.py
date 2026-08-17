@@ -47,7 +47,11 @@ class ScenarioContext:
 
 
 app = FastAPI(title="Twitch E2E Runner", version="1.0.0")
-manager = RunManager(settings.result_db_path)
+manager = RunManager(
+    settings.result_db_path,
+    deployment_version=settings.deployment_version,
+    git_sha=settings.git_sha,
+)
 pool = ActorPool(settings)
 engine = EngineClient(settings)
 stub = StubClient(settings)

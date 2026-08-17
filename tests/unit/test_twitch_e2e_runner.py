@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 import sys
 
-
 sys.path.insert(0, "services/twitch_e2e_runner")
 
-from config import RunnerSettings  # noqa: E402
-from run_manager import RunManager, redact_result  # noqa: E402
+from config import RunnerSettings
+from run_manager import RunManager, redact_result
 
 
 def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:

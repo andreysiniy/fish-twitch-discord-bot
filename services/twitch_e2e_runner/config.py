@@ -48,6 +48,8 @@ class RunnerSettings(BaseSettings):
     command_timeout_seconds: float = Field(default=20.0, validation_alias="TWITCH_E2E_COMMAND_TIMEOUT")
     actor_start_timeout_seconds: float = Field(default=30.0, validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT")
     max_concurrency: int = Field(default=8, ge=1, le=32, validation_alias="TWITCH_E2E_MAX_CONCURRENCY")
+    deployment_version: str = Field(default="unknown", validation_alias="TWITCH_E2E_DEPLOYMENT_VERSION")
+    git_sha: str = Field(default="unknown", validation_alias="GIT_SHA")
 
     def actors(self) -> list[ActorConfig]:
         common_id = self.twitch_client_id

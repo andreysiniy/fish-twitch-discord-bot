@@ -12,8 +12,10 @@ from uuid import uuid4
 
 
 class RunManager:
-    def __init__(self, path: str):
+    def __init__(self, path: str, *, deployment_version: str = "unknown", git_sha: str = "unknown"):
         self.path = path
+        self.deployment_version = deployment_version
+        self.git_sha = git_sha
         self._lock = asyncio.Lock()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(path) as db:
@@ -25,9 +27,14 @@ class RunManager:
                     failure_stage TEXT, error_code TEXT, error_message TEXT,
                     source_twitch_message_id TEXT, fishing_cast_id TEXT,
                     economy_operation_id TEXT, checks_json TEXT NOT NULL,
-                    deployment_version TEXT NOT NULL
+                    deployment_version TEXT NOT NULL, git_sha TEXT NOT NULL
                 )"""
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(synthetic_test_runs)")}
+            if "git_sha" not in columns:
+                db.execute(
+                    "ALTER TABLE synthetic_test_runs ADD COLUMN git_sha TEXT NOT NULL DEFAULT 'unknown'"
+                )
 
     async def start(self, suite: str, scenario: str, channel_id: str, actor_id: str) -> str:
         run_id = str(uuid4())
@@ -36,9 +43,20 @@ class RunManager:
             with sqlite3.connect(self.path) as db:
                 db.execute(
                     "INSERT INTO synthetic_test_runs "
-                    "(id,suite,scenario,channel_id,actor_id,started_at,status,checks_json,deployment_version) "
-                    "VALUES (?,?,?,?,?,?,?, ?,?)",
-                    (run_id, suite, scenario, channel_id, actor_id, now, "running", "{}", "unknown"),
+                    "(id,suite,scenario,channel_id,actor_id,started_at,status,checks_json,deployment_version,git_sha) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        run_id,
+                        suite,
+                        scenario,
+                        channel_id,
+                        actor_id,
+                        now,
+                        "running",
+                        "{}",
+                        self.deployment_version,
+                        self.git_sha,
+                    ),
                 )
         return run_id
 
