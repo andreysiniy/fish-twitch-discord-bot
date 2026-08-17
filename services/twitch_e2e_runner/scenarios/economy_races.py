@@ -3,11 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from ..assertions.economy import assert_at_most_one_provider_write
-    from .helpers import execute_commands, transport_unavailable
+    from ..assertions.economy import (
+        assert_at_most_one_provider_write,
+        assert_successful_buy,
+        provider_write_count,
+    )
+    from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from assertions.economy import assert_at_most_one_provider_write
-    from scenarios.helpers import execute_commands, transport_unavailable
+    from assertions.economy import (
+        assert_at_most_one_provider_write,
+        assert_successful_buy,
+        provider_write_count,
+    )
+    from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R01": [("viewer1", "!fishbuy 5"), ("viewer1", "!fishsell 5")],
@@ -22,6 +30,8 @@ RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R93": [("viewer1", "!fish"), ("viewer1", "!fish")],
     "R96": [("viewer1", "!fish"), ("viewer2", "!fish")],
 }
+
+_CONCURRENT_PROVIDER_READ_DELAY_SECONDS = 5.0
 
 
 async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
@@ -38,17 +48,32 @@ async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
     ctx.pool.require(*actors)
     if ctx.cfg.mode == "stub":
         await ctx.stub.reset()
-        for actor in actors:
-            actor_config = next(item for item in ctx.cfg.actors() if item.name == actor)
-            await ctx.stub.set_balance(
-                actor_config.user_id,
-                100_000,
-                channel_id=ctx.cfg.channel_id or "stub-channel",
+        await seed_stub_points(ctx, actors)
+        # The Twitch runner deliberately paces IRC messages.  Delay the first
+        # provider read so a second command still arrives while the durable
+        # per-viewer economy lock is held; otherwise this race test would only
+        # exercise two valid sequential purchases.
+        if len(actors) == 1 and len(commands) > 1:
+            await ctx.stub.script(
+                "points_read",
+                [{"action": "delay", "seconds": _CONCURRENT_PROVIDER_READ_DELAY_SECONDS}],
             )
-    checks = await execute_commands(ctx, scenario, commands)
+    checks = await execute_commands(ctx, scenario, commands, require_all_evidence=False)
     if ctx.cfg.mode == "stub":
         requests = await ctx.stub.requests()
         checks["provider_requests"] = requests
         if len({actor for actor, _ in commands}) == 1:
             assert_at_most_one_provider_write(requests)
+        if scenario in {"R02", "R04", "R91"}:
+            available = [
+                index
+                for index, evidence in enumerate(checks.get("evidence", []))
+                if evidence.get("available")
+            ]
+            if len(available) != 1 or provider_write_count(requests) != 1:
+                raise AssertionError(
+                    f"Expected one successful buy in {scenario}, "
+                    f"got evidence={len(available)}, writes={provider_write_count(requests)}"
+                )
+            assert_successful_buy(checks, available[0])
     return {"status": "passed", "checks": checks}

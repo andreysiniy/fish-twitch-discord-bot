@@ -14,6 +14,18 @@ except ImportError:  # pragma: no cover - script-style Docker entrypoint
 CONTROLLED_POINTS_BALANCE = 100_000
 
 
+def stub_provider_channel_id(ctx: Any) -> str:
+    """Return the provider channel key used by the configured stub.
+
+    Twitch channel names/IDs and StreamElements provider channel IDs are
+    different namespaces.  Stub fixtures must use the same provider ID that
+    the game engine integration uses, otherwise a seeded balance is invisible
+    to the economy service.
+    """
+
+    return ctx.cfg.provider_channel_id or ctx.cfg.channel_id or "stub-channel"
+
+
 async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] | None:
     """Seed a deterministic provider balance for scenarios requiring a BUY success."""
 
@@ -25,11 +37,7 @@ async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] |
         await ctx.stub.set_balance(
             actor.login,
             CONTROLLED_POINTS_BALANCE,
-            channel_id=(
-                ctx.cfg.provider_channel_id
-                or ctx.cfg.channel_id
-                or "stub-channel"
-            ),
+            channel_id=stub_provider_channel_id(ctx),
         )
     return {
         "points_balance_seeded": CONTROLLED_POINTS_BALANCE,
@@ -165,6 +173,8 @@ async def execute_commands(
     ctx: Any,
     scenario: str,
     commands: list[tuple[str, str]],
+    *,
+    require_all_evidence: bool = True,
 ) -> dict[str, Any]:
     actors = sorted({actor for actor, _ in commands})
     ctx.pool.require(*actors)
@@ -193,7 +203,7 @@ async def execute_commands(
     if evidence:
         checks["evidence"] = evidence
         missing = [item for item in evidence if not item.get("available")]
-        if missing:
+        if missing and require_all_evidence:
             missing_details = []
             for index, item in enumerate(evidence):
                 if item.get("available"):
