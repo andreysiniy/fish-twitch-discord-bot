@@ -26,6 +26,41 @@ def stub_provider_channel_id(ctx: Any) -> str:
     return ctx.cfg.provider_channel_id or ctx.cfg.channel_id or "stub-channel"
 
 
+def command_requires_durable_evidence(command: str, reply: dict[str, Any]) -> bool:
+    """Return whether a Twitch reply represents a persisted game mutation.
+
+    The evidence API currently covers fishing casts and StreamElements
+    operations. Administrative, inventory, travel, validation and cooldown
+    replies are valid outcomes but do not create one of those records.
+    """
+
+    command_name = command.strip().split(maxsplit=1)[0].lower() if command.strip() else ""
+    text = " ".join(str(reply.get("text", "")).lower().split())
+    if command_name == "!fish":
+        return not any(
+            marker in text
+            for marker in (
+                "cooldown",
+                "already processing",
+                "temporarily unavailable",
+                "could not fish",
+                "access denied",
+            )
+        )
+    if command_name in {"!fishbuy", "!fishsell"}:
+        return any(
+            marker in text
+            for marker in (
+                "you bought",
+                "you sold",
+                "conversion needs administrator reconciliation",
+                "operation:",
+                "provider points cap",
+            )
+        )
+    return False
+
+
 async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] | None:
     """Seed a deterministic provider balance for scenarios requiring a BUY success."""
 
@@ -112,6 +147,9 @@ async def resolve_durable_evidence(
     recent_count = 0
     if sent_at and ctx.cfg.channel_id:
         actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
+        target_actor = actors_by_name.get(actor_name)
+        target_login = target_actor.login.lower() if target_actor else ""
+        target_user_id = str(target_actor.user_id) if target_actor else ""
         # A concurrent Twitch response can be delivered through another
         # actor's IRC session.  Search the participating actors rather than
         # trusting response arrival order to identify the sender.
@@ -136,6 +174,13 @@ async def resolve_durable_evidence(
             for item in recent:
                 candidate = str(item.get("source_request_id") or "")
                 if not candidate or candidate in used_source_ids:
+                    continue
+                item_login = str(item.get("login") or "").lower()
+                item_user_id = str(item.get("twitch_user_id") or "")
+                if (item_login or item_user_id) and not (
+                    (target_login and item_login == target_login)
+                    or (target_user_id and item_user_id == target_user_id)
+                ):
                     continue
                 evidence = await ctx.engine.wait_for_evidence(
                     candidate,
@@ -202,10 +247,16 @@ async def execute_commands(
         evidence.append(evidence_item)
     if evidence:
         checks["evidence"] = evidence
-        missing = [item for item in evidence if not item.get("available")]
+        required = [
+            index
+            for index, (command, reply) in enumerate(zip(commands, checks["replies"]))
+            if command_requires_durable_evidence(command[1], reply)
+        ]
+        missing = [index for index in required if not evidence[index].get("available")]
         if missing and require_all_evidence:
             missing_details = []
-            for index, item in enumerate(evidence):
+            for index in missing:
+                item = evidence[index]
                 if item.get("available"):
                     continue
                 reply = checks["replies"][index]

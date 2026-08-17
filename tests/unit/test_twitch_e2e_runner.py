@@ -40,6 +40,7 @@ runner_scenario_helpers = _load(
 )
 seed_stub_points = runner_scenario_helpers.seed_stub_points
 stub_provider_channel_id = runner_scenario_helpers.stub_provider_channel_id
+command_requires_durable_evidence = runner_scenario_helpers.command_requires_durable_evidence
 execute_commands = runner_scenario_helpers.execute_commands
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
@@ -171,6 +172,24 @@ def test_stub_provider_channel_id_prefers_provider_namespace() -> None:
     )
 
     assert stub_provider_channel_id(ctx) == "streamelements-channel"
+
+
+def test_evidence_requirement_matches_persisted_command_outcomes() -> None:
+    assert command_requires_durable_evidence(
+        "!fish", {"text": "viewer is fishing... viewer fished up a carp"}
+    )
+    assert command_requires_durable_evidence(
+        "!fishbuy 5", {"text": "You bought 5kg of fish for 600 points."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fish", {"text": "Fish cooldown for viewer is 5s (2s left)"}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy NaN", {"text": "Invalid mass. Use a positive number."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishtravel 1", {"text": "You traveled to Default."}
+    )
 
 
 def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
