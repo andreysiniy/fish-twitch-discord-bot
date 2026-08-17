@@ -63,6 +63,17 @@ def _irc_retry_delay(error: Exception, attempt: int) -> float:
     return _DEFAULT_IRC_RETRY_SECONDS * (attempt + 1)
 
 
+def _wire_command(command: str, duplicate_count: int) -> str:
+    """Make repeated Twitch messages distinct without changing parsed args."""
+
+    if duplicate_count <= 0:
+        return command
+    head, separator, tail = command.partition(" ")
+    if not separator:
+        return f"{head}{' ' * (duplicate_count + 1)}"
+    return f"{head}{' ' * (duplicate_count + 1)}{tail.lstrip()}"
+
+
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     author_login: str
@@ -91,6 +102,8 @@ class ActorClient(Client):
         self._task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
         self._last_send_at = 0.0
+        self._last_command = ""
+        self._duplicate_command_count = 0
 
     async def event_ready(self) -> None:
         if self.cfg.channel:
@@ -198,9 +211,16 @@ class ActorClient(Client):
             if elapsed < self.cfg.send_interval_seconds:
                 await asyncio.sleep(self.cfg.send_interval_seconds - elapsed)
 
+            if command == self._last_command:
+                self._duplicate_command_count += 1
+            else:
+                self._last_command = command
+                self._duplicate_command_count = 0
+            wire_command = _wire_command(command, self._duplicate_command_count)
+
             for attempt in range(self.cfg.irc_retry_limit + 1):
                 try:
-                    sent = await self._channel().send(command)
+                    sent = await self._channel().send(wire_command)
                     self._last_send_at = time.monotonic()
                     break
                 except Exception as error:  # noqa: BLE001 - TwitchIO type differs by release
@@ -232,7 +252,7 @@ class ActorClient(Client):
                     echo = await asyncio.wait_for(
                         self.echoes.get(), timeout=remaining
                     )
-                    if echo.text == command:
+                    if echo.text == wire_command:
                         return echo.message_id
             except asyncio.TimeoutError:
                 logger.warning(

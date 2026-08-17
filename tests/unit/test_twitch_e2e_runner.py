@@ -43,6 +43,7 @@ RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
 _irc_retry_delay = runner_client._irc_retry_delay
+_wire_command = runner_client._wire_command
 
 
 def test_race_catalog_covers_all_r_scenarios_without_unrouted_ids() -> None:
@@ -92,6 +93,12 @@ def test_irc_retry_delay_honors_twitch_server_interval() -> None:
 
 def test_irc_retry_delay_has_backoff_when_server_omits_interval() -> None:
     assert _irc_retry_delay(RuntimeError("IRC cooldown"), 2) == 3.0
+
+
+def test_repeated_twitch_command_gets_distinct_wire_spacing() -> None:
+    assert _wire_command("!fishbuy 5", 0) == "!fishbuy 5"
+    assert _wire_command("!fishbuy 5", 1) == "!fishbuy  5"
+    assert _wire_command("!fishbuy", 2) == "!fishbuy   "
 
 
 def test_permission_assertion_accepts_backend_access_denied_message() -> None:
