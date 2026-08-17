@@ -33,6 +33,11 @@ def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:
     assert "access-secret" not in str(actor.safe_summary())
 
 
+def test_runner_transport_is_explicitly_configured(monkeypatch) -> None:
+    monkeypatch.setenv("TWITCH_E2E_TRANSPORT", "real")
+    assert RunnerSettings().transport_enabled is True
+
+
 def test_run_manager_persists_redacted_result(tmp_path) -> None:
     async def scenario() -> None:
         manager = RunManager(str(tmp_path / "runs.sqlite3"))
@@ -45,5 +50,22 @@ def test_run_manager_persists_redacted_result(tmp_path) -> None:
         assert stored is not None
         assert stored["status"] == "passed"
         assert stored["checks"]["authorization"] == "[REDACTED]"
+
+    asyncio.run(scenario())
+
+
+def test_run_manager_persists_secondary_actor(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = RunManager(str(tmp_path / "runs.sqlite3"))
+        run_id = await manager.start(
+            "race",
+            "R01",
+            "test-channel",
+            "viewer1",
+            "viewer2",
+        )
+        stored = await manager.get(run_id)
+        assert stored is not None
+        assert stored["secondary_actor_id"] == "viewer2"
 
     asyncio.run(scenario())

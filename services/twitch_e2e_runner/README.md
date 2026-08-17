@@ -17,7 +17,8 @@ The base `.env` supplies database and service settings. The second file supplies
 only E2E credentials and overrides them for the E2E profile. Set
 `TWITCH_E2E_ENABLED=true` in `.env.e2e`, then call
 `POST /internal/e2e/run/smoke`. The default `stub` mode validates the
-engine/provider control path without sending Twitch messages. Set
+provider through the real Twitch transport. For a local control-plane-only
+smoke without Twitch credentials, set `TWITCH_E2E_TRANSPORT=disabled`. Set
 `TWITCH_E2E_MODE=real` only for a dedicated test channel and all required
 actor credentials.
 

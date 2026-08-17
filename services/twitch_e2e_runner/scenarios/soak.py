@@ -3,15 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 
-async def run_resilience(ctx, scenario: str) -> dict[str, Any]:
+async def run_soak(ctx: Any, scenario: str) -> dict[str, Any]:
     ready = await ctx.engine.ready()
     return {
         "status": "skipped",
         "checks": {
-            "engine_ready": True,
             "scenario": scenario,
-            "reason": "Worker/Redis lifecycle controls are deployment-owned",
+            "engine_ready": True,
+            "reason": "Soak execution is an explicit long-running deployment job",
             "engine": ready,
         },
     }
-

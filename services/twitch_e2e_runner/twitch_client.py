@@ -118,9 +118,15 @@ class ActorClient(Client):
             if remaining <= 0:
                 raise TimeoutError(f"No production bot reply for actor {self.actor.name}")
             message = await asyncio.wait_for(self.messages.get(), timeout=remaining)
-            if self.cfg.production_bot_login and message.author_login.lower() != self.cfg.production_bot_login.lower():
+            if (
+                self.cfg.production_bot_login
+                and message.author_login.lower() != self.cfg.production_bot_login.lower()
+            ):
                 continue
-            if self.cfg.production_bot_user_id and message.author_id != self.cfg.production_bot_user_id:
+            if (
+                self.cfg.production_bot_user_id
+                and message.author_id != self.cfg.production_bot_user_id
+            ):
                 continue
             return message
 
@@ -155,12 +161,15 @@ class ActorPool:
         await asyncio.gather(*(client.stop_background() for client in self.clients.values()))
 
     async def send_and_wait(self, actor_name: str, command: str) -> ChatMessage:
+        await self.start(actor_name)
         client = self.clients[actor_name]
         source_request_id = await client.send_command(command)
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id)
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
+        await self.start(*(actor for actor, _ in commands))
+
         async def one(actor_name: str, command: str) -> ChatMessage:
             return await self.send_and_wait(actor_name, command)
 

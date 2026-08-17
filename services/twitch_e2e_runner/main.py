@@ -13,19 +13,65 @@ try:
     from .config import COMMAND_SURFACE, settings
     from .engine_client import EngineClient, StubClient
     from .run_manager import RunManager, redact_result
-    from .scenarios.catalog import ALL_SCENARIOS
+    from .scenarios.boundary import run_boundary
+    from .scenarios.catalog import (
+        ALL_SCENARIOS,
+        BOUNDARY_SCENARIOS,
+        CHANNEL_SCENARIOS,
+        CROSS_DOMAIN_RACES,
+        ECONOMY_RACES,
+        FISHING_RACES,
+        HEALTH_SCENARIOS,
+        INVENTORY_RACES,
+        PROVIDER_FAULT_RACES,
+        RESILIENCE_RACES,
+        SOAK_SCENARIOS,
+        WORKER_RACES,
+    )
+    from .scenarios.channels import run_channel_membership
+    from .scenarios.cross_domain_races import run_cross_domain_race
     from .scenarios.economy_races import run_economy_race
+    from .scenarios.fishing import run_fishing_race
+    from .scenarios.health import run_health
+    from .scenarios.inventory import run_inventory_race
     from .scenarios.permissions import run_permissions
+    from .scenarios.provider_faults import run_provider_fault
+    from .scenarios.resilience import run_resilience
     from .scenarios.smoke import run_smoke
+    from .scenarios.soak import run_soak
+    from .scenarios.worker_races import run_worker_race
     from .twitch_client import ActorPool
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from config import COMMAND_SURFACE, settings
     from engine_client import EngineClient, StubClient
     from run_manager import RunManager, redact_result
-    from scenarios.catalog import ALL_SCENARIOS
+    from scenarios.boundary import run_boundary
+    from scenarios.catalog import (
+        ALL_SCENARIOS,
+        BOUNDARY_SCENARIOS,
+        CHANNEL_SCENARIOS,
+        CROSS_DOMAIN_RACES,
+        ECONOMY_RACES,
+        FISHING_RACES,
+        HEALTH_SCENARIOS,
+        INVENTORY_RACES,
+        PROVIDER_FAULT_RACES,
+        RESILIENCE_RACES,
+        SOAK_SCENARIOS,
+        WORKER_RACES,
+    )
+    from scenarios.channels import run_channel_membership
+    from scenarios.cross_domain_races import run_cross_domain_race
     from scenarios.economy_races import run_economy_race
+    from scenarios.fishing import run_fishing_race
+    from scenarios.health import run_health
+    from scenarios.inventory import run_inventory_race
     from scenarios.permissions import run_permissions
+    from scenarios.provider_faults import run_provider_fault
+    from scenarios.resilience import run_resilience
     from scenarios.smoke import run_smoke
+    from scenarios.soak import run_soak
+    from scenarios.worker_races import run_worker_race
     from twitch_client import ActorPool
 
 logger = logging.getLogger(__name__)
@@ -35,6 +81,7 @@ class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     actor: str = Field(default="viewer1", min_length=1, max_length=40)
+    secondary_actor: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 @dataclass
@@ -84,6 +131,7 @@ async def health_ready() -> dict[str, Any]:
         "status": "ready",
         "service": "twitch_e2e_runner",
         "mode": settings.mode,
+        "transport": settings.transport,
         "configured_actors": pool.configured_names,
     }
     try:
@@ -108,11 +156,35 @@ async def _run_scenario(scenario: str) -> dict[str, Any]:
         return await run_smoke(_context())
     if scenario == "permissions":
         return await run_permissions(_context())
-    if scenario.startswith("R"):
+    context = _context()
+    if scenario in PROVIDER_FAULT_RACES:
+        return await run_provider_fault(context, scenario)
+    if scenario in WORKER_RACES:
+        return await run_worker_race(context, scenario)
+    if scenario in RESILIENCE_RACES:
+        return await run_resilience(context, scenario)
+    if scenario in ECONOMY_RACES:
         return await run_economy_race(_context(), scenario)
+    if scenario in INVENTORY_RACES:
+        return await run_inventory_race(context, scenario)
+    if scenario in CROSS_DOMAIN_RACES:
+        return await run_cross_domain_race(context, scenario)
+    if scenario in FISHING_RACES:
+        return await run_fishing_race(context, scenario)
+    if scenario in HEALTH_SCENARIOS:
+        return await run_health(context, scenario)
+    if scenario in CHANNEL_SCENARIOS:
+        return await run_channel_membership(context, scenario)
+    if scenario in BOUNDARY_SCENARIOS:
+        return await run_boundary(context, scenario)
+    if scenario in SOAK_SCENARIOS:
+        return await run_soak(context, scenario)
     return {
         "status": "skipped",
-        "checks": {"reason": "Scenario fixture is not enabled in this deployment", "scenario": scenario},
+        "checks": {
+            "reason": "Scenario fixture is not enabled in this deployment",
+            "scenario": scenario,
+        },
     }
 
 
@@ -122,7 +194,10 @@ async def run_one(scenario: str, request: RunRequest | None = None) -> dict[str,
     if scenario not in ALL_SCENARIOS:
         raise HTTPException(status_code=404, detail="Unknown E2E scenario")
     actor = request.actor if request else "viewer1"
-    run_id = await manager.start("manual", scenario, settings.channel, actor)
+    secondary_actor = request.secondary_actor if request else None
+    run_id = await manager.start(
+        "manual", scenario, settings.channel, actor, secondary_actor
+    )
     try:
         result = redact_result(await _run_scenario(scenario))
     except Exception as error:
@@ -153,7 +228,8 @@ async def run_suite(suite: str, request: RunRequest | None = None) -> dict[str, 
     actor = request.actor if request else "viewer1"
     results = []
     for scenario in scenarios:
-        run_id = await manager.start(suite, scenario, settings.channel, actor)
+        secondary_actor = request.secondary_actor if request else None
+        run_id = await manager.start(suite, scenario, settings.channel, actor, secondary_actor)
         try:
             result = redact_result(await _run_scenario(scenario))
         except Exception as error:  # noqa: BLE001 - persist a safe scenario failure

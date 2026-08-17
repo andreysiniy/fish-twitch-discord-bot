@@ -12,8 +12,8 @@ async def run_smoke(ctx) -> dict[str, Any]:
     checks: dict[str, Any] = {"command_surface": list(ctx.command_names)}
     await ctx.engine.ready()
     checks["engine_ready"] = True
-    if ctx.cfg.mode == "stub":
-        checks["transport"] = "stub"
+    if not ctx.cfg.transport_enabled:
+        checks["transport"] = "disabled"
         return {"status": "passed", "checks": checks}
     ctx.pool.require("viewer1")
     replies = await ctx.pool.send_concurrent(

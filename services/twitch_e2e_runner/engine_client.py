@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 import httpx
@@ -36,6 +38,44 @@ class EngineClient:
         response.raise_for_status()
         return {"available": True, **response.json()}
 
+    async def wait_for_evidence(
+        self, source_request_id: str, *, timeout_seconds: float = 10.0
+    ) -> dict[str, Any]:
+        """Wait until the durable ledger is visible after a Twitch reply."""
+
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            evidence = await self.get_evidence(source_request_id)
+            if evidence.get("available"):
+                return evidence
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return evidence
+            await asyncio.sleep(min(0.25, remaining))
+
+    async def set_next_cast_fixture(
+        self,
+        *,
+        channel_id: str,
+        viewer_id: str,
+        outcome: str,
+        rng: dict[str, float] | None = None,
+        expires_in_seconds: int = 60,
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            "/v1/internal/testing/next-cast",
+            json={
+                "channel_id": channel_id,
+                "viewer_id": viewer_id,
+                "outcome": outcome,
+                "rng": rng or {},
+                "expires_in_seconds": expires_in_seconds,
+            },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
     def _headers(self) -> dict[str, str]:
         return {"X-E2E-Service-Key": self.cfg.engine_api_key} if self.cfg.engine_api_key else {}
 
@@ -53,7 +93,12 @@ class StubClient:
         response.raise_for_status()
         return response.json()
 
-    async def set_balance(self, user_id: str, balance: int, channel_id: str = "stub-channel") -> dict[str, Any]:
+    async def set_balance(
+        self,
+        user_id: str,
+        balance: int,
+        channel_id: str = "stub-channel",
+    ) -> dict[str, Any]:
         response = await self._client.post(
             "/internal/test/balance",
             json={"user_id": user_id, "balance": balance, "channel_id": channel_id},

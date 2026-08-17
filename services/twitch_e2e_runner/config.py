@@ -26,7 +26,12 @@ class ActorConfig(BaseModel):
         return bool(self.user_id and self.login and self.access_token)
 
     def safe_summary(self) -> dict[str, str | bool]:
-        return {"name": self.name, "role": self.role, "login": self.login, "configured": self.configured}
+        return {
+            "name": self.name,
+            "role": self.role,
+            "login": self.login,
+            "configured": self.configured,
+        }
 
 
 class RunnerSettings(BaseSettings):
@@ -34,12 +39,18 @@ class RunnerSettings(BaseSettings):
 
     enabled: bool = Field(default=False, validation_alias="TWITCH_E2E_ENABLED")
     mode: Literal["real", "stub"] = Field(default="real", validation_alias="TWITCH_E2E_MODE")
+    transport: Literal["real", "disabled"] = Field(
+        default="disabled", validation_alias="TWITCH_E2E_TRANSPORT"
+    )
     channel: str = Field(default="", validation_alias="TWITCH_E2E_CHANNEL")
+    channel_id: str = Field(default="", validation_alias="TWITCH_E2E_CHANNEL_ID")
     production_bot_login: str = Field(default="", validation_alias="TWITCH_E2E_BOT_LOGIN")
     production_bot_user_id: str = Field(default="", validation_alias="TWITCH_E2E_BOT_USER_ID")
     twitch_client_id: str = Field(default="", validation_alias="TWITCH_E2E_CLIENT_ID")
     twitch_client_secret: str = Field(default="", validation_alias="TWITCH_E2E_CLIENT_SECRET")
-    engine_url: str = Field(default="http://game_engine:8000", validation_alias="TWITCH_E2E_ENGINE_URL")
+    engine_url: str = Field(
+        default="http://game_engine:8000", validation_alias="TWITCH_E2E_ENGINE_URL"
+    )
     engine_api_key: str = Field(default="", validation_alias="TWITCH_E2E_ENGINE_API_KEY")
     stub_url: str = Field(
         default="http://streamelements_stub:8080", validation_alias="TWITCH_E2E_STUB_URL"
@@ -50,10 +61,18 @@ class RunnerSettings(BaseSettings):
         default_factory=lambda: str(Path(tempfile.gettempdir()) / "twitch_e2e_runs.sqlite3"),
         validation_alias="TWITCH_E2E_RESULT_DB",
     )
-    command_timeout_seconds: float = Field(default=20.0, validation_alias="TWITCH_E2E_COMMAND_TIMEOUT")
-    actor_start_timeout_seconds: float = Field(default=30.0, validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT")
-    max_concurrency: int = Field(default=8, ge=1, le=32, validation_alias="TWITCH_E2E_MAX_CONCURRENCY")
-    deployment_version: str = Field(default="unknown", validation_alias="TWITCH_E2E_DEPLOYMENT_VERSION")
+    command_timeout_seconds: float = Field(
+        default=20.0, validation_alias="TWITCH_E2E_COMMAND_TIMEOUT"
+    )
+    actor_start_timeout_seconds: float = Field(
+        default=30.0, validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT"
+    )
+    max_concurrency: int = Field(
+        default=8, ge=1, le=32, validation_alias="TWITCH_E2E_MAX_CONCURRENCY"
+    )
+    deployment_version: str = Field(
+        default="unknown", validation_alias="TWITCH_E2E_DEPLOYMENT_VERSION"
+    )
     git_sha: str = Field(default="unknown", validation_alias="GIT_SHA")
 
     def actors(self) -> list[ActorConfig]:
@@ -65,6 +84,12 @@ class RunnerSettings(BaseSettings):
             _actor_from_env("viewer1", "viewer", common_id, common_secret),
             _actor_from_env("viewer2", "viewer", common_id, common_secret),
         ]
+
+    @property
+    def transport_enabled(self) -> bool:
+        """Whether scenarios may send real Twitch chat messages."""
+
+        return self.transport == "real"
 
 
 def _actor_from_env(name: str, role: str, client_id: str, client_secret: str) -> ActorConfig:

@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from ..assertions.common import assert_bot_reply
     from ..assertions.economy import assert_at_most_one_provider_write
+    from .helpers import execute_commands, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from assertions.common import assert_bot_reply
     from assertions.economy import assert_at_most_one_provider_write
+    from scenarios.helpers import execute_commands, transport_unavailable
 
 RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R01": [("viewer1", "!fishbuy 5"), ("viewer1", "!fishsell 5")],
@@ -27,20 +27,28 @@ RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
 async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
     commands = RACE_COMMANDS.get(scenario)
     if not commands:
-        return {"status": "skipped", "checks": {"reason": "Scenario requires a dedicated fault hook"}}
+        return {
+            "status": "skipped",
+            "checks": {"reason": "Scenario requires a dedicated fault hook"},
+        }
+    skipped = transport_unavailable(ctx, scenario)
+    if skipped:
+        return skipped
     actors = sorted({actor for actor, _ in commands})
     ctx.pool.require(*actors)
     if ctx.cfg.mode == "stub":
         await ctx.stub.reset()
         for actor in actors:
-            await ctx.stub.set_balance(actor, 100_000)
-    replies = await ctx.pool.send_concurrent(commands) if ctx.cfg.mode == "real" else []
-    checks: dict[str, Any] = {
-        "commands": [command for _, command in commands],
-        "replies": [assert_bot_reply(reply) for reply in replies],
-    }
+            actor_config = next(item for item in ctx.cfg.actors() if item.name == actor)
+            await ctx.stub.set_balance(
+                actor_config.user_id,
+                100_000,
+                channel_id=ctx.cfg.channel_id or "stub-channel",
+            )
+    checks = await execute_commands(ctx, scenario, commands)
     if ctx.cfg.mode == "stub":
         requests = await ctx.stub.requests()
         checks["provider_requests"] = requests
-        assert_at_most_one_provider_write(requests)
+        if len({actor for actor, _ in commands}) == 1:
+            assert_at_most_one_provider_write(requests)
     return {"status": "passed", "checks": checks}

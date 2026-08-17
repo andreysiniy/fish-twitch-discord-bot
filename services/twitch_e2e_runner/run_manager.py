@@ -33,24 +33,34 @@ class RunManager:
             columns = {row[1] for row in db.execute("PRAGMA table_info(synthetic_test_runs)")}
             if "git_sha" not in columns:
                 db.execute(
-                    "ALTER TABLE synthetic_test_runs ADD COLUMN git_sha TEXT NOT NULL DEFAULT 'unknown'"
+                    "ALTER TABLE synthetic_test_runs ADD COLUMN git_sha TEXT NOT NULL "
+                    "DEFAULT 'unknown'"
                 )
 
-    async def start(self, suite: str, scenario: str, channel_id: str, actor_id: str) -> str:
+    async def start(
+        self,
+        suite: str,
+        scenario: str,
+        channel_id: str,
+        actor_id: str,
+        secondary_actor_id: str | None = None,
+    ) -> str:
         run_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         async with self._lock:
             with sqlite3.connect(self.path) as db:
                 db.execute(
                     "INSERT INTO synthetic_test_runs "
-                    "(id,suite,scenario,channel_id,actor_id,started_at,status,checks_json,deployment_version,git_sha) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "(id,suite,scenario,channel_id,actor_id,secondary_actor_id,started_at,"
+                    "status,checks_json,deployment_version,git_sha) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         run_id,
                         suite,
                         scenario,
                         channel_id,
                         actor_id,
+                        secondary_actor_id,
                         now,
                         "running",
                         "{}",
@@ -87,7 +97,9 @@ class RunManager:
         async with self._lock:
             with sqlite3.connect(self.path) as db:
                 db.row_factory = sqlite3.Row
-                row = db.execute("SELECT * FROM synthetic_test_runs WHERE id=?", (run_id,)).fetchone()
+                row = db.execute(
+                    "SELECT * FROM synthetic_test_runs WHERE id=?", (run_id,)
+                ).fetchone()
         if row is None:
             return None
         result = dict(row)
@@ -102,7 +114,10 @@ def redact_result(result: dict[str, Any]) -> dict[str, Any]:
 
     def clean(value: Any) -> Any:
         if isinstance(value, dict):
-            return {key: "[REDACTED]" if key.lower() in secret_keys else clean(item) for key, item in value.items()}
+            return {
+                key: "[REDACTED]" if key.lower() in secret_keys else clean(item)
+                for key, item in value.items()
+            }
         if isinstance(value, list):
             return [clean(item) for item in value]
         return value
