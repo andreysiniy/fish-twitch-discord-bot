@@ -75,7 +75,9 @@ except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from twitch_client import ActorPool
 
 logger = logging.getLogger(__name__)
-_CHANNEL_STATE_MUTATING_SCENARIOS = {"permissions", "R48", "R116", "R117"}
+_CHANNEL_STATE_MUTATING_SCENARIOS = (
+    {"permissions", "R48", "R116", "R117"} | set(PROVIDER_FAULT_RACES)
+)
 
 
 class RunRequest(BaseModel):
@@ -189,6 +191,14 @@ async def _run_scenario(scenario: str) -> dict[str, Any]:
     }
 
 
+async def _cleanup_test_reconciliation(context: ScenarioContext) -> dict[str, Any]:
+    actor_logins = [actor.login for actor in context.cfg.actors() if actor.login]
+    return await context.engine.cleanup_reconciliation(
+        channel_id=context.cfg.channel_id,
+        usernames=actor_logins,
+    )
+
+
 async def _restore_channel_state(context: ScenarioContext) -> dict[str, Any]:
     """Restore shared Twitch fixtures after a stateful scenario or before a suite.
 
@@ -200,7 +210,9 @@ async def _restore_channel_state(context: ScenarioContext) -> dict[str, Any]:
     """
 
     replies: list[str] = []
+    reconciliation_cleanup: dict[str, Any] | None = None
     try:
+        reconciliation_cleanup = await _cleanup_test_reconciliation(context)
         context.pool.require("owner")
         for command in (
             "!fishmoddel viewer1",
@@ -211,20 +223,31 @@ async def _restore_channel_state(context: ScenarioContext) -> dict[str, Any]:
         ):
             reply = await context.pool.send_and_wait("owner", command)
             replies.append(reply.text)
-    except Exception as error:  # noqa: BLE001 - cleanup must be reported to the suite
+    except Exception as error:
         logger.exception("Economy state cleanup failed")
         return {
             "status": "failed",
             "error": type(error).__name__,
             "message": "Could not restore shared Twitch channel state",
             "replies": replies,
+            "reconciliation_cleanup": reconciliation_cleanup,
         }
-    return {"status": "passed", "replies": replies}
+    return {
+        "status": "passed",
+        "replies": replies,
+        "reconciliation_cleanup": reconciliation_cleanup,
+    }
 
 
 async def _run_scenario_isolated(scenario: str) -> dict[str, Any]:
     if scenario not in _CHANNEL_STATE_MUTATING_SCENARIOS:
-        return await _run_scenario(scenario)
+        context = _context()
+        cleanup = await _cleanup_test_reconciliation(context)
+        result = await _run_scenario(scenario)
+        checks = result.setdefault("checks", {})
+        if isinstance(checks, dict):
+            checks["reconciliation_cleanup"] = cleanup
+        return result
 
     result: dict[str, Any] | None = None
     scenario_error: Exception | None = None

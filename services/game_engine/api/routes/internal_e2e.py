@@ -24,6 +24,7 @@ from infrastructure.models import (
 )
 from infrastructure.redis_client import RedisClient
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/internal/e2e", tags=["Internal E2E"])
@@ -45,6 +46,16 @@ class NextCastFixture(BaseModel):
     outcome: str = Field(min_length=1, max_length=80)
     rng: dict[str, float] = Field(default_factory=dict)
     expires_in_seconds: int = Field(default=60, ge=1, le=3600)
+
+
+class EconomyReconciliationCleanupRequest(BaseModel):
+    """Scope a destructive test cleanup to one channel and known test users."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel_id: str = Field(min_length=1, max_length=120)
+    usernames: list[str] = Field(default_factory=list, max_length=32)
+    reason: str = Field(default="E2E test isolation", min_length=1, max_length=200)
 
 
 @router.get("/evidence", dependencies=[Depends(require_testing_api)])
@@ -243,3 +254,87 @@ def next_cast_fixture(payload: NextCastFixture) -> dict[str, Any]:
         ),
     )
     return {"fixture_id": fixture_id, "expires_at": expires_at}
+
+
+@testing_router.post(
+    "/economy/reconciliation/cleanup",
+    dependencies=[Depends(require_testing_api)],
+)
+def cleanup_economy_reconciliation(
+    payload: EconomyReconciliationCleanupRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Release test viewers blocked by an intentionally ambiguous provider write.
+
+    This endpoint is available only behind the existing testing API gate. It
+    never retries or compensates an external points mutation; it only marks
+    unresolved records as test-cleaned terminal records so a disposable E2E
+    run cannot poison the next scenario.
+    """
+
+    channel = db.query(Channel).filter(Channel.twitch_id == payload.channel_id).first()
+    if channel is None and payload.channel_id.isdigit():
+        channel = db.query(Channel).filter(Channel.id == int(payload.channel_id)).first()
+    if channel is None:
+        raise HTTPException(status_code=404, detail="E2E channel not found")
+
+    usernames = {
+        username.strip().lower()
+        for username in payload.usernames
+        if username.strip()
+    }
+    query = (
+        db.query(EconomyOperation)
+        .filter(
+            EconomyOperation.channel_id == channel.id,
+            EconomyOperation.state == "reconciliation_required",
+        )
+        .with_for_update()
+    )
+    if usernames:
+        query = query.filter(func.lower(EconomyOperation.twitch_username).in_(usernames))
+
+    cleaned: list[str] = []
+    now = datetime.now(timezone.utc)
+    for operation in query.order_by(EconomyOperation.created_at.asc()).all():
+        event = (
+            db.query(OutboxEvent)
+            .filter(
+                OutboxEvent.idempotency_key == f"economy:{operation.id}",
+                OutboxEvent.state == "reconciliation_required",
+            )
+            .with_for_update()
+            .first()
+        )
+        operation.state = "dead_letter"
+        operation.last_error = "E2E_RECONCILIATION_CLEANUP"
+        operation.reconciliation_reason = payload.reason
+        operation.version += 1
+        if event is not None:
+            event.state = "dead_letter"
+            event.last_error = "E2E_RECONCILIATION_CLEANUP"
+            event.lease_expires_at = None
+            event.version += 1
+
+        last_sequence = (
+            db.query(func.max(EconomyOperationEvent.sequence_no))
+            .filter(EconomyOperationEvent.operation_id == operation.id)
+            .scalar()
+            or 0
+        )
+        db.add(
+            EconomyOperationEvent(
+                operation_id=operation.id,
+                sequence_no=int(last_sequence) + 1,
+                event_type="e2e_reconciliation_cleanup",
+                from_state="reconciliation_required",
+                to_state="dead_letter",
+                actor_type="e2e_test",
+                actor_id="twitch_e2e_runner",
+                event_metadata={"reason": payload.reason},
+                created_at=now,
+            )
+        )
+        cleaned.append(str(operation.id))
+
+    return {"cleaned": len(cleaned), "operation_ids": cleaned}

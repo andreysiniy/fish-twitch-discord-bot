@@ -97,6 +97,27 @@ class EngineClient:
         response.raise_for_status()
         return response.json()
 
+    async def cleanup_reconciliation(
+        self,
+        *,
+        channel_id: str,
+        usernames: list[str],
+        reason: str = "E2E test isolation",
+    ) -> dict[str, Any]:
+        """Release ambiguous test operations without touching provider state."""
+
+        response = await self._client.post(
+            "/v1/internal/testing/economy/reconciliation/cleanup",
+            json={
+                "channel_id": channel_id,
+                "usernames": usernames,
+                "reason": reason,
+            },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
     def _headers(self) -> dict[str, str]:
         return {"X-E2E-Service-Key": self.cfg.engine_api_key} if self.cfg.engine_api_key else {}
 
