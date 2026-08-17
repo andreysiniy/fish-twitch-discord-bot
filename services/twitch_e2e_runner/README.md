@@ -28,6 +28,6 @@ network and can be protected with `STREAMELEMENTS_STUB_CONTROL_KEY`.
 For real Twitch transport, keep the default timing settings in
 `.env.e2e`: commands wait up to 45 seconds for a production reply, an optional
 Twitch echo is only awaited for 3 seconds, actor sessions get 90 seconds to join,
-and messages from one actor are spaced by
-1.6 seconds to stay below Twitch IRC limits. The runner retries Twitch IRC
+and messages across actors are spaced by 3.2 seconds to stay below the production
+bot's Twitch IRC limits when a command emits multiple replies. The runner retries Twitch IRC
 cooldown responses three times using the server-provided delay.

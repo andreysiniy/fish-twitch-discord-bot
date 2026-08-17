@@ -83,7 +83,7 @@ class RunnerSettings(BaseSettings):
         validation_alias="TWITCH_E2E_ACTOR_START_TIMEOUT",
     )
     send_interval_seconds: float = Field(
-        default=1.6,
+        default=3.2,
         ge=0,
         le=30,
         validation_alias="TWITCH_E2E_SEND_INTERVAL",

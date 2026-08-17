@@ -289,6 +289,8 @@ class ActorPool:
         self.clients = {
             actor.name: ActorClient(actor, cfg) for actor in cfg.actors() if actor.configured
         }
+        self._send_lock = asyncio.Lock()
+        self._last_send_at = 0.0
 
     @property
     def configured_names(self) -> list[str]:
@@ -317,9 +319,20 @@ class ActorPool:
         client = self.clients[actor_name]
         self._drain_messages(client)
         sent_at = time.time()
-        source_request_id = await client.send_command(command)
+        source_request_id = await self._send_paced(client, command)
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
+
+    async def _send_paced(self, client: ActorClient, command: str) -> str:
+        """Rate-limit all test actors against the production bot's IRC budget."""
+
+        async with self._send_lock:
+            elapsed = time.monotonic() - self._last_send_at
+            if elapsed < self.cfg.send_interval_seconds:
+                await asyncio.sleep(self.cfg.send_interval_seconds - elapsed)
+            source_request_id = await client.send_command(command)
+            self._last_send_at = time.monotonic()
+            return source_request_id
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
         await self.start(*(actor for actor, _ in commands))
@@ -335,7 +348,7 @@ class ActorPool:
             # Twitch to process each actor's frame reliably.
             if index:
                 await asyncio.sleep(index * _CONCURRENT_SEND_STAGGER_SECONDS)
-            return await self.clients[actor].send_command(command)
+            return await self._send_paced(self.clients[actor], command)
 
         source_request_ids = await asyncio.gather(
             *(send(index, actor, command) for index, (actor, command) in enumerate(commands))
