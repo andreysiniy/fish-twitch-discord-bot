@@ -16,9 +16,12 @@ async def run_smoke(ctx) -> dict[str, Any]:
         checks["transport"] = "disabled"
         return {"status": "passed", "checks": checks}
     ctx.pool.require("viewer1")
-    replies = await ctx.pool.send_concurrent(
-        [("viewer1", "!fishstats"), ("viewer1", "!fishrate")]
-    )
+    # Keep the smoke path deterministic: Twitch chat may drop back-to-back
+    # messages from one actor while the production bot is still replying.
+    replies = [
+        await ctx.pool.send_and_wait("viewer1", "!fishstats"),
+        await ctx.pool.send_and_wait("viewer1", "!fishrate"),
+    ]
     checks["replies"] = [assert_bot_reply(reply) for reply in replies]
     checks["evidence"] = [
         await ctx.engine.get_evidence(reply.source_request_id)
