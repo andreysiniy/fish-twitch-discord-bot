@@ -23,6 +23,8 @@ RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R96": [("viewer1", "!fish"), ("viewer2", "!fish")],
 }
 
+_CONCURRENT_PROVIDER_READ_DELAY_SECONDS = 5.0
+
 
 async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
     commands = RACE_COMMANDS.get(scenario)
@@ -39,6 +41,15 @@ async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
     if ctx.cfg.mode == "stub":
         await ctx.stub.reset()
         await seed_stub_points(ctx, actors)
+        # The Twitch runner deliberately paces IRC messages.  Delay the first
+        # provider read so a second command still arrives while the durable
+        # per-viewer economy lock is held; otherwise this race test would only
+        # exercise two valid sequential purchases.
+        if len(actors) == 1 and len(commands) > 1:
+            await ctx.stub.script(
+                "points_read",
+                [{"action": "delay", "seconds": _CONCURRENT_PROVIDER_READ_DELAY_SECONDS}],
+            )
     checks = await execute_commands(ctx, scenario, commands)
     if ctx.cfg.mode == "stub":
         requests = await ctx.stub.requests()
