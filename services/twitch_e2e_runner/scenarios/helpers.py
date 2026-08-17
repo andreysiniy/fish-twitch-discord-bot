@@ -173,6 +173,8 @@ async def execute_commands(
     ctx: Any,
     scenario: str,
     commands: list[tuple[str, str]],
+    *,
+    require_all_evidence: bool = True,
 ) -> dict[str, Any]:
     actors = sorted({actor for actor, _ in commands})
     ctx.pool.require(*actors)
@@ -201,7 +203,7 @@ async def execute_commands(
     if evidence:
         checks["evidence"] = evidence
         missing = [item for item in evidence if not item.get("available")]
-        if missing:
+        if missing and require_all_evidence:
             missing_details = []
             for index, item in enumerate(evidence):
                 if item.get("available"):

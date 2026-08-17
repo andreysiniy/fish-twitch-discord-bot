@@ -3,10 +3,18 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from ..assertions.economy import assert_at_most_one_provider_write
+    from ..assertions.economy import (
+        assert_at_most_one_provider_write,
+        assert_successful_buy,
+        provider_write_count,
+    )
     from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
-    from assertions.economy import assert_at_most_one_provider_write
+    from assertions.economy import (
+        assert_at_most_one_provider_write,
+        assert_successful_buy,
+        provider_write_count,
+    )
     from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 RACE_COMMANDS: dict[str, list[tuple[str, str]]] = {
@@ -50,10 +58,22 @@ async def run_economy_race(ctx, scenario: str) -> dict[str, Any]:
                 "points_read",
                 [{"action": "delay", "seconds": _CONCURRENT_PROVIDER_READ_DELAY_SECONDS}],
             )
-    checks = await execute_commands(ctx, scenario, commands)
+    checks = await execute_commands(ctx, scenario, commands, require_all_evidence=False)
     if ctx.cfg.mode == "stub":
         requests = await ctx.stub.requests()
         checks["provider_requests"] = requests
         if len({actor for actor, _ in commands}) == 1:
             assert_at_most_one_provider_write(requests)
+        if scenario in {"R02", "R04", "R91"}:
+            available = [
+                index
+                for index, evidence in enumerate(checks.get("evidence", []))
+                if evidence.get("available")
+            ]
+            if len(available) != 1 or provider_write_count(requests) != 1:
+                raise AssertionError(
+                    f"Expected one successful buy in {scenario}, "
+                    f"got evidence={len(available)}, writes={provider_write_count(requests)}"
+                )
+            assert_successful_buy(checks, available[0])
     return {"status": "passed", "checks": checks}
