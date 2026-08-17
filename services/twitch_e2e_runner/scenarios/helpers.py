@@ -21,7 +21,7 @@ async def seed_stub_points(ctx: Any, actor_names: list[str]) -> dict[str, Any] |
     for actor_name in actor_names:
         actor = next(item for item in ctx.cfg.actors() if item.name == actor_name)
         await ctx.stub.set_balance(
-            actor.user_id,
+            actor.login,
             CONTROLLED_POINTS_BALANCE,
             channel_id=(
                 ctx.cfg.provider_channel_id

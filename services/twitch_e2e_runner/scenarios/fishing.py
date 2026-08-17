@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 try:
+    from ..assertions.economy import assert_successful_buy
     from .helpers import execute_commands, seed_stub_points, transport_unavailable
 except ImportError:  # pragma: no cover - script-style Docker entrypoint
+    from assertions.economy import assert_successful_buy
     from scenarios.helpers import execute_commands, seed_stub_points, transport_unavailable
 
 
@@ -68,8 +70,6 @@ async def run_fishing_race(ctx, scenario: str) -> dict[str, Any]:
             checks["points_balance_seeded"] = fixture["points_balance_seeded"]
             checks["points_actor"] = fixture["points_actor"]
     if scenario == "R102":
-        buy_text = checks["replies"][1]["text"].lower()
-        if "bought" not in buy_text:
-            raise AssertionError("R102 requires a successful !fishbuy command")
+        assert_successful_buy(checks, 1)
     return {"status": "passed", "checks": checks}
 
