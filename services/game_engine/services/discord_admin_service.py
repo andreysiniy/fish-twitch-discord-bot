@@ -19,11 +19,10 @@ from domain.config_schema import (
     RewardDefinition,
 )
 from domain.event_review import event_review_issues
-from domain.item_schema import ModifierScope, STAT_REGISTRY, StatKey
-from domain.item_schema import parse_item_definition_payload
+from domain.item_schema import STAT_REGISTRY, ModifierScope, StatKey, parse_item_definition_payload
+from domain.logic import rng
 from domain.logic.formulas import geometric_first_success_stats
 from domain.logic.mass import apply_mass_mutation
-from domain.logic import rng
 from domain.schemas.admin import ChannelCreateDTO
 from domain.schemas.discord_admin import (
     ConfigPatchRequest,
@@ -47,28 +46,27 @@ from domain.schemas.discord_admin import (
     RewardPatchRequest,
     VersionedStateRequest,
 )
+from infrastructure.after_commit import schedule_after_commit
 from infrastructure.models import (
     AdminAuditLog,
-    EconomyOperation,
-    LootTable,
-    LootTableEntry,
-    LootTableEntryStock,
     Channel,
     ChannelIntegration,
     DiscordAccountLink,
     DiscordGuildBinding,
+    EconomyOperation,
     FishingEvent,
     InventoryItem,
     InventoryOverflowItem,
     ItemDefinition,
-    PlayerModifier,
+    LootTable,
+    LootTableEntry,
+    LootTableEntryStock,
     OutboxEvent,
+    PlayerModifier,
     RewardPool,
     UserProgress,
 )
-from infrastructure.after_commit import schedule_after_commit
 from infrastructure.redis_client import RedisClient
-from redis.exceptions import RedisError
 from infrastructure.repositories.channel_repo import ChannelRepository
 from infrastructure.repositories.fishing_cast_query_repo import FishingCastQueryRepository
 from infrastructure.repositories.inventory_overflow_repo import InventoryOverflowRepository
@@ -78,13 +76,15 @@ from infrastructure.repositories.inventory_repo import (
 )
 from infrastructure.repositories.user_repo import UserRepository
 from pydantic import TypeAdapter, ValidationError
+from redis.exceptions import RedisError
 from services.auth_service import AuthService
+from services.economy_reconciliation import apply_confirmed_buy_mass
 from services.eventing.event_lifecycle_service import FishingEventLifecycleService
 from services.idempotency_service import IdempotencyService
 from services.inventory_service import InventoryService
+from services.item_dependency_validator import validate_item_dependency_graph
 from services.legacy_rewards import convert_legacy_rewards
 from services.player_modifier_service import PlayerModifierService
-from services.item_dependency_validator import validate_item_dependency_graph
 from sqlalchemy.orm.attributes import flag_modified
 
 REWARD_ADAPTER = TypeAdapter(RewardDefinition)
@@ -2304,7 +2304,10 @@ class DiscordAdminService:
                 raise ApiProblem(
                     422,
                     "POINTS_REWARD_DISABLED",
-                    "Points rewards are reserved for the economy integration and cannot be added to fishing rewards.",
+                    (
+                        "Points rewards are reserved for the economy integration and cannot be "
+                        "added to fishing rewards."
+                    ),
                     request_id=context.request_id,
                 )
             before = {}
@@ -2982,7 +2985,7 @@ class DiscordAdminService:
             context, ChannelPermission.RECONCILIATION_READ, channel_twitch_id
         )
         operation_ids = [
-            row[0]
+            str(row[0])
             for row in self.db.query(EconomyOperation.id)
             .filter(EconomyOperation.channel_id == channel.id)
             .all()
@@ -3172,7 +3175,7 @@ class DiscordAdminService:
             "operation_version": operation.version,
             "operation_type": operation.operation_type,
             "mass_delta": str(operation.mass_delta),
-            "points_delta": operation.points_delta,
+            "points_delta": str(operation.points_delta),
             "attempts": event.attempts,
             "last_error": event.last_error or operation.last_error,
             "created_at": event.created_at.isoformat(),
@@ -3186,14 +3189,16 @@ class DiscordAdminService:
         event.lease_expires_at = None
         operation.state = "pending"
 
-    @staticmethod
-    def _complete_reconciliation(event, operation, channel) -> None:
+    def _complete_reconciliation(self, event, operation, channel) -> None:
         now = datetime.now(timezone.utc)
         event.state = "processed"
         event.processed_at = now
         event.lease_expires_at = None
-        operation.state = "completed"
         operation.external_applied = True
+        operation.external_applied_at = operation.external_applied_at or now
+        operation.state = "external_applied"
+        apply_confirmed_buy_mass(self.db, operation, actor_type="discord_admin")
+        operation.state = "completed"
 
     def _compensate_reconciliation(self, event, operation, channel) -> None:
         if operation.operation_type != "sell":

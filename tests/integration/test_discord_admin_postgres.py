@@ -23,9 +23,6 @@ from domain.schemas.discord_admin import (
 )
 from infrastructure.database import SessionLocal
 from infrastructure.models import (
-    ItemDefinition,
-    LootTable,
-    LootTableEntry,
     AdminAuditLog,
     Channel,
     DiscordAccountLink,
@@ -33,6 +30,9 @@ from infrastructure.models import (
     EconomyOperation,
     FishingCast,
     FishingEvent,
+    ItemDefinition,
+    LootTable,
+    LootTableEntry,
     OutboxEvent,
     RewardPool,
     UserProgress,
@@ -993,6 +993,8 @@ def test_reconciliation_queue_actions_are_versioned_and_audited() -> None:
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
+        discord_id = f"reconcile-discord-{uuid.uuid4().hex[:8]}"
+        guild_id = f"reconcile-guild-{uuid.uuid4().hex[:8]}"
         channel = Channel(
             twitch_id=f"reconcile-{uuid.uuid4().hex[:8]}",
             name="Reconciliation",
@@ -1010,16 +1012,16 @@ def test_reconciliation_queue_actions_are_versioned_and_audited() -> None:
         db.add_all(
             [
                 DiscordAccountLink(
-                    discord_user_id="1001",
+                    discord_user_id=discord_id,
                     twitch_user_id=channel.twitch_id,
                     twitch_login=channel.name,
                     verified_at=now,
                     last_verified_at=now,
                 ),
                 DiscordGuildBinding(
-                    discord_guild_id="2001",
+                    discord_guild_id=guild_id,
                     channel_id=channel.id,
-                    configured_by_discord_id="1001",
+                    configured_by_discord_id=discord_id,
                 ),
             ]
         )
@@ -1039,28 +1041,84 @@ def test_reconciliation_queue_actions_are_versioned_and_audited() -> None:
         event = OutboxEvent(
             idempotency_key=f"reconcile-event-{uuid.uuid4().hex}",
             topic="streamelements.points",
-            payload={"operation_id": operation.id},
+            payload={"operation_id": str(operation.id)},
             state="reconciliation_required",
         )
         db.add(event)
         db.commit()
 
         service = DiscordAdminService(db)
-        listed = service.list_reconciliation(_context("reconcile-list"), channel.twitch_id)
+        def context(key: str) -> DiscordServiceContext:
+            return DiscordServiceContext(
+                discord_user_id=discord_id,
+                discord_guild_id=guild_id,
+                request_id=f"request-{key}",
+                idempotency_key=f"integration:{key}",
+                can_manage_guild=True,
+                management_channel_id="3001",
+            )
+
+        listed = service.list_reconciliation(context("reconcile-list"), channel.twitch_id)
         assert listed["count"] == 1
         assert listed["items"][0]["version"] == 1
 
         action = ReconciliationActionRequest(expected_version=1, reason="Retry external delivery")
         retried = service.retry_reconciliation(
-            _context("reconcile-retry"), channel.twitch_id, event.id, action
+            context("reconcile-retry"), channel.twitch_id, event.id, action
         )
         assert retried["event_state"] == "pending"
         assert retried["operation_state"] == "pending"
         assert retried["version"] == 2
         replay = service.retry_reconciliation(
-            _context("reconcile-retry"), channel.twitch_id, event.id, action
+            context("reconcile-retry"), channel.twitch_id, event.id, action
         )
         assert replay == retried
+
+        buy_operation = EconomyOperation(
+            idempotency_key=f"reconcile-buy-{uuid.uuid4().hex}",
+            operation_type="buy",
+            channel_id=channel.id,
+            user_id=user.id,
+            twitch_username=user.username,
+            mass_delta=Decimal("1.00"),
+            mass_effective=Decimal("1.00"),
+            points_delta=Decimal("-120"),
+            state="reconciliation_required",
+            player_mass_before=Decimal("50.00"),
+        )
+        db.add(buy_operation)
+        db.flush()
+        buy_event = OutboxEvent(
+            idempotency_key=f"reconcile-buy-event-{uuid.uuid4().hex}",
+            topic="streamelements.points",
+            payload={"operation_id": str(buy_operation.id)},
+            state="reconciliation_required",
+        )
+        db.add(buy_event)
+        db.commit()
+
+        completed = service.complete_reconciliation(
+            context("reconcile-buy-complete"),
+            channel.twitch_id,
+            buy_event.id,
+            ReconciliationActionRequest(expected_version=1, reason="Provider debit confirmed"),
+        )
+        assert completed["event_state"] == "processed"
+        assert completed["operation_state"] == "completed"
+        db.refresh(user)
+        db.refresh(buy_operation)
+        assert user.current_mass == Decimal("51.00")
+        assert buy_operation.internal_applied_at is not None
+
+        replay_completed = service.complete_reconciliation(
+            context("reconcile-buy-complete"),
+            channel.twitch_id,
+            buy_event.id,
+            ReconciliationActionRequest(expected_version=1, reason="Provider debit confirmed"),
+        )
+        assert replay_completed == completed
+        db.refresh(user)
+        assert user.current_mass == Decimal("51.00")
     finally:
         db.rollback()
         db.close()
