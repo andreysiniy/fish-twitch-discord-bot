@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     RUN_BACKGROUND_WORKERS: bool = False
     STREAM_ELEMENTS_ECONOMY_ENABLED: bool = True
+    # Override the provider API only in controlled test environments. The
+    # production default remains the real StreamElements API.
+    STREAMELEMENTS_API_BASE_URL: str = "https://api.streamelements.com"
     LOG_LEVEL: str = "INFO"
 
     # Retention policy (days); 0 disables that category.

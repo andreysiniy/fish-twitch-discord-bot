@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from core.config import settings
+
 
 class ProviderError(RuntimeError):
     code = "STREAM_ELEMENTS_UNAVAILABLE"
@@ -70,12 +72,20 @@ class ProviderAdjustmentResult:
 
 
 class SEApiClient:
-    BASE_URL = "https://api.streamelements.com/kappa/v2/points"
-    CHANNELS_ME_URL = "https://api.streamelements.com/kappa/v2/channels/me"
+    DEFAULT_BASE_URL = "https://api.streamelements.com"
+    BASE_URL = f"{DEFAULT_BASE_URL}/kappa/v2/points"
+    CHANNELS_ME_URL = f"{DEFAULT_BASE_URL}/kappa/v2/channels/me"
 
-    def __init__(self, *, client: httpx.AsyncClient | None = None):
+    def __init__(
+        self,
+        *,
+        client: httpx.AsyncClient | None = None,
+        base_url: str | None = None,
+    ):
         self._client = client
         self._owns_client = client is None
+        provider_base = (base_url or settings.STREAMELEMENTS_API_BASE_URL).rstrip("/")
+        self._base_url = f"{provider_base}/kappa/v2"
 
     async def start(self) -> None:
         if self._client is None or self._client.is_closed:
@@ -89,7 +99,7 @@ class SEApiClient:
 
     async def get_balance(self, se_channel_id: str, plain_token: str, username: str) -> int:
         response = await self._request(
-            "GET", f"{self.BASE_URL}/{se_channel_id}/{username}", plain_token
+            "GET", f"{self._base_url}/points/{se_channel_id}/{username}", plain_token
         )
         if response.status_code == 404:
             return 0
@@ -110,7 +120,7 @@ class SEApiClient:
     ) -> ProviderAdjustmentResult:
         response = await self._request(
             "PUT",
-            f"{self.BASE_URL}/{se_channel_id}/{username}/{int(amount)}",
+            f"{self._base_url}/points/{se_channel_id}/{username}/{int(amount)}",
             plain_token,
             write=True,
         )
@@ -124,7 +134,7 @@ class SEApiClient:
         return ProviderAdjustmentResult(True, response.status_code, balance_after, request_id)
 
     async def get_channel_id(self, plain_token: str) -> str:
-        response = await self._request("GET", self.CHANNELS_ME_URL, plain_token)
+        response = await self._request("GET", f"{self._base_url}/channels/me", plain_token)
         payload = self._json(response)
         channel_id = self._extract_channel_id(payload)
         if not channel_id:
