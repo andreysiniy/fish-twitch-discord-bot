@@ -53,6 +53,27 @@ class EngineClient:
                 return evidence
             await asyncio.sleep(min(0.25, remaining))
 
+    async def recent_evidence(
+        self,
+        *,
+        channel_id: str,
+        twitch_user_id: str,
+        login: str,
+        since_epoch: float,
+    ) -> list[dict[str, Any]]:
+        response = await self._client.get(
+            "/internal/e2e/recent",
+            params={
+                "channel_id": channel_id,
+                "twitch_user_id": twitch_user_id,
+                "login": login,
+                "since": since_epoch,
+            },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return response.json().get("items", [])
+
     async def set_next_cast_fixture(
         self,
         *,

@@ -36,8 +36,32 @@ async def execute_commands(
         "replies": [assert_bot_reply(reply) for reply in replies],
     }
     evidence = []
-    for reply in replies:
+    used_source_ids: set[str] = set()
+    actors_by_name = {actor.name: actor for actor in ctx.cfg.actors()}
+    for index, reply in enumerate(replies):
         source_request_id = getattr(reply, "source_request_id", "")
+        if not source_request_id and getattr(reply, "sent_at", 0) and ctx.cfg.channel_id:
+            actor_name = commands[index][0]
+            actor = actors_by_name[actor_name]
+            recent = await ctx.engine.recent_evidence(
+                channel_id=ctx.cfg.channel_id,
+                twitch_user_id=actor.user_id,
+                login=actor.login,
+                since_epoch=reply.sent_at,
+            )
+            candidate = next(
+                (
+                    item.get("source_request_id")
+                    for item in recent
+                    if item.get("source_request_id")
+                    and item["source_request_id"] not in used_source_ids
+                ),
+                "",
+            )
+            source_request_id = str(candidate or "")
+            if source_request_id:
+                used_source_ids.add(source_request_id)
+                checks["replies"][index]["source_request_id"] = source_request_id
         if source_request_id:
             evidence.append(
                 await ctx.engine.wait_for_evidence(
@@ -45,6 +69,8 @@ async def execute_commands(
                     timeout_seconds=ctx.cfg.command_timeout_seconds,
                 )
             )
+        else:
+            evidence.append({"available": False, "reason": "Twitch message ID unavailable"})
     if evidence:
         checks["evidence"] = evidence
         missing = [item for item in evidence if not item.get("available")]
