@@ -75,7 +75,7 @@ except ImportError:  # pragma: no cover - script-style Docker entrypoint
     from twitch_client import ActorPool
 
 logger = logging.getLogger(__name__)
-_ECONOMY_STATE_MUTATING_SCENARIOS = {"permissions", "R48"}
+_CHANNEL_STATE_MUTATING_SCENARIOS = {"permissions", "R48", "R116", "R117"}
 
 
 class RunRequest(BaseModel):
@@ -189,13 +189,26 @@ async def _run_scenario(scenario: str) -> dict[str, Any]:
     }
 
 
-async def _restore_economy_state(context: ScenarioContext) -> dict[str, Any]:
-    """Restore market switches after scenarios that intentionally change them."""
+async def _restore_channel_state(context: ScenarioContext) -> dict[str, Any]:
+    """Restore shared Twitch fixtures after a stateful scenario or before a suite.
+
+    The race suite intentionally exercises destructive owner operations.  The
+    commands are sent through the production bot so this reset validates the
+    same authorization and command path as the scenarios, while preventing a
+    failed/interrupted run from leaking a closed market or stale access role
+    into the next scenario.
+    """
 
     replies: list[str] = []
     try:
         context.pool.require("owner")
-        for command in ("!fisheconomy on", "!fisheconomy buy on", "!fisheconomy sell on"):
+        for command in (
+            "!fishmoddel viewer1",
+            "!fishmodadd editor editor",
+            "!fisheconomy on",
+            "!fisheconomy buy on",
+            "!fisheconomy sell on",
+        ):
             reply = await context.pool.send_and_wait("owner", command)
             replies.append(reply.text)
     except Exception as error:  # noqa: BLE001 - cleanup must be reported to the suite
@@ -203,14 +216,14 @@ async def _restore_economy_state(context: ScenarioContext) -> dict[str, Any]:
         return {
             "status": "failed",
             "error": type(error).__name__,
-            "message": "Could not restore economy switches after the scenario",
+            "message": "Could not restore shared Twitch channel state",
             "replies": replies,
         }
     return {"status": "passed", "replies": replies}
 
 
 async def _run_scenario_isolated(scenario: str) -> dict[str, Any]:
-    if scenario not in _ECONOMY_STATE_MUTATING_SCENARIOS:
+    if scenario not in _CHANNEL_STATE_MUTATING_SCENARIOS:
         return await _run_scenario(scenario)
 
     result: dict[str, Any] | None = None
@@ -220,21 +233,21 @@ async def _run_scenario_isolated(scenario: str) -> dict[str, Any]:
     except Exception as error:  # noqa: BLE001 - cleanup must run after failed scenarios
         scenario_error = error
 
-    cleanup = await _restore_economy_state(_context())
+    cleanup = await _restore_channel_state(_context())
     if scenario_error is not None:
         if cleanup["status"] == "failed":
-            logger.error("Economy state was not restored after a failed scenario")
+            logger.error("Shared Twitch channel state was not restored after a failed scenario")
         raise scenario_error
 
     assert result is not None
     checks = result.setdefault("checks", {})
     if isinstance(checks, dict):
-        checks["economy_state_cleanup"] = cleanup
+        checks["channel_state_cleanup"] = cleanup
     if cleanup["status"] == "failed":
         result["status"] = "failed"
         result["error"] = {
             "stage": "cleanup",
-            "code": "ECONOMY_STATE_NOT_RESTORED",
+            "code": "CHANNEL_STATE_NOT_RESTORED",
             "message": cleanup["message"],
         }
     return result
@@ -278,6 +291,14 @@ async def run_suite(suite: str, request: RunRequest | None = None) -> dict[str, 
     if scenarios is None:
         raise HTTPException(status_code=404, detail="Unknown E2E suite")
     actor = request.actor if request else "viewer1"
+    setup = await _restore_channel_state(_context())
+    if setup["status"] == "failed":
+        return {
+            "suite": suite,
+            "status": "failed",
+            "setup": setup,
+            "results": [],
+        }
     results = []
     for scenario in scenarios:
         secondary_actor = request.secondary_actor if request else None
@@ -292,7 +313,7 @@ async def run_suite(suite: str, request: RunRequest | None = None) -> dict[str, 
             }
         await manager.finish(run_id, result)
         results.append({"run_id": run_id, "scenario": scenario, **result})
-    return {"suite": suite, "results": results}
+    return {"suite": suite, "setup": setup, "results": results}
 
 
 @app.get("/internal/e2e/runs/{run_id}", dependencies=[Depends(require_runner_key)])
