@@ -14,6 +14,7 @@ CROSS_DOMAIN_COMMANDS: dict[str, list[tuple[str, str]]] = {
     "R40": [("viewer1", "!fish"), ("viewer1", "!fishtravel 1")],
     "R41": [("viewer1", "!fish"), ("viewer1", "!fishequip 1")],
     "R45": [("owner", "!fishevent 1"), ("viewer1", "!fish")],
+    "R46": [("owner", "!fishevent 1"), ("owner", "!fishevent 1")],
     "R47": [("owner", "!fishcd set 10"), ("viewer1", "!fish")],
     "R48": [("owner", "!fisheconomy off"), ("viewer1", "!fishbuy 1")],
     "R111": [("owner", "!fishevent 1"), ("owner", "!fishevent 1")],

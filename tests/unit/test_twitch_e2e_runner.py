@@ -18,9 +18,24 @@ def _load(name: str, path: Path):
 ROOT = Path(__file__).resolve().parents[2]
 runner_config = _load("twitch_e2e_config_test", ROOT / "services/twitch_e2e_runner/config.py")
 runner_manager = _load("twitch_e2e_manager_test", ROOT / "services/twitch_e2e_runner/run_manager.py")
+runner_catalog = _load("twitch_e2e_catalog_test", ROOT / "services/twitch_e2e_runner/scenarios/catalog.py")
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
 redact_result = runner_manager.redact_result
+
+
+def test_race_catalog_covers_all_r_scenarios_without_unrouted_ids() -> None:
+    race_ids = set(runner_catalog.ECONOMY_SCENARIOS + runner_catalog.GAMEPLAY_SCENARIOS)
+    groups = (
+        runner_catalog.ECONOMY_RACES,
+        runner_catalog.INVENTORY_RACES,
+        runner_catalog.CROSS_DOMAIN_RACES,
+        runner_catalog.FISHING_RACES,
+        runner_catalog.WORKER_RACES,
+        runner_catalog.RESILIENCE_RACES,
+        runner_catalog.PROVIDER_FAULT_RACES,
+    )
+    assert race_ids <= set().union(*groups)
 
 
 def test_runner_settings_keep_actor_tokens_out_of_summary(monkeypatch) -> None:
