@@ -46,6 +46,7 @@ class ChatMessage:
     message_id: str
     received_at: float
     source_request_id: str = ""
+    sent_at: float = 0.0
 
 
 class ActorClient(Client):
@@ -176,15 +177,17 @@ class ActorPool:
         await self.start(actor_name)
         client = self.clients[actor_name]
         self._drain_messages(client)
+        sent_at = time.time()
         source_request_id = await client.send_command(command)
         reply = await client.wait_for_bot_reply()
-        return replace(reply, source_request_id=source_request_id)
+        return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
 
     async def send_concurrent(self, commands: list[tuple[str, str]]) -> list[ChatMessage]:
         await self.start(*(actor for actor, _ in commands))
         for actor_name in {actor for actor, _ in commands}:
             self._drain_messages(self.clients[actor_name])
 
+        sent_at = [time.time() for _ in commands]
         source_request_ids = await asyncio.gather(
             *(self.clients[actor].send_command(command) for actor, command in commands)
         )
@@ -203,11 +206,15 @@ class ActorPool:
         replies_by_actor = dict(zip(counts, grouped))
         positions = {actor_name: 0 for actor_name in counts}
         replies: list[ChatMessage] = []
-        for (actor_name, _), source_request_id in zip(commands, source_request_ids):
+        for index, ((actor_name, _), source_request_id) in enumerate(
+            zip(commands, source_request_ids)
+        ):
             position = positions[actor_name]
             reply = replies_by_actor[actor_name][position]
             positions[actor_name] += 1
-            replies.append(replace(reply, source_request_id=source_request_id))
+            replies.append(
+                replace(reply, source_request_id=source_request_id, sent_at=sent_at[index])
+            )
         return replies
 
     @staticmethod

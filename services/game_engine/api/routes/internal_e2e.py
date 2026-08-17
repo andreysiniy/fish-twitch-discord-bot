@@ -155,6 +155,63 @@ def evidence(
     return result
 
 
+@router.get("/recent", dependencies=[Depends(require_testing_api)])
+def recent_evidence(
+    channel_id: int = Query(ge=1),
+    twitch_user_id: str = Query(min_length=1, max_length=120),
+    login: str = Query(min_length=1, max_length=120),
+    since: float = Query(ge=0),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Locate evidence when Twitch IRC does not expose the outgoing message ID.
+
+    TwitchIO 2.10's ``Channel.send`` and PRIVMSG echo do not carry a message
+    ID.  The runner therefore uses the actor identity and send timestamp to
+    discover the durable source request, then fetches its full evidence using
+    ``/evidence``.  This endpoint is test-only and read-only.
+    """
+
+    since_at = datetime.fromtimestamp(since, tz=timezone.utc)
+    casts = (
+        db.query(FishingCast)
+        .filter(
+            FishingCast.channel_id == channel_id,
+            FishingCast.twitch_user_id_snapshot == twitch_user_id,
+            FishingCast.requested_at >= since_at,
+        )
+        .all()
+    )
+    operations = (
+        db.query(EconomyOperation)
+        .filter(
+            EconomyOperation.channel_id == channel_id,
+            EconomyOperation.twitch_username == login.lower(),
+            EconomyOperation.requested_at >= since_at,
+        )
+        .all()
+    )
+    items = [
+        {
+            "kind": "cast",
+            "id": str(row.id),
+            "source_request_id": row.source_request_id,
+            "requested_at": row.requested_at.isoformat() if row.requested_at else None,
+        }
+        for row in casts
+    ]
+    items.extend(
+        {
+            "kind": "economy",
+            "id": str(row.id),
+            "source_request_id": row.source_request_id,
+            "requested_at": row.requested_at.isoformat() if row.requested_at else None,
+        }
+        for row in operations
+    )
+    items.sort(key=lambda item: item["requested_at"] or "")
+    return {"items": items}
+
+
 @testing_router.post("/next-cast", dependencies=[Depends(require_testing_api)])
 def next_cast_fixture(payload: NextCastFixture) -> dict[str, Any]:
     fixture_id = str(uuid.uuid4())
