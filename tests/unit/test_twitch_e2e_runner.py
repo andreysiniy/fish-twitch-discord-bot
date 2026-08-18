@@ -197,6 +197,15 @@ def test_evidence_requirement_matches_persisted_command_outcomes() -> None:
         "!fishbuy 1", {"text": "Another fish purchase is already processing. Please wait."}
     )
     assert not command_requires_durable_evidence(
+        "!fishsell 5", {"text": "Your net is empty (0kg). Catch some fish first!"}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 5", {"text": "The fish market is temporarily unavailable."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 0.005", {"text": "Mass is outside the supported range."}
+    )
+    assert not command_requires_durable_evidence(
         "!fishtravel 1", {"text": "You traveled to Default."}
     )
     assert expected_evidence_kind("!fish") == "cast"
@@ -257,6 +266,23 @@ def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
 
     assert checks["replies"][0]["source_request_id"] == "durable-operation-id"
     assert checks["evidence"][0]["available"] is True
+
+
+def test_successful_buy_assertion_recovers_from_concurrent_reply_order() -> None:
+    runner_economy.assert_successful_buy(
+        {
+            "evidence": [
+                {"available": True, "cast_status": "resolved"},
+                {
+                    "state": "completed",
+                    "points_delta": "-120",
+                    "mass_delta": "1.00",
+                    "response_payload": {"chat_message": "You bought 1kg of fish."},
+                },
+            ]
+        },
+        0,
+    )
 
 
 def test_run_manager_persists_redacted_result(tmp_path) -> None:

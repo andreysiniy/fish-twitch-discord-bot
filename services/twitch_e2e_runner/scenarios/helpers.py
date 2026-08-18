@@ -57,9 +57,14 @@ def command_requires_durable_evidence(command: str, reply: dict[str, Any]) -> bo
             marker in text
             for marker in (
                 "not enough points",
+                "net is empty",
+                "catch some fish first",
                 "currently closed",
+                "temporarily unavailable",
                 "invalid amount",
                 "invalid mass",
+                "mass is outside the supported range",
+                "mass is too large",
                 "usage:",
                 "access denied",
                 "another fish purchase is already processing",
