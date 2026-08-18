@@ -217,6 +217,8 @@ def recent_evidence(
             "kind": "cast",
             "id": str(row.id),
             "source_request_id": row.source_request_id,
+            "twitch_user_id": row.twitch_user_id_snapshot,
+            "login": row.username_snapshot.lower(),
             "requested_at": row.requested_at.isoformat() if row.requested_at else None,
         }
         for row in casts
@@ -226,6 +228,7 @@ def recent_evidence(
             "kind": "economy",
             "id": str(row.id),
             "source_request_id": row.source_request_id,
+            "login": row.twitch_username.lower(),
             "requested_at": row.requested_at.isoformat() if row.requested_at else None,
         }
         for row in operations

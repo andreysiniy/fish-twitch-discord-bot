@@ -24,6 +24,21 @@ def assert_successful_buy(checks: dict[str, Any], command_index: int) -> None:
         raise AssertionError("Successful !fishbuy has no durable operation evidence")
     operation = evidence[command_index]
     if operation.get("state") != "completed":
+        # Concurrent Twitch replies are broadcast through actor sessions and
+        # can arrive in the opposite order from the sent commands.  If the
+        # indexed item is not a completed BUY, use the unique completed
+        # operation in the same command batch before reporting a failure.
+        completed_buys = [
+            item
+            for item in evidence
+            if item.get("state") == "completed"
+            and _is_positive_buy_delta(item)
+        ]
+        if len(completed_buys) == 1:
+            operation = completed_buys[0]
+        else:
+            raise AssertionError("Successful !fishbuy did not complete the economy operation")
+    if operation.get("state") != "completed":
         raise AssertionError("Successful !fishbuy did not complete the economy operation")
     try:
         points_delta = Decimal(str(operation.get("points_delta", "0")))
@@ -36,4 +51,13 @@ def assert_successful_buy(checks: dict[str, Any], command_index: int) -> None:
     message = payload.get("chat_message", "") if isinstance(payload, dict) else ""
     if "bought" not in str(message).lower():
         raise AssertionError("Successful !fishbuy has no success response in durable evidence")
+
+
+def _is_positive_buy_delta(operation: dict[str, Any]) -> bool:
+    try:
+        return Decimal(str(operation.get("points_delta", "0"))) < 0 and Decimal(
+            str(operation.get("mass_delta", "0"))
+        ) > 0
+    except (InvalidOperation, TypeError, ValueError):
+        return False
 

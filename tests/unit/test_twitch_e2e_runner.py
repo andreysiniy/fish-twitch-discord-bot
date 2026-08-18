@@ -40,6 +40,8 @@ runner_scenario_helpers = _load(
 )
 seed_stub_points = runner_scenario_helpers.seed_stub_points
 stub_provider_channel_id = runner_scenario_helpers.stub_provider_channel_id
+command_requires_durable_evidence = runner_scenario_helpers.command_requires_durable_evidence
+expected_evidence_kind = runner_scenario_helpers.expected_evidence_kind
 execute_commands = runner_scenario_helpers.execute_commands
 RunnerSettings = runner_config.RunnerSettings
 RunManager = runner_manager.RunManager
@@ -173,6 +175,44 @@ def test_stub_provider_channel_id_prefers_provider_namespace() -> None:
     assert stub_provider_channel_id(ctx) == "streamelements-channel"
 
 
+def test_evidence_requirement_matches_persisted_command_outcomes() -> None:
+    assert command_requires_durable_evidence(
+        "!fish", {"text": "viewer is fishing... viewer fished up a carp"}
+    )
+    assert command_requires_durable_evidence(
+        "!fishbuy 5", {"text": "You bought 5kg of fish for 600 points."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fish", {"text": "Fish cooldown for viewer is 5s (2s left)"}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy NaN", {"text": "Invalid mass. Use a positive number."}
+    )
+    # The Twitch reply queue can deliver a neighboring fish response first;
+    # the BUY command must still trigger an operation evidence lookup.
+    assert command_requires_durable_evidence(
+        "!fishbuy 1", {"text": "viewer is fishing..."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 1", {"text": "Another fish purchase is already processing. Please wait."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishsell 5", {"text": "Your net is empty (0kg). Catch some fish first!"}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 5", {"text": "The fish market is temporarily unavailable."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 0.005", {"text": "Mass is outside the supported range."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishtravel 1", {"text": "You traveled to Default."}
+    )
+    assert expected_evidence_kind("!fish") == "cast"
+    assert expected_evidence_kind("!fishbuy 1") == "economy"
+    assert expected_evidence_kind("!fishtravel 1") is None
+
+
 def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
     class Pool:
         def require(self, *names: str) -> None:
@@ -226,6 +266,23 @@ def test_execute_commands_recovers_from_non_durable_twitch_echo_id() -> None:
 
     assert checks["replies"][0]["source_request_id"] == "durable-operation-id"
     assert checks["evidence"][0]["available"] is True
+
+
+def test_successful_buy_assertion_recovers_from_concurrent_reply_order() -> None:
+    runner_economy.assert_successful_buy(
+        {
+            "evidence": [
+                {"available": True, "cast_status": "resolved"},
+                {
+                    "state": "completed",
+                    "points_delta": "-120",
+                    "mass_delta": "1.00",
+                    "response_payload": {"chat_message": "You bought 1kg of fish."},
+                },
+            ]
+        },
+        0,
+    )
 
 
 def test_run_manager_persists_redacted_result(tmp_path) -> None:
