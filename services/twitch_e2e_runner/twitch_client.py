@@ -421,7 +421,7 @@ class ActorPool:
         for client in self.clients.values():
             self._drain_messages(client)
 
-        async def send(index: int, actor: str, command: str) -> tuple[str, float]:
+        async def send(index: int, actor: str, command: str) -> tuple[str, float, float]:
             # Twitch IRC can drop one of two PRIVMSG frames written at the
             # exact same instant from independent sessions.  A tiny stagger
             # keeps the messages concurrent at the backend while allowing
@@ -431,22 +431,21 @@ class ActorPool:
             client = self.clients[actor]
             source_request_id = await self._send_paced(client, command)
             sent_at = client._last_command_sent_at or time.time()
-            return source_request_id, sent_at
+            sent_monotonic = client._last_command_sent_monotonic or time.monotonic()
+            return source_request_id, sent_at, sent_monotonic
 
         send_results = await asyncio.gather(
             *(send(index, actor, command) for index, (actor, command) in enumerate(commands))
         )
         source_request_ids = [result[0] for result in send_results]
         sent_at = [result[1] for result in send_results]
+        sent_monotonic = [result[2] for result in send_results]
         # A bot response may arrive only on the originating actor session or
         # on every joined session, depending on Twitch's delivery path. Read
         # all participating queues and deduplicate broadcast message IDs.
         participating_clients = list(
             dict.fromkeys(self.clients[actor] for actor, _ in commands)
         )
-        sent_monotonic = [
-            self.clients[actor]._last_command_sent_monotonic for actor, _ in commands
-        ]
         replies = await self._wait_for_replies(
             participating_clients,
             len(commands),
