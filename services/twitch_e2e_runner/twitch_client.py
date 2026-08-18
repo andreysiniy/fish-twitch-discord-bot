@@ -109,6 +109,7 @@ class ActorClient(Client):
         self._send_lock = asyncio.Lock()
         self._last_send_at = 0.0
         self._last_command_sent_at = 0.0
+        self._last_command_sent_monotonic = 0.0
         self._last_command = ""
         self._duplicate_command_count = 0
 
@@ -228,8 +229,10 @@ class ActorClient(Client):
             for attempt in range(self.cfg.irc_retry_limit + 1):
                 try:
                     command_sent_at = time.time()
+                    command_sent_monotonic = time.monotonic()
                     sent = await self._channel().send(wire_command)
                     self._last_command_sent_at = command_sent_at
+                    self._last_command_sent_monotonic = command_sent_monotonic
                     self._last_send_at = time.monotonic()
                     break
                 except Exception as error:
@@ -271,7 +274,12 @@ class ActorClient(Client):
                 )
                 return ""
 
-    async def wait_for_bot_reply(self, *, timeout: float | None = None) -> ChatMessage:
+    async def wait_for_bot_reply(
+        self,
+        *,
+        timeout: float | None = None,
+        not_before: float | None = None,
+    ) -> ChatMessage:
         deadline = time.monotonic() + (timeout or self.cfg.command_timeout_seconds)
         while True:
             remaining = deadline - time.monotonic()
@@ -293,6 +301,8 @@ class ActorClient(Client):
                 and message.author_id
                 and message.author_id != self.cfg.production_bot_user_id
             ):
+                continue
+            if not_before is not None and message.received_at < not_before:
                 continue
             return message
 
@@ -337,11 +347,17 @@ class ActorPool:
         # command may already be persisted while TwitchIO waits for an echo,
         # so recording time after ``send_command`` can exclude its evidence.
         sent_at = client._last_command_sent_at or time.time()
-        reply = await client.wait_for_bot_reply()
+        reply = await client.wait_for_bot_reply(
+            not_before=client._last_command_sent_monotonic or None
+        )
         return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
 
     async def _wait_for_replies(
-        self, clients: list[ActorClient], count: int
+        self,
+        clients: list[ActorClient],
+        count: int,
+        *,
+        not_before: float | None = None,
     ) -> list[ChatMessage]:
         """Collect replies from all actor queues and deduplicate Twitch broadcasts."""
 
@@ -355,7 +371,9 @@ class ActorPool:
                     f"Received {len(replies)} of {count} production bot replies"
                 )
             tasks = {
-                asyncio.create_task(client.wait_for_bot_reply(timeout=remaining)): client
+                asyncio.create_task(
+                    client.wait_for_bot_reply(timeout=remaining, not_before=not_before)
+                ): client
                 for client in clients
             }
             done, pending = await asyncio.wait(
@@ -426,7 +444,14 @@ class ActorPool:
         participating_clients = list(
             dict.fromkeys(self.clients[actor] for actor, _ in commands)
         )
-        replies = await self._wait_for_replies(participating_clients, len(commands))
+        sent_monotonic = [
+            self.clients[actor]._last_command_sent_monotonic for actor, _ in commands
+        ]
+        replies = await self._wait_for_replies(
+            participating_clients,
+            len(commands),
+            not_before=min((value for value in sent_monotonic if value), default=None),
+        )
         return [
             replace(reply, source_request_id=source_request_ids[index], sent_at=sent_at[index])
             for index, reply in enumerate(replies)

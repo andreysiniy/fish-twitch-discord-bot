@@ -56,9 +56,24 @@ async def run_provider_fault(ctx, scenario: str) -> dict[str, Any]:
     else:
         steps = [{"action": "drop_connection"}]
     await ctx.stub.script("points_read" if scenario == "R68" else "points_write", steps)
-    checks = await execute_commands(ctx, scenario, [command])
+    # A malformed balance response must not create an EconomyOperation, so a
+    # delayed Twitch reply cannot be correlated to durable evidence here.
+    # Validate the provider request trace below instead of requiring a ledger
+    # row that is intentionally forbidden by this scenario.
+    checks = await execute_commands(
+        ctx,
+        scenario,
+        [command],
+        require_all_evidence=scenario != "R68",
+    )
     checks["fault_scripted"] = steps
     evidence = checks.get("evidence", [])
+    if scenario == "R68":
+        requests = await ctx.stub.requests()
+        checks["provider_requests"] = requests
+        operations = [item.get("operation") for item in requests.get("requests", [])]
+        if "points_read" not in operations or "points_write" in operations:
+            raise AssertionError("Malformed provider balance must not trigger a provider write")
     if scenario in {"R09", "R12", "R69", "R71"} and evidence:
         assert_reconciliation_required(evidence[0])
     return {"status": "passed", "checks": checks}
