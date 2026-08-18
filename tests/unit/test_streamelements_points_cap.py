@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from core.messages import DEFAULT_MESSAGES, MsgKey
 from domain.economy import (
     calculate_buy_points,
     calculate_sell_points,
@@ -17,6 +18,12 @@ from integrations.streamelements.constants import (
 
 def test_provider_cap_is_single_shared_constant() -> None:
     assert STREAMELEMENTS_POINTS_MAX == 2_147_483_647
+
+
+def test_provider_cap_message_does_not_expose_terminal_operation_id() -> None:
+    message = DEFAULT_MESSAGES[MsgKey.ECONOMY_CAP_EXCEEDED]
+    assert "{operation_id}" not in message
+    assert "Operation:" not in message
 
 
 def test_buy_all_uses_mass_quantum_and_ceiling() -> None:

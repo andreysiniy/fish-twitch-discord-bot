@@ -197,7 +197,7 @@ DEFAULT_MESSAGES = {
     MsgKey.ECONOMY_PROCESSING: "Your conversion is processing. Operation: {operation_id}.",
     MsgKey.ECONOMY_RECONCILIATION_REQUIRED: "Your conversion needs administrator reconciliation. Operation: {operation_id}.",
     MsgKey.ECONOMY_PROVIDER_ERROR: "The points provider rejected this conversion; no duplicate transfer was made.",
-    MsgKey.ECONOMY_CAP_EXCEEDED: "Your StreamElements balance cannot exceed {cap} points, so this conversion was rejected. Operation: {operation_id}.",
+    MsgKey.ECONOMY_CAP_EXCEEDED: "Your StreamElements balance cannot exceed {cap} points, so this conversion was rejected.",
     MsgKey.TRAVEL_SUCCESS: "You traveled to {location_name}.",
     MsgKey.TRAVEL_FAIL_LEVEL: "You need Level {req_level} to enter {location_name} (Current: {level}).",
     MsgKey.TRAVEL_FAIL_NOT_FOUND: "Location '{location_id}' does not exist.",
