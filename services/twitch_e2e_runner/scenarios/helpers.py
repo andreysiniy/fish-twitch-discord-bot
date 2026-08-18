@@ -48,14 +48,26 @@ def command_requires_durable_evidence(command: str, reply: dict[str, Any]) -> bo
             )
         )
     if command_name in {"!fishbuy", "!fishsell"}:
-        return any(
+        # Twitch replies can arrive in a different order from concurrently
+        # sent commands.  The command itself is authoritative for the
+        # evidence kind; only explicit rejection text should suppress the
+        # durable lookup.  This keeps a successful BUY paired with its own
+        # source request even when its chat reply was delivered first.
+        return not any(
             marker in text
             for marker in (
-                "you bought",
-                "you sold",
-                "conversion needs administrator reconciliation",
-                "operation:",
-                "provider points cap",
+                "not enough points",
+                "currently closed",
+                "invalid amount",
+                "invalid mass",
+                "usage:",
+                "access denied",
+                "another fish purchase is already processing",
+                "another fish sale is already processing",
+                "could not buy",
+                "could not sell",
+                "economy error",
+                "internal server error",
             )
         )
     return False

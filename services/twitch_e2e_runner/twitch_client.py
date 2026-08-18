@@ -108,6 +108,7 @@ class ActorClient(Client):
         self._task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
         self._last_send_at = 0.0
+        self._last_command_sent_at = 0.0
         self._last_command = ""
         self._duplicate_command_count = 0
 
@@ -226,7 +227,9 @@ class ActorClient(Client):
 
             for attempt in range(self.cfg.irc_retry_limit + 1):
                 try:
+                    command_sent_at = time.time()
                     sent = await self._channel().send(wire_command)
+                    self._last_command_sent_at = command_sent_at
                     self._last_send_at = time.monotonic()
                     break
                 except Exception as error:
@@ -330,10 +333,10 @@ class ActorPool:
         client = self.clients[actor_name]
         self._drain_messages(client)
         source_request_id = await self._send_paced(client, command)
-        # Record the timestamp after the shared IRC pacing lock releases;
-        # evidence lookup must not include records created while this command
-        # was waiting behind the previous scenario's message.
-        sent_at = time.time()
+        # Use the timestamp captured immediately before the IRC write.  The
+        # command may already be persisted while TwitchIO waits for an echo,
+        # so recording time after ``send_command`` can exclude its evidence.
+        sent_at = client._last_command_sent_at or time.time()
         reply = await client.wait_for_bot_reply()
         return replace(reply, source_request_id=source_request_id, sent_at=sent_at)
 
@@ -407,8 +410,9 @@ class ActorPool:
             # Twitch to process each actor's frame reliably.
             if index:
                 await asyncio.sleep(index * _CONCURRENT_SEND_STAGGER_SECONDS)
-            source_request_id = await self._send_paced(self.clients[actor], command)
-            sent_at = time.time()
+            client = self.clients[actor]
+            source_request_id = await self._send_paced(client, command)
+            sent_at = client._last_command_sent_at or time.time()
             return source_request_id, sent_at
 
         send_results = await asyncio.gather(

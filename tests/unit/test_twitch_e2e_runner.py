@@ -188,6 +188,14 @@ def test_evidence_requirement_matches_persisted_command_outcomes() -> None:
     assert not command_requires_durable_evidence(
         "!fishbuy NaN", {"text": "Invalid mass. Use a positive number."}
     )
+    # The Twitch reply queue can deliver a neighboring fish response first;
+    # the BUY command must still trigger an operation evidence lookup.
+    assert command_requires_durable_evidence(
+        "!fishbuy 1", {"text": "viewer is fishing..."}
+    )
+    assert not command_requires_durable_evidence(
+        "!fishbuy 1", {"text": "Another fish purchase is already processing. Please wait."}
+    )
     assert not command_requires_durable_evidence(
         "!fishtravel 1", {"text": "You traveled to Default."}
     )
