@@ -1,5 +1,7 @@
 # Fisher Bot
 
+Rebuilt from scratch version of this [bot](https://github.com/andreysiniy/fisher-bot)
+
 Fisher Bot is a multi-service Twitch fishing game with Discord administration. The game engine is
 the single source of truth for rules, rewards, inventory, events, economy, permissions, and cast
 history. Twitch and Discord gateways are thin interfaces that call the engine over authenticated
@@ -26,8 +28,7 @@ HTTP APIs.
 Twitch chat ──> bot_gateway ──authenticated HTTP──> game_engine ──> PostgreSQL
                                                           │             │
                                                           └────────────> Redis
-
-Discord ─────> discord_gateway ──authenticated HTTP──────┘
+Discord ─────> discord_gateway ──authenticated HTTP───────┘
 
 StreamElements <── encrypted provider client / outbox worker <── game_engine
 ```
